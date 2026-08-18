@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NetMap — Схема сети</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; padding: 0; background: #F9FAFB; color: #111827; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; }
+      *  { box-sizing: border-box; }
+
+      /* Cables ALWAYS on top of nodes so connections are visible even through
+         big rack-view switches. React Flow itself sometimes bumps a dragged
+         node above 1000, so we push edges well beyond that. */
+      .react-flow__edges,
+      .react-flow__edge,
+      .react-flow__edge-path { z-index: 2000 !important; }
+      /* Force the SVG edge container to stay on top of the transform stack */
+      .react-flow__edges { pointer-events: none; }
+      .react-flow__edge-interaction { pointer-events: stroke; }
+      /* Group container BELOW individual device nodes, so devices stay clickable */
+      .react-flow__node-group { z-index: 0 !important; }
+
+      /* v0.25: smooth "slide out of the way" animation when siblings get
+         pushed by collision resolver on drop, plus a subtle "grab" effect on
+         the currently held node. */
+      .react-flow__node {
+        transition: transform 260ms cubic-bezier(.22, .61, .36, 1);
+      }
+      .react-flow__node.dragging,
+      .react-flow__node:active {
+        transition: transform 60ms ease-out;
+      }
+      /* "Picked up" — node visibly lifts when grabbed */
+      .react-flow__node.dragging > * {
+        transform: scale(1.05);
+        filter: drop-shadow(0 12px 24px rgba(15, 23, 42, 0.22));
+        transition: transform 160ms cubic-bezier(.34,1.56,.64,1),
+                    filter 160ms ease-out;
+      }
+      .react-flow__node > * {
+        transition: transform 200ms cubic-bezier(.22,.61,.36,1),
+                    filter 200ms ease-out;
+        transform-origin: center center;
+      }
+      .react-flow__node.dragging { z-index: 500; }
+
+      /* Highlight a group when a dragged device is hovering over it */
+      .react-flow__node-group.netmap-drop-target > * {
+        outline: 3px solid #2563EB;
+        outline-offset: 2px;
+        transition: outline-color 120ms ease-out, transform 260ms cubic-bezier(.22,.61,.36,1);
+      }
+      /* v0.35.6 — highlight a device when another device is being dropped on
+         it (drag-to-connect gesture). Amber = "release to open port picker". */
+      .react-flow__node.netmap-connect-target > * {
+        outline: 3px dashed #F59E0B;
+        outline-offset: 3px;
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.18);
+        transition: outline-color 120ms ease-out, box-shadow 120ms ease-out;
+      }
+      /* Edge labels/bubbles ABOVE cables AND clickable */
+      .react-flow__edgelabel-renderer { z-index: 1002 !important; pointer-events: none !important; }
+      .react-flow__edgelabel-renderer > * { pointer-events: auto; }
+
+      /* Light-theme canvas — override React Flow defaults */
+      .react-flow__background { background-color: #F9FAFB !important; }
+      .react-flow__controls { background: #FFFFFF !important; border: 1px solid #E5E7EB !important; border-radius: 8px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important; }
+      .react-flow__controls-button { background: #FFFFFF !important; border-bottom: 1px solid #E5E7EB !important; color: #374151 !important; }
+      .react-flow__controls-button:hover { background: #F3F4F6 !important; }
+      .react-flow__minimap { background: #FFFFFF !important; border: 1px solid #E5E7EB !important; border-radius: 8px !important; }
+      .react-flow__attribution { background: transparent !important; color: #9CA3AF !important; font-size: 9px !important; }
+
+      /* Nicer scrollbars in panels */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #D1D5DB; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

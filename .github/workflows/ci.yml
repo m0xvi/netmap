@@ -1,0 +1,52 @@
+# v0.44.1 — Continuous Integration (typecheck + Vite build sanity).
+#
+# Runs on every push and PR to make sure the source compiles even if nobody
+# has done a local build. Does NOT produce an .exe (that's what release.yml
+# is for).
+#
+# Cost: ~1 min per push. Uses ubuntu-latest because typecheck + vite build
+# don't need Windows.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # `--ignore-scripts` avoids running strip-cpu-features on install; we run
+      # it explicitly right before builds that need it. `npm ci` is stricter than
+      # `npm install` — fails if package-lock is out of sync.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Strip cpu-features (avoids MSVC requirement)
+        run: node scripts/strip-cpu-features.cjs
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Vite production build
+        run: npx vite build
+
+      - name: Upload dist artifact (for debugging)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
