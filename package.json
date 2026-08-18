@@ -1,7 +1,7 @@
 {
   "name": "netmap",
   "productName": "NetMap",
-  "version": "0.44.2",
+  "version": "0.44.4",
   "description": "Interactive network map & inventory for sysadmins (Hotel Usadba prototype)",
   "author": {
     "name": "NetMap",
@@ -75,8 +75,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "REPLACE_ME_GITHUB_USER",
-        "repo": "REPLACE_ME_REPO_NAME",
+        "owner": "m0xvi",
+        "repo": "netmap",
         "releaseType": "release"
       }
     ]
