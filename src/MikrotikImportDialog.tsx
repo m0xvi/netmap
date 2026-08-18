@@ -15,6 +15,7 @@ import type { Device, Port, DeviceKind } from './types';
 import type { ImportAction } from './importUtils';
 import { defaultAction } from './importUtils';
 import { alertDialog, confirmDialog, promptText } from './Modal';
+import { MiniSpinner, ProgressStripe } from './Spinner';
 
 interface Row {
   mac: string;
@@ -736,9 +737,25 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                 )}
               </Field>
               <button onClick={doScan} disabled={!host || scanning}
-                      style={{ ...primaryBtn, opacity: (!host || scanning) ? 0.5 : 1 }}>
-                {scanning ? 'Сканирую...' : '🔎 Сканировать'}
+                      style={{
+                        ...primaryBtn,
+                        opacity: (!host || scanning) ? 0.6 : 1,
+                        cursor: scanning ? 'wait' : 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center',
+                      }}>
+                {scanning ? <MiniSpinner light /> : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+                  </svg>
+                )}
+                {scanning ? 'Сканирую…' : 'Сканировать'}
               </button>
+              {scanning && (
+                <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#2563EB', padding: '4px 2px' }}>
+                  <ProgressStripe width="100%" />
+                  <span style={{ whiteSpace: 'nowrap' }}>SSH подключение и опрос…</span>
+                </div>
+              )}
 
               <div style={{ gridColumn: '1/-1', display: 'flex', gap: 12, fontSize: 11, opacity: 0.75,
                             flexWrap: 'wrap' }}>

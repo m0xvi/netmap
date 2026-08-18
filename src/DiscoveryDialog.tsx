@@ -19,6 +19,7 @@ import {
   type DiscoveryConfig, type DiscoveryScanResult,
   type DiscoveryDeviceProposal, type DiscoveryLinkProposal,
 } from './discoveryClient';
+import { MiniSpinner, ProgressStripe, ProgressBar } from './Spinner';
 
 // ============================================================================
 // SVG icons (no emoji per project convention)
@@ -328,7 +329,9 @@ export function DiscoveryDialog({ open, onClose }: Props) {
             )}
 
             <div style={S.footer}>
-              <button style={S.btnSecondary} disabled={phase === 'testing'} onClick={onTest}>
+              <button style={{ ...S.btnSecondary, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                      disabled={phase === 'testing'} onClick={onTest}>
+                {phase === 'testing' && <MiniSpinner />}
                 {phase === 'testing' ? 'Проверяем…' : 'Проверить подключение'}
               </button>
               <div style={{ flex: 1 }} />
@@ -341,10 +344,16 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 
         {/* ============ SCANNING ============ */}
         {phase === 'scanning' && (
-          <div style={{ ...S.body, alignItems: 'center', justifyContent: 'center', minHeight: 240 }}>
-            <div style={S.spinner} />
-            <div style={{ marginTop: 16, fontSize: 13, color: '#475569' }}>Опрашиваем сеть…</div>
-            <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8' }}>SSH + SNMP walks. Обычно 5–30 сек.</div>
+          <div style={{ ...S.body, alignItems: 'center', justifyContent: 'center', minHeight: 260 }}>
+            <MiniSpinner size={44} />
+            <div style={{ marginTop: 16, fontSize: 14, fontWeight: 600, color: '#334155' }}>Опрашиваем сеть…</div>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8', textAlign: 'center', maxWidth: 320 }}>
+              SSH + SNMP walks (LLDP · Bridge FDB · ARP). Обычно 5–30 сек в зависимости от размера сети.
+            </div>
+            <div style={{ marginTop: 20, width: 240 }}>
+              <ProgressStripe width="100%" height={6} />
+            </div>
+            <ScanStages mode={mode} />
           </div>
         )}
 
@@ -455,9 +464,15 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 
         {/* ============ APPLYING / DONE ============ */}
         {phase === 'applying' && (
-          <div style={{ ...S.body, alignItems: 'center', justifyContent: 'center', minHeight: 180 }}>
-            <div style={S.spinner} />
-            <div style={{ marginTop: 12, fontSize: 13, color: '#475569' }}>Добавляем в карту…</div>
+          <div style={{ ...S.body, alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+            <MiniSpinner size={40} />
+            <div style={{ marginTop: 14, fontSize: 13, fontWeight: 600, color: '#334155' }}>Добавляем в карту…</div>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8' }}>
+              {selDev} устройств, {selLink} связей
+            </div>
+            <div style={{ marginTop: 16, width: 200 }}>
+              <ProgressStripe width="100%" height={5} />
+            </div>
           </div>
         )}
         {phase === 'done' && applyReport && (
@@ -511,6 +526,65 @@ function StatChip({ label, value, muted }: { label: string; value: string | numb
 
 function EmptyRow({ text }: { text: string }) {
   return <div style={{ fontSize: 12, color: '#94a3b8', padding: 12, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>{text}</div>;
+}
+
+/**
+ * v0.44.2 — animated "what we're doing right now" checklist during scanning.
+ * Purely cosmetic — cycles through steps to give the user a sense of progress
+ * for the ~5-30s SSH+SNMP walk.
+ */
+function ScanStages({ mode }: { mode: 'mikrotik' | 'snmp' | 'both' }) {
+  const [step, setStep] = useState(0);
+  const stages = useMemo(() => {
+    const arr: string[] = [];
+    if (mode !== 'snmp') {
+      arr.push('SSH подключение к MikroTik…');
+      arr.push('Читаем /ip neighbor (LLDP)…');
+      arr.push('Читаем /interface bridge host (FDB)…');
+      arr.push('Читаем /ip arp…');
+    }
+    if (mode !== 'mikrotik') {
+      arr.push('SNMP probe (sysDescr, sysName)…');
+      arr.push('SNMP walk IF-MIB (интерфейсы)…');
+      arr.push('SNMP walk LLDP-MIB (соседи)…');
+      arr.push('SNMP walk BRIDGE-MIB (FDB)…');
+    }
+    arr.push('Сшиваем данные, ищем дубликаты…');
+    return arr;
+  }, [mode]);
+
+  useEffect(() => {
+    setStep(0);
+    const t = setInterval(() => setStep(s => Math.min(s + 1, stages.length - 1)), 900);
+    return () => clearInterval(t);
+  }, [stages.length]);
+
+  return (
+    <div style={{ marginTop: 22, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {stages.map((s, i) => (
+        <div key={i} style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 11, color: i > step ? '#CBD5E1' : (i === step ? '#2563EB' : '#334155'),
+          fontWeight: i === step ? 600 : 400,
+          animation: i === step ? 'nm-pulse 1.4s ease-in-out infinite' : undefined,
+        }}>
+          <span style={{
+            width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: i < step ? '#22C55E' : (i === step ? '#EFF6FF' : '#F1F5F9'),
+            border: i === step ? '1.5px solid #2563EB' : 'none',
+          }}>
+            {i < step && (
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4">
+                <path d="M4 12l6 6L20 6" />
+              </svg>
+            )}
+          </span>
+          <span>{s}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ============================================================================

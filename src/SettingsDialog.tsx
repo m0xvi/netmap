@@ -480,7 +480,7 @@ function AboutTab() {
           Локальная база (SQLite) · vault для паролей (AES-256-GCM) · ping-мониторинг · импорт с MikroTik/UniFi/Omada.
         </div>
         <div style={{ fontSize: 11, color: '#6B7280', marginTop: 12 }}>
-          <b>Версия:</b> 0.44.1
+          <b>Версия:</b> 0.44.2
         </div>
       </Section>
       <Section title="Обратная связь">

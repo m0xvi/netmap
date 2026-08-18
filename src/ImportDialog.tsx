@@ -11,13 +11,14 @@
  * SSH transport and raw-debug button warrant a dedicated screen.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from './store';
 import {
   VENDORS, vendorMeta, testImport, scanImport,
   type ImportVendor, type ImportConfig, type TestResult,
 } from './importClient';
+import { MiniSpinner, ProgressStripe, btnBusy } from './Spinner';
 import {
   summarizeSubnets, ipInAnyCidr,
   type ScanResult, type SubnetStat,
@@ -50,38 +51,58 @@ const LS_CFG_PREFIX = 'netmap:import:cfg:';   // per-vendor last config (never p
 export function ImportDialog({ open, onClose, initialVendor }: Props) {
   const doc = useStore(s => s.doc);
 
+  // v0.44.2 — full rewrite of vendor selection to fix the "sidebar Import
+  // button becomes dead after picking MikroTik" bug. Root cause: previous
+  // versions rendered `null` when vendor==='mikrotik' but kept `open===true`
+  // in the parent, so subsequent clicks on the sidebar Import button had no
+  // effect (React short-circuits identical state).
+  //
+  // New flow:
+  //   - Sidebar/menu click → open ImportDialog with initialVendor optional
+  //   - If initialVendor='mikrotik' → immediately delegate to MT dialog + close (via layout effect)
+  //   - Otherwise show picker grid; picking MikroTik ALSO delegates + closes
+  //   - Picker phase and form phase are explicit states (no null-return trick)
+
   const [vendor, setVendor] = useState<ImportVendor>(() => {
-    if (initialVendor) return initialVendor;
+    if (initialVendor && initialVendor !== 'mikrotik') return initialVendor;
     try {
       const v = localStorage.getItem(LS_LAST_VENDOR);
-      // v0.44.1: never restore 'mikrotik' as last vendor — it triggers an
-      // instant redirect + close and the dialog appears to never open again.
       if (v && v !== 'mikrotik' && VENDORS.find(x => x.id === v)) return v as ImportVendor;
     } catch { /* ignore */ }
     return 'unifi';
   });
 
-  // v0.44.1: sync vendor with initialVendor whenever dialog re-opens with a
-  // fresh explicit choice. Without this, the vendor state was frozen at
-  // mount-time and the "Инструменты → UniFi/Omada/…" menu items ignored.
+  // Sync vendor if caller passes an explicit choice while dialog is opening.
   useEffect(() => {
-    if (open && initialVendor && initialVendor !== vendor) {
+    if (open && initialVendor && initialVendor !== 'mikrotik' && initialVendor !== vendor) {
       setVendor(initialVendor);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialVendor]);
 
-  // MikroTik has its own legacy dialog — redirect there ONLY when the caller
-  // explicitly asked for MikroTik via `initialVendor`. Otherwise (user
-  // clicked sidebar "Импорт" and the dropdown happens to preselect MT) we
-  // stay in the picker so the user can change their mind.
+  // Handle the "MikroTik path" — delegate to legacy dialog and close ourselves.
+  // Guard `didRedirect` ensures we only fire once per open cycle, and we call
+  // onClose() synchronously in the same tick so parent's `importOpen` becomes
+  // false BEFORE user can click sidebar again.
+  const didRedirect = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    if (initialVendor === 'mikrotik' && vendor === 'mikrotik') {
+    if (!open) { didRedirect.current = false; return; }
+    if (initialVendor === 'mikrotik' && !didRedirect.current) {
+      didRedirect.current = true;
       window.dispatchEvent(new CustomEvent('netmap:open-mikrotik-import'));
       onClose();
     }
-  }, [vendor, open, onClose, initialVendor]);
+  }, [open, initialVendor, onClose]);
+
+  // Picker action: user clicked a vendor tile. MikroTik → redirect. Others → switch form.
+  const pickVendor = useCallback((id: ImportVendor) => {
+    if (id === 'mikrotik') {
+      window.dispatchEvent(new CustomEvent('netmap:open-mikrotik-import'));
+      onClose();
+      return;
+    }
+    setVendor(id);
+  }, [onClose]);
 
   const meta = vendorMeta(vendor);
 
@@ -277,36 +298,71 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
   };
 
   if (!open) return null;
-  if (vendor === 'mikrotik') return null; // dispatched above
+  // v0.44.2: NEVER return null when vendor==='mikrotik' — that leaves parent
+  // state.importOpen === true and the sidebar button becomes unresponsive.
+  // MikroTik redirect is handled by useEffect above (calls onClose()).
+
+  const busy = testing || scanning || importing;
 
   // ---- Render ----
   return createPortal(
     <div style={backdrop}>
       <div style={dialog}>
         <div style={header}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>Импорт с оборудования</div>
-            <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-              Единый диалог. Данные добавляются в текущий проект, группировка по подсетям.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={headerIconBadge}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>Импорт с оборудования</div>
+              <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                Единый диалог. Данные добавляются в текущий проект, группировка по подсетям.
+              </div>
             </div>
           </div>
-          <button style={closeBtn} onClick={onClose}>✕</button>
+          <button style={closeBtn} onClick={onClose} disabled={busy}>✕</button>
         </div>
 
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
-          <label style={{ display: 'block', fontSize: 11, color: '#475569', marginBottom: 6 }}>Вендор</label>
-          <select
-            value={vendor}
-            onChange={(e) => setVendor(e.target.value as ImportVendor)}
-            style={{ ...inputStyle, width: '100%', fontSize: 13, fontWeight: 600 }}
-          >
-            {VENDORS.map(v => (
-              <option key={v.id} value={v.id}>
-                {v.label}{v.status === 'planned' ? ' — планируется (v0.38)' : ''}
-              </option>
-            ))}
-          </select>
-          <div style={{ marginTop: 8, fontSize: 11, color: '#64748B' }}>{meta.description}</div>
+        {/* v0.44.2 — Vendor picker: grid of tiles instead of a <select>. */}
+        <div style={{ padding: '14px 16px 6px 16px', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748B', letterSpacing: 0.6, textTransform: 'uppercase' }}>Вендор</div>
+            <div style={{ fontSize: 10, color: '#94A3B8' }}>MikroTik → откроется отдельный диалог с SSH-опциями</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+            {VENDORS.map(v => {
+              const active = v.id === vendor;
+              const isMt = v.id === 'mikrotik';
+              const planned = v.status === 'planned';
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => pickVendor(v.id)}
+                  disabled={busy || planned}
+                  style={{
+                    ...vendorTile,
+                    ...(active ? vendorTileActive : {}),
+                    ...(planned ? vendorTileDisabled : {}),
+                  }}
+                  title={planned ? 'Планируется в будущих версиях' : v.label}
+                >
+                  <div style={{ ...vendorTileDot, background: vendorColor(v.id) }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {v.label}
+                    </div>
+                    {planned && <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>Планируется</div>}
+                    {isMt && !planned && <div style={{ fontSize: 9, color: '#64748B', marginTop: 2 }}>SSH-диалог →</div>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 11, color: '#64748B' }}>{meta.description}</div>
         </div>
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
@@ -346,13 +402,21 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            <button style={smallBtn} onClick={doTest} disabled={testing || meta.status !== 'ready'}>
-              {testing ? 'Проверка…' : 'Проверить'}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button style={{ ...smallBtn, ...(testing ? btnBusy : {}) }}
+                    onClick={doTest} disabled={testing || meta.status !== 'ready'}>
+              {testing && <MiniSpinner />} {testing ? 'Проверка…' : 'Проверить'}
             </button>
-            <button style={primaryBtn} onClick={doScan} disabled={scanning || meta.status !== 'ready'}>
-              {scanning ? 'Сканирование…' : 'Сканировать'}
+            <button style={{ ...primaryBtn, ...(scanning ? btnBusy : {}) }}
+                    onClick={doScan} disabled={scanning || meta.status !== 'ready'}>
+              {scanning && <MiniSpinner light />} {scanning ? 'Сканирование…' : 'Сканировать'}
             </button>
+            {scanning && (
+              <div style={{ fontSize: 11, color: '#64748B', display: 'flex', alignItems: 'center', gap: 8, marginLeft: 4 }}>
+                <ProgressStripe />
+                <span>Опрашиваем контроллер…</span>
+              </div>
+            )}
             {pwLength > 0 && <span style={{ fontSize: 11, color: '#64748B', alignSelf: 'center' }}>
               Пароль: {'•'.repeat(Math.min(pwLength, 10))}
             </span>}
@@ -596,14 +660,20 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
               </>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={smallBtn} onClick={onClose}>Закрыть</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {importing && (
+              <div style={{ fontSize: 11, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 8, marginRight: 6 }}>
+                <ProgressStripe />
+                <span>Записываем в проект…</span>
+              </div>
+            )}
+            <button style={smallBtn} onClick={onClose} disabled={busy}>Закрыть</button>
             <button
-              style={primaryBtn}
+              style={{ ...primaryBtn, ...(importing ? btnBusy : {}) }}
               onClick={doImport}
               disabled={!scan || importPreview.total === 0 || importing}
             >
-              {importing ? 'Импорт…' : `Импортировать (${importPreview.total})`}
+              {importing && <MiniSpinner light />} {importing ? 'Импорт…' : `Импортировать (${importPreview.total})`}
             </button>
           </div>
         </div>
@@ -668,3 +738,42 @@ const th: React.CSSProperties = {
   color: '#64748B', textTransform: 'uppercase',
 };
 const td: React.CSSProperties = { padding: '6px 10px', fontSize: 11 };
+
+// v0.44.2 — vendor picker tiles + header badge
+const headerIconBadge: React.CSSProperties = {
+  width: 36, height: 36, borderRadius: 10,
+  background: 'linear-gradient(135deg, #3B82F6, #6366F1)', color: 'white',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.35)',
+};
+const vendorTile: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '10px 12px', borderRadius: 10,
+  background: 'white', border: '1px solid #E2E8F0',
+  cursor: 'pointer', textAlign: 'left', outline: 'none',
+  transition: 'transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease',
+};
+const vendorTileActive: React.CSSProperties = {
+  border: '1px solid #3B82F6',
+  background: 'linear-gradient(135deg, #EFF6FF, #FFFFFF)',
+  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.15)',
+  transform: 'translateY(-1px)',
+};
+const vendorTileDisabled: React.CSSProperties = {
+  opacity: 0.5, cursor: 'not-allowed', background: '#F8FAFC',
+};
+const vendorTileDot: React.CSSProperties = {
+  width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+};
+
+function vendorColor(id: string): string {
+  const map: Record<string, string> = {
+    mikrotik: '#F97316',
+    unifi: '#0EA5E9',
+    'omada-cloud': '#22C55E',
+    ruijie: '#EAB308',
+    dlink: '#EC4899',
+    edgeswitch: '#8B5CF6',
+  };
+  return map[id] || '#94A3B8';
+}

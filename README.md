@@ -2,6 +2,62 @@
 
 Прототип desktop-приложения для Windows, которое заменяет статичные schемы Visio/draw.io живой интерактивной картой сети.
 
+## v0.44.2 — Настоящий фикс кнопки «Импорт» + визуальные индикаторы загрузки везде
+
+### 1. Финальный фикс кнопки Импорт (правильная причина)
+В v0.44.1 я лечил не тот симптом. Настоящая причина:
+
+**`ImportDialog.tsx` строка 280** содержала `if (vendor === 'mikrotik') return null;`. При клике на MikroTik-плитку компонент возвращал `null` (визуально исчезал), но состояние `importOpen` в родителе **оставалось `true`**. React short-circuit'ит одинаковый setState → следующий клик по кнопке в sidebar не приводил к перерендерингу → «кнопка мертва».
+
+**Фикс v0.44.2 (полный рерайт vendor-picker'а):**
+- Удалён `if (vendor === 'mikrotik') return null;` — теперь диалог **всегда рендерится** пока `open===true`
+- Заменён `<select>` на **grid плиток вендоров** (MikroTik / UniFi / Omada / D-Link / …) с цветными индикаторами и hover-эффектами
+- Функция `pickVendor(id)`: если id='mikrotik' → диспатч + `onClose()` СРАЗУ (родитель сбрасывает `importOpen=false`), иначе просто меняем `vendor`
+- Guard `didRedirect` через `useRef` — MikroTik-редирект срабатывает **ровно один раз** за открытие диалога
+- `initialVendor='mikrotik'` обрабатывается через layout-effect → сразу вызывает `onClose()` в том же тике, не оставляя «зависшее» состояние
+
+Побочно: `MenuBar.tsx` теперь слушает `netmap:open-mikrotik-import` (было в v0.44.1, тоже нужно).
+
+### 2. Единый модуль визуальных индикаторов — `src/Spinner.tsx`
+Новый переиспользуемый модуль с 5 компонентами:
+- **`<MiniSpinner size? light?>`** — инлайн-спиннер для кнопок (14×14 по умолчанию)
+- **`<ProgressStripe height? color?>`** — анимированная полоска-барбер (indeterminate)
+- **`<ProgressBar value max>`** — determinate прогресс-бар с процентами
+- **`<FullscreenSpinner text subtitle>`** — центрированный лоадер для модалок
+- **`<Skeleton width height>`** — placeholder с shimmer-анимацией
+- **`btnBusy`** — готовый CSS-объект для кнопок в состоянии загрузки
+
+Все анимации через CSS keyframes (`nm-spin`, `nm-stripe`, `nm-pulse`, `nm-shimmer`, `nm-fadein`), инжектятся в `<head>` ровно один раз при первом импорте.
+
+### 3. Куда добавлены визуальные индикаторы
+- **ImportDialog.tsx**:
+  - Кнопки «Проверить» / «Сканировать» / «Импортировать» — со спиннером внутри при busy
+  - Строка `ProgressStripe + "Опрашиваем контроллер…"` рядом со сканированием
+  - Строка `ProgressStripe + "Записываем в проект…"` рядом с импортом
+  - Иконка badge в header (gradient blue→purple, download-arrow SVG)
+
+- **MikrotikImportDialog.tsx**:
+  - Кнопка «Сканировать» — со спиннером и SVG-иконкой search
+  - Полоса `ProgressStripe` под кнопкой во время SSH-опроса + подпись «SSH подключение и опрос…»
+  - Эмоджи в кнопке заменена на SVG-иконку
+
+- **DiscoveryDialog.tsx**:
+  - Заменён inline spinner на общий `<MiniSpinner size={44}>`
+  - Добавлен `<ScanStages>` — анимированный checklist с шагами: "SSH подключение к MikroTik" → "Читаем /ip neighbor" → "SNMP probe" → "SNMP walk LLDP-MIB" → …
+  - Каждый шаг подсвечивается зелёной галочкой когда пройден, пульсирует когда активен
+  - Прогресс-полоса `ProgressStripe` вверху и внизу
+  - Фаза «Применяем» показывает spinner + сколько устройств/связей записывается
+
+- **VaultPanel.tsx**:
+  - Кнопка «Разблокировать» — новый state `unlocking`, спиннер в кнопке, «Проверяем…» текст
+  - Input блокируется пока идёт PBKDF2 (200k итераций — 1-2 секунды на слабом CPU)
+  - Enter-handler защищён от двойного клика
+
+### Обратная совместимость
+Существующий event-based механизм `netmap:progress-start / netmap:progress-end` + `<LoadingOverlay>` **не тронут** — он всё ещё работает как раньше для export PNG, auto-layout, MikroTik scan. Новые компоненты `Spinner.tsx` — надстройка для встроенных индикаторов внутри диалогов (когда overlay был бы избыточен).
+
+---
+
 ## v0.44.1 — CI/CD через GitHub Actions + фикс кнопки «Импорт» в sidebar
 
 ### 1. Auto-Release через GitHub Actions

@@ -25,6 +25,7 @@ import {
 import { VaultImportExportDialog } from './VaultImportExportDialog';
 import { CATEGORIES, deriveKind, type VaultKind } from './vaultCategories';
 import { getFavicon } from './faviconClient';
+import { MiniSpinner } from './Spinner';
 
 type NavSection = { kind: 'all' } | { kind: 'category'; id: VaultKind } | { kind: 'tag'; name: string };
 
@@ -40,6 +41,7 @@ export function VaultPanel() {
   const [master2, setMaster2] = useState('');
   const [err, setErr] = useState('');
   const [showResetPrompt, setShowResetPrompt] = useState(false);
+  const [unlocking, setUnlocking] = useState(false); // v0.44.2 — visual feedback
 
   const refresh = async () => {
     const s = await vaultStatus();
@@ -145,25 +147,31 @@ export function VaultPanel() {
             Введите мастер-пароль.
           </div>
           <input type="password" placeholder="Мастер-пароль" value={master}
+            disabled={unlocking}
             onChange={e => setMaster(e.target.value)}
             onKeyDown={async e => {
-              if (e.key !== 'Enter') return;
-              setErr('');
-              const res = await vaultUnlock(master);
-              if (!res.ok) return setErr((res as any).error === 'wrong-password' ? 'Неверный пароль' : (res as any).error);
-              setMaster(''); refresh();
+              if (e.key !== 'Enter' || unlocking) return;
+              setErr(''); setUnlocking(true);
+              try {
+                const res = await vaultUnlock(master);
+                if (!res.ok) { setErr((res as any).error === 'wrong-password' ? 'Неверный пароль' : (res as any).error); return; }
+                setMaster(''); refresh();
+              } finally { setUnlocking(false); }
             }}
             style={inputStyle} autoFocus />
           {err && <div style={{ fontSize: 11, color: '#DC2626' }}>{err}</div>}
           <button
+            disabled={unlocking || !master}
             onClick={async () => {
-              setErr('');
-              const res = await vaultUnlock(master);
-              if (!res.ok) return setErr((res as any).error === 'wrong-password' ? 'Неверный пароль' : (res as any).error);
-              setMaster(''); refresh();
+              setErr(''); setUnlocking(true);
+              try {
+                const res = await vaultUnlock(master);
+                if (!res.ok) { setErr((res as any).error === 'wrong-password' ? 'Неверный пароль' : (res as any).error); return; }
+                setMaster(''); refresh();
+              } finally { setUnlocking(false); }
             }}
-            style={primaryBtnStyle}
-          >Разблокировать</button>
+            style={{ ...primaryBtnStyle, opacity: (unlocking || !master) ? 0.65 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+          >{unlocking && <MiniSpinner light />}{unlocking ? 'Проверяем…' : 'Разблокировать'}</button>
 
           {/* Forgot password */}
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #F1F5F9' }}>
