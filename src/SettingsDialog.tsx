@@ -24,20 +24,24 @@ type Tab = 'general' | 'monitor' | 'notify' | 'security' | 'about';
 
 export function SettingsDialogHost() {
   const [open, setOpen] = useState(false);
+  const [initialTab, setInitialTab] = useState<Tab>('general');
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const name = (e as CustomEvent<{ name: string }>).detail?.name;
-      if (name === 'settings') setOpen(true);
+      const detail = (e as CustomEvent<{ name: string; tab?: Tab }>).detail;
+      if (detail?.name === 'settings') {
+        if (detail.tab) setInitialTab(detail.tab);
+        setOpen(true);
+      }
     };
     window.addEventListener('netmap:open-dialog', onOpen as EventListener);
     return () => window.removeEventListener('netmap:open-dialog', onOpen as EventListener);
   }, []);
   if (!open) return null;
-  return <SettingsDialog onClose={() => setOpen(false)} />;
+  return <SettingsDialog onClose={() => setOpen(false)} initialTab={initialTab} />;
 }
 
-function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('general');
+function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => void; initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   // Escape closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -471,6 +475,19 @@ function auditColor(action: string): { bg: string; fg: string } {
   return { bg: '#DBEAFE', fg: '#1E40AF' };
 }
 
+function formatBuildTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}.${mm}.${yyyy} ${hh}:${mi}`;
+  } catch { return iso; }
+}
+
 function AboutTab() {
   return (
     <>
@@ -479,8 +496,12 @@ function AboutTab() {
           Интерактивная схема сети для сисадмина.<br/>
           Локальная база (SQLite) · vault для паролей (AES-256-GCM) · ping-мониторинг · импорт с MikroTik/UniFi/Omada.
         </div>
-        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 12 }}>
-          <b>Версия:</b> 0.44.2
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#F1F5F9', borderRadius: 8, fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 11, color: '#334155', lineHeight: 1.7 }}>
+          <div><b style={{ color: '#0F172A' }}>Версия:</b> <span style={{ color: '#2563EB', fontWeight: 700 }}>v{__APP_VERSION__}</span></div>
+          <div><b style={{ color: '#0F172A' }}>Сборка:</b> {formatBuildTime(__APP_BUILD_TIME__)}</div>
+          <div style={{ marginTop: 6, fontSize: 10, color: '#94A3B8', fontFamily: 'system-ui, sans-serif' }}>
+            Эта версия читается из package.json во время сборки и не может расходиться с установленным .exe.
+          </div>
         </div>
       </Section>
       <Section title="Обратная связь">

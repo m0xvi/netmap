@@ -103,17 +103,24 @@ export function LayoutFAB() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const doLayout = (dir: 'TB' | 'LR' = 'TB') => {
-    // v0.36.1: show loading overlay — on 100+ device schemas dagre takes
-    // 0.5-2 s and the UI feels frozen without a spinner.
+  // v0.45: doLayout accepts optional groupBy strategy for smart-layout preset.
+  const doLayout = (
+    dir: 'TB' | 'LR' = 'TB',
+    groupBy?: 'none' | 'hybrid' | 'location' | 'vlan' | 'ip',
+  ) => {
+    const isSmart = groupBy && groupBy !== 'none';
     window.dispatchEvent(new CustomEvent('netmap:progress-start', {
-      detail: { id: 'auto-layout', title: 'Автораскладка схемы',
-                message: 'Рассчитываем иерархию (dagre)…' },
+      detail: {
+        id: 'auto-layout',
+        title: isSmart ? 'Умная раскладка' : 'Автораскладка схемы',
+        message: isSmart
+          ? 'Группируем по локациям / VLAN / подсетям…'
+          : 'Рассчитываем иерархию (dagre)…',
+      },
     }));
-    // Give the overlay one frame to actually paint before the sync work starts.
     requestAnimationFrame(() => {
       try {
-        autoLayout(dir);
+        autoLayout(dir, groupBy ? { groupBy } : undefined);
         markLayoutDone(activeId);
       } finally {
         window.dispatchEvent(new CustomEvent('netmap:progress-end',
@@ -122,7 +129,11 @@ export function LayoutFAB() {
     });
     setDismissed(true);
     setOpen(false);
+    setSmartMenuOpen(false);
   };
+
+  // v0.45: submenu for choosing grouping strategy
+  const [smartMenuOpen, setSmartMenuOpen] = useState(false);
 
   const actions: Action[] = [
     {
@@ -149,6 +160,11 @@ export function LayoutFAB() {
         ? (<IconSvg><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></IconSvg>)
         : (<IconSvg><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.85 20.85 0 0 1 5.36-5.51"/><path d="M22.54 11.88A20.29 20.29 0 0 0 12 4a10.86 10.86 0 0 0-2 .19"/><line x1="1" y1="1" x2="23" y2="23"/></IconSvg>),
       onClick: () => { toggleHideEdges(); setOpen(false); },
+    },
+    {
+      id: 'smart', label: 'Умная раскладка · по локациям и VLAN',
+      icon: <IconSvg><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></IconSvg>,
+      onClick: () => setSmartMenuOpen(v => !v),
     },
     {
       id: 'layout', label: 'Разложить схему · сверху вниз',
@@ -279,24 +295,62 @@ export function LayoutFAB() {
           const gap = 50;                   // px between pill centres
           const targetY = gap * (i + 1);    // positive = below the FAB
           return (
-            <button
-              key={a.id}
-              onClick={a.disabled ? undefined : a.onClick}
-              disabled={a.disabled}
-              title={a.label}
-              aria-label={a.label}
-              style={{
-                ...actionBtn(a.danger, a.disabled),
-                transform: open
-                  ? `translate(0, ${targetY}px) scale(1)`
-                  : 'translate(0, 0) scale(0.4)',
-                opacity: open ? (a.disabled ? 0.4 : 1) : 0,
-                pointerEvents: open && !a.disabled ? 'auto' : 'none',
-                // Stagger: outer pills follow inner ones by ~35ms
-                transitionDelay: open ? `${i * 35}ms` : `${(actions.length - 1 - i) * 20}ms`,
-              }}>
-              {a.icon}
-            </button>
+            <div key={a.id} style={{ position: 'absolute', top: 0, right: 0 }}>
+              <button
+                onClick={a.disabled ? undefined : a.onClick}
+                disabled={a.disabled}
+                title={a.label}
+                aria-label={a.label}
+                style={{
+                  ...actionBtn(a.danger, a.disabled),
+                  transform: open
+                    ? `translate(0, ${targetY}px) scale(1)`
+                    : 'translate(0, 0) scale(0.4)',
+                  opacity: open ? (a.disabled ? 0.4 : 1) : 0,
+                  pointerEvents: open && !a.disabled ? 'auto' : 'none',
+                  transitionDelay: open ? `${i * 35}ms` : `${(actions.length - 1 - i) * 20}ms`,
+                }}>
+                {a.icon}
+              </button>
+              {/* v0.45: submenu for the smart-layout button — 4 strategies. */}
+              {a.id === 'smart' && open && smartMenuOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: targetY - 4,
+                  right: 52,
+                  background: '#fff',
+                  borderRadius: 10,
+                  boxShadow: '0 12px 32px rgba(15,23,42,0.18)',
+                  border: '1px solid #e2e8f0',
+                  padding: 6,
+                  minWidth: 240,
+                  animation: 'nm-fadein 140ms ease',
+                }}>
+                  <div style={smartHead}>Стратегия группировки</div>
+                  <SmartMenuItem
+                    title="Гибрид (рекомендуется)"
+                    subtitle="Локация → VLAN → подсеть /24"
+                    onClick={() => doLayout('TB', 'hybrid')} />
+                  <SmartMenuItem
+                    title="Только по локациям"
+                    subtitle="device.location: «Ресепшн», «Серверная», …"
+                    onClick={() => doLayout('TB', 'location')} />
+                  <SmartMenuItem
+                    title="Только по VLAN"
+                    subtitle="Порт.vlan / trunk.vlans / link.vlan"
+                    onClick={() => doLayout('TB', 'vlan')} />
+                  <SmartMenuItem
+                    title="Только по подсети /24"
+                    subtitle="IP-адрес устройства"
+                    onClick={() => doLayout('TB', 'ip')} />
+                  <div style={{ height: 6 }} />
+                  <SmartMenuItem
+                    title="Без группировки"
+                    subtitle="Классический dagre-flat"
+                    onClick={() => doLayout('TB', 'none')} />
+                </div>
+              )}
+            </div>
           );
         })}
 
@@ -416,4 +470,31 @@ const ghostBtn: React.CSSProperties = {
   background: 'transparent', border: '1px solid #E5E7EB', color: '#6B7280',
   padding: '5px 12px', borderRadius: 5, cursor: 'pointer',
   fontSize: 11, fontWeight: 500,
+};
+
+
+// v0.45 — Smart-layout submenu item + shared styles
+function SmartMenuItem({ title, subtitle, onClick }: { title: string; subtitle: string; onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={onClick}
+      style={{
+        display: 'block', width: '100%', textAlign: 'left',
+        padding: '8px 10px', borderRadius: 6, border: 'none',
+        background: hover ? '#EFF6FF' : 'transparent',
+        cursor: 'pointer', transition: 'background 120ms ease',
+      }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>{title}</div>
+      <div style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>{subtitle}</div>
+    </button>
+  );
+}
+
+const smartHead: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, color: '#64748B',
+  textTransform: 'uppercase', letterSpacing: 0.4,
+  padding: '6px 10px 8px 10px',
 };

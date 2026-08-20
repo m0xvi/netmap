@@ -16,6 +16,17 @@ export type DeviceKind =
 export type PortType = 'RJ45' | 'SFP' | 'SFP+' | 'Combo' | 'WiFi' | 'Console';
 export type PortStatus = 'up' | 'down' | 'disabled' | 'error';
 
+/** v0.48 — explicit port VLAN mode (was implicit before, based on which
+ *  fields were filled). Semantics:
+ *    - 'access' : untagged single VLAN (Port.vlan). Port.vlans[] IGNORED.
+ *    - 'trunk'  : multiple tagged VLANs (Port.vlans[]). Port.vlan =
+ *                 native/untagged VLAN on the trunk (optional).
+ *    - 'hybrid' : mix — access-like default (Port.vlan) plus tagged
+ *                 allowed list (Port.vlans[]). Common on Cisco / HP.
+ *  Missing = legacy behaviour (inferred from `vlans[].length > 0`).
+ */
+export type PortVlanMode = 'access' | 'trunk' | 'hybrid';
+
 export interface Port {
   id: string;                // logical id, e.g. "eth1"
   label?: string;            // human label / what's connected
@@ -25,8 +36,9 @@ export interface Port {
   poeActive?: boolean;       // PoE is currently supplying power
   status?: PortStatus;       // current link status
   uplink?: boolean;          // this port is an uplink (magenta/blue tint)
-  vlan?: number;             // access/native VLAN ID (PVID)
-  vlans?: number[];          // trunk: allowed VLAN IDs on this port
+  vlanMode?: PortVlanMode;   // v0.48 — explicit; inferred if missing
+  vlan?: number;             // access VLAN (untagged) / trunk native (PVID)
+  vlans?: number[];          // trunk/hybrid: allowed tagged VLAN IDs
   notes?: string;
 }
 

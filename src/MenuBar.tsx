@@ -293,7 +293,15 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
       <Section>Канвас</Section>
       <Item icon="⤢" label="Восстановить вид (fit)" shortcut="F"
             onClick={() => { window.dispatchEvent(new CustomEvent('netmap:fit-view')); onClose(); }} />
-      <Item icon="🔧" label="Разложить заново (auto-layout)" shortcut=""
+      <Item icon="⚡" label="Умная раскладка (по локациям / VLAN)" shortcut=""
+            onClick={async () => {
+              onClose();
+              try {
+                useStore.getState().autoLayout('TB', { groupBy: 'hybrid' });
+                setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
+              } catch (e: any) { await alertDialog('Ошибка', e?.message || 'smart-layout failed'); }
+            }} />
+      <Item icon="🔧" label="Разложить заново (без группировки)" shortcut=""
             onClick={async () => {
               onClose();
               try { useStore.getState().autoLayout('TB'); setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400); }
@@ -366,6 +374,8 @@ function MonitorMenu({ onClose }: { onClose: () => void }) {
 function HelpMenu({ onClose }: { onClose: () => void }) {
   return (
     <>
+      <Item icon="🎓" label="Показать введение (onboarding)…" shortcut=""
+            onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-onboarding')); }} />
       <Item icon="?" label="Помощь · горячие клавиши" shortcut="F1"
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'help' } })); }} />
       <Separator />

@@ -12,9 +12,20 @@ import { NetworkOverviewPanel } from './NetworkOverviewPanel';
 export function RightPanel() {
   const selectedGroupId = useStore(s => s.selectedGroupId);
   const selectedDeviceId = useStore(s => s.selectedDeviceId);
+  const setRightPanelOpen = useStore(s => s.setRightPanelOpen);
+  const select = useStore(s => s.select);
+  const selectGroup = useStore(s => s.selectGroup);
   const [collapsed, setCollapsed] = useState(false);
 
   const hasSelection = !!(selectedGroupId || selectedDeviceId);
+
+  // v0.47 — × button in the panel: clears selection AND fully hides the
+  // panel (so canvas takes the whole width again).
+  const closeFully = () => {
+    select(null);
+    selectGroup(null);
+    setRightPanelOpen(false);
+  };
 
   return (
     <div style={{
@@ -57,6 +68,23 @@ export function RightPanel() {
             background: '#2563EB',
           }} />
         )}
+
+        {/* v0.47 — × fully-close button. Different from ‹ (collapse to 24px
+            rail): this hides the whole panel + clears selection. */}
+        <button
+          onClick={closeFully}
+          title="Закрыть панель полностью"
+          style={{
+            marginTop: 'auto', width: 20, height: 20,
+            background: 'transparent', border: 'none',
+            color: '#94A3B8', cursor: 'pointer',
+            fontSize: 12, lineHeight: 1, padding: 0, borderRadius: 3,
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#FEE2E2';
+                               (e.currentTarget as HTMLButtonElement).style.color = '#DC2626'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                               (e.currentTarget as HTMLButtonElement).style.color = '#94A3B8'; }}
+        >✕</button>
       </div>
 
       {/* v0.41.2: when nothing is selected we show the KPI Network Overview

@@ -304,8 +304,11 @@ export function commitImport(
   }
 
   if (placed > 0) {
+    // v0.45: use smart layout (hybrid grouping by location/VLAN/subnet) after
+    // import — otherwise 40+ imported devices land in a single flat line and
+    // are unusable. Falls back gracefully to flat if no groupable data.
     setTimeout(() => {
-      try { useStore.getState().autoLayout('TB'); } catch { /* ignore */ }
+      try { useStore.getState().autoLayout('TB', { groupBy: 'hybrid' }); } catch { /* ignore */ }
     }, 100);
   }
 

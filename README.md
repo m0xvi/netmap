@@ -2,6 +2,355 @@
 
 Прототип desktop-приложения для Windows, которое заменяет статичные schемы Visio/draw.io живой интерактивной картой сети.
 
+## v0.49.0 — Onboarding tour при первом запуске
+
+При первом запуске приложения теперь автоматически открывается **введение** — 8 слайдов с иллюстрациями по ключевым фичам NetMap. Пользователь может пропустить (Esc / «Пропустить ✕») или пройти до конца и сразу загрузить один из готовых seed-проектов.
+
+### 8 слайдов
+1. **Добро пожаловать** — что делает NetMap (обзор + иконки-фичи)
+2. **Каталог устройств** — левая панель, добавление устройств drag&drop
+3. **Соединение drag&drop** — амбер-подсветка при hover, port-picker диалог
+4. **Одинарный vs двойной клик** — правая панель vs FocusView
+5. **Автообнаружение топологии** — LLDP / SNMP / MikroTik neighbors
+6. **Vault** — Bitwarden-inline с AES-256-GCM + генератор паролей
+7. **Умная раскладка** — hybrid grouping по локациям/VLAN/подсетям
+8. **Начнём** — три кнопки: Усадьба / Дона / Чайковский / пустой проект
+
+Каждый слайд:
+- Двухколоночная разметка: **иллюстрация SVG слева** + **текст справа**
+- Все иллюстрации — inline SVG (никаких внешних ассетов, работает даже в preview iframe)
+- Персональный badge шага, крупный заголовок, подзаголовок, list с иконками, tip-подсказка
+- Клавиатура: `←` / `→` для навигации, `Esc` — пропустить
+
+### UI
+
+- **Скип-кнопка** «Пропустить ✕» в правом верхнем углу
+- **Дот-прогресс** в footer — активный dot удлиняется, пройденные — светло-синие
+- **Кнопки «← Назад» / «Далее →»** — стандартная навигация
+- **На последнем слайде** вместо «Далее» — три кнопки seed'ов + «Пустой проект»
+- Клик на seed-кнопку → `store.importProject(JSON.stringify(seed))` → готовая схема + toast «Проект-пример загружен»
+
+### Логика первого запуска
+
+- **LocalStorage ключ** `netmap:onboarding-completed = "1"` — устанавливается при закрытии диалога любым способом (пропустил / прошёл до конца / выбрал seed)
+- Отсутствие ключа = **показать при следующем запуске** (после 400ms задержки, чтобы splash-screen успел закрыться)
+- Bump `LS_VERSION` в `OnboardingDialog.tsx` — force re-show для всех существующих пользователей (когда обновится содержимое)
+
+### Повторное открытие
+- **Меню Помощь → «🎓 Показать введение (onboarding)…»** — CustomEvent `netmap:open-onboarding`
+- Export'ы `hasCompletedOnboarding()`, `markOnboardingCompleted()`, `resetOnboarding()` для программного контроля
+
+### Компоненты
+
+- **`OnboardingHost`** — монтируется в App.tsx, слушает event + LS ключ, рендерит `OnboardingDialog` при `open=true`
+- **`OnboardingDialog`** — модалка с navigation state (`step`)
+- **`StartCTA`** — последний слайд, три seed-кнопки + пустой проект
+- **`Illu1_Welcome`, `Illu2_Catalog` … `Illu8_Ready`** — 8 SVG-иллюстраций, размер 300×220, gradient/tile-based
+
+### Реализация
+
+- **Файлы:** `src/OnboardingDialog.tsx` (770 строк)
+- **Интеграция:** `src/App.tsx` (импорт + монтирование), `src/MenuBar.tsx` (пункт в HelpMenu)
+- **Никаких новых зависимостей** — чистый React + inline SVG
+
+---
+
+## v0.48.0 — Vault-таб Bitwarden-стиль + VLAN-таб с mode/native + inline создание
+
+Реакция на скрин SW_BUH: пустая форма «Имя пользователя / Запись в vault / Заметки» — vault-таб был визитной карточкой без функциональности. Плюс запрос: VLAN mode (access/trunk/native), inline создание VLAN.
+
+### E. `CredsTab` — полный рерайт как Bitwarden
+
+**5 состояний vault, каждое — inline (без отдельных диалогов):**
+
+1. **Checking…** — spinner
+2. **Not initialized** — жёлтая карточка с CTA «Открыть Vault Studio»
+3. **Locked** — inline password input с Enter + кнопка «Разблокировать» со спиннером (без `promptText` модалки, как раньше)
+4. **Unlocked + no link** — три опции сразу:
+   - **Suggestions** (авто-совпадения по IP/name/URL из vault) — синие карточки с кнопкой «Привязать»
+   - **`+ Добавить запись`** — синяя primary кнопка → раскрывает inline-форму
+   - **«Выбрать из vault»** — dropdown со всеми записями
+5. **Unlocked + linked** — Bitwarden-style detail card:
+   - Header: gradient badge + название записи + папка + красная «Отвязать»
+   - **Website URL** (кликабельная ссылка + Copy)
+   - **Username** (monospace + Copy)
+   - **Password** (dot-mask + Show/Hide eye + Copy с авто-очисткой 45 сек)
+   - **TOTP** (live 6-digit code через `<TotpChip>`)
+   - **Notes**
+   - «Открыть в Vault Studio» — переход в полноэкранный редактор
+
+**Inline create form (`VaultCreateInline`)** — новая:
+- Название (обязательно, по умолчанию = `device.name`)
+- URL (по умолчанию = `device.mgmtUrl` или `https://${device.ip}`)
+- Username (по умолчанию = `credential.username`)
+- Password с **Show/Hide eye** + **Generate** (16 символов, no confusing chars, `crypto.getRandomValues`)
+- Notes
+- «Сохранить и привязать» — атомарно создаёт запись **+ автоматически привязывает** к устройству через `boundDeviceIds`
+- Копи-кнопки со state feedback: `Copy` → зелёный `✓ OK` на 1.4 сек
+
+### F. `VlansTab` — полный рерайт с mode/native/inline-VLAN
+
+**Новое поле в `Port` (types.ts):**
+```ts
+type PortVlanMode = 'access' | 'trunk' | 'hybrid';
+interface Port {
+  vlanMode?: PortVlanMode;  // v0.48 — explicit; inferred if missing
+  vlan?: number;            // access VLAN / trunk native (PVID)
+  vlans?: number[];         // trunk/hybrid: allowed tagged VLAN IDs
+  ...
+}
+```
+
+**Каждый порт в раскрытом виде:**
+1. **Mode selector** — 4 сегментированные кнопки:
+   - **Off** — очищает VLAN state полностью (default VLAN 1)
+   - **Access** — один untagged VLAN. Аллованный список игнорируется. Синий бейдж.
+   - **Trunk** — несколько tagged + отдельный native VLAN. Фиолетовый бейдж.
+   - **Hybrid** — untagged + tagged (Cisco/HP style). Амбер бейдж.
+   - Описание что делает каждый режим — обновляется под кнопками
+2. **VLAN dropdown** — с меткой зависит от режима:
+   - Access → «Access VLAN (untagged)»
+   - Trunk → «Native VLAN (untagged на trunk)»
+   - Hybrid → «Untagged (access-часть hybrid)»
+   - В опциях: `VLAN 10 · CORPORATE · 192.168.10.0/24` (name + CIDR)
+3. **Allowed list (только trunk/hybrid)** — чипы-кнопки с color-fill по VLAN.color, monospace font
+4. **Warning** если trunk без tagged: «Trunk без tagged VLAN — фактически то же самое, что access-порт с native»
+5. **Заметки** — inline
+
+**Inline «Создать VLAN» в шапке таба:**
+- Кнопка `+ Создать VLAN` (secondary) → раскрывает inline-форму
+- Поля: ID (auto-suggested 10/20/30 или следующий свободный) + Name + CIDR
+- **Color-picker** — 9 цветов из `VLAN_COLORS` палитры
+- Валидация: 1-4094, дубликаты запрещены (красный текст в форме)
+- «Добавить VLAN» → `store.addVlan()` → сразу доступен во всех dropdown'ах
+
+**Клик на «неопределённый» VLAN chip** в шапке — открывает форму создания с pre-fill ID.
+
+**Row-level chips в свернутом виде:**
+- Access: `VLAN 20 badge`
+- Trunk: `[native: VLAN 1] VLAN 10 VLAN 20 VLAN 30` — native отдельным контейнером с меткой
+- Hybrid: `VLAN 10 (untagged) + tagged: VLAN 20 VLAN 30`
+
+### Технические детали
+
+**`vaultUpsert` был экспортирован из `vaultClient.ts`** — использовал `boundDeviceIds` для авто-привязки.
+
+**`suggestNextVlanId()`** — предпочитает 10, 20, 30, 40 … 100, потом любое свободное 1-4094.
+
+**Отказ от `promptText()` для vault unlock** — теперь inline input с `Enter` handler (быстрее, не выходишь из контекста устройства).
+
+**Auto-clear буфера обмена через 45 сек** после копирования пароля (было 20 сек в v0.47).
+
+---
+
+## v0.47.0 — Инверсия клик / двойной клик + авто-открытие правой панели
+
+Реакция на запрос: «одинарный клик по устройству — расширенное меню справа, двойной — focus mode».
+
+### Что было не так
+В Modern view карточка устройства сама перехватывала `onClick` и вызывала `focusDevice(id)` → сразу открывался полноэкранный FocusView. Правая панель при этом никогда не открывалась автоматически. Двойной клик делал `fitView` (zoom in) — бесполезно.
+
+Legacy nodes (SwitchNode, ServerNode, PatchPanelNode) уже работали правильно: `onClick=select`, `onDoubleClick=focus`. Modern просто был не приведён к общему знаменателю.
+
+### Что стало
+- **Одинарный клик** по любому устройству → `store.select(id)` → **правая панель авто-открывается** (даже если была скрыта) → показывает `DevicePanel` с табами Overview / Ports / VLAN / Links / Monitor / Notifications / **Vault** / Notes
+- **Двойной клик** → `store.focusDevice(id)` → FocusView (полноэкранный крупный вид с подписями подключений)
+- **Alt+двойной клик** сохранён для hub'ов Modern view — центрирование + zoom (было полезно, оставил как advanced-жест)
+- Клик на имя endpoint'а в раскрытом chip'е свитча — так же: select + panel
+
+### Реализация
+
+**1. `ModernDeviceNode.tsx`**:
+- Убран `onClick={() => setFocus(id)}` с обеих карточек (leaf + hub)
+- Добавлен `onDoubleClick={(e) => { e.stopPropagation(); setFocus(id); }}`
+- `stopPropagation` в double-click важен: без него `focusDevice` срабатывает ПОСЛЕ `select`, что оставляло `selectedDeviceId != null` (и после закрытия focus'а правая панель торчала)
+- `title="Клик — выбрать · Двойной клик — крупный вид"` — subtle подсказка на hover
+- `EndpointChip` (раскрытый список endpoint'ов в hub): аналогичное разделение — click → select, dblclick → focus
+
+**2. `Canvas.tsx`**:
+- В `onNodeClick` добавлен коммент про новое поведение
+- Добавлен `onNodeDoubleClick` как fallback на случай если тип ноды не задекларировал свой double-click handler (для страховки)
+
+**3. `store.ts` — важные изменения**:
+- `select(id)`, `selectGroup(id)`, `selectPort(deviceId, portId)` — **автоматически открывают правую панель** если она была закрыта (плюс сохраняют в LS)
+- Новый action `setRightPanelOpen(open: boolean)` — для явного управления (использует RightPanel × кнопка)
+
+**4. `RightPanel.tsx`**:
+- **Новая × кнопка** внизу узкого rail'а (24px) — «Закрыть панель полностью». Отличается от ‹/› (свернуть в rail):
+  - ‹/› = collapse (rail остаётся видимым 24px, панель схлопывается — переключение)
+  - × = полное закрытие + сброс `selected*` + `rightPanelOpen=false` (rail тоже пропадает, канвас на всю ширину)
+- Hover: красный фон на × чтобы визуально отличалось от других кнопок
+
+### Как теперь работает workflow
+1. Открываешь схему — правая панель скрыта (default), канвас на весь экран
+2. Клик на устройство → правая панель авто-открывается справа с deviceId выбранного
+3. Клик на другое устройство → panel остаётся открытой, обновляется content
+4. Клик на пустое место → selection очищается, panel показывает `<NetworkOverviewPanel>` (KPI dashboard)
+5. Клик × на rail'е → panel полностью скрывается + selection сброшен
+6. Двойной клик на устройство → FocusView (полноэкранный)
+7. Esc в FocusView → возврат к канвасу
+
+---
+
+## v0.46.0 — Гибкий drag-drop с port-picker'ом (replace-flow, port grid)
+
+Реакция на запрос: «удерживаю элемент, навожу на свитч → диалог в какой порт соединять, либо заменить устройство в порту».
+
+### Что было в v0.45 и раньше
+- Drag-drop устройства на switch → строгие guards: «нет портов» и «нет свободных портов» блокировали действие с alert'ом
+- Диалог = 2 `<select>` (текстовые dropdown'ы)
+- Занятый порт помечался только словом «— занят» без имени соседа
+- **Заменить существующее устройство в порту** было нельзя — нужно было вручную удалить старую связь через Inspector
+
+### Что стало в v0.46
+
+**1. Полный рерайт `PortPickerDialog.tsx`** (~430 строк):
+- **Port grid** вместо `<select>` — каждый порт как визуальная плитка 96×52 px, kind-цвет (зелёный = free, жёлтый = занят, красный = будет заменён), speed-badge, PoE-badge, VLAN-hint
+- **Занятые порты кликабельны** и показывают: `→ Camera-Reception :eth0` (имя соседа + его порт)
+- При клике на занятый порт: он подсвечивается **красным** + внизу диалога появляется warning-баннер:
+  ```
+  ⚠ Будут удалены существующие связи (1)
+    • SW_BUH :eth5 ↔ Camera-Reception :eth0
+  ```
+- Кнопка меняется с синей «Соединить» на **красную «Заменить связь»** — user видит, что делает
+- **Поиск** портов (для свитчей с 24-48 портами)
+- Cable-type авто-угадывается (SFP → fiber, WiFi → wifi, RJ45 → copper) и обновляется при каждом изменении выбора порта
+
+**2. `buildPortOptions(device, links, devices)` — новая утилита в PortPickerDialog**:
+- Возвращает `PortOption[]` с полем `usedBy: { linkId, peerDeviceId, peerDeviceName, peerPortId, peerKind }` для занятых портов
+- Экспортируется, используется в Canvas + может быть переиспользована в других местах (VLAN-tab, DevicePanel)
+
+**3. Canvas.tsx: `handleDropOnDevice` упрощён**:
+- Убран hard-block «нет свободных портов» — теперь пользователь всегда видит диалог и может решить сам (заменить или отменить)
+- Обработка `picked.replaceLinks[]` — сначала `removeLink()` старые связи, потом `addLink()` новую
+- В success-alert добавлено `(заменено связей: N)`
+
+**4. PortPickerResult расширен**:
+```ts
+{
+  sourcePortId: string;
+  targetPortId: string;
+  cable: 'copper' | 'fiber' | 'wifi';
+  replaceLinks: string[];   // v0.46 — link ids to delete before creating
+}
+```
+
+### Как теперь работает workflow drag-drop
+
+**Сценарий 1 — все порты свободны:**
+1. Тянешь Camera-1 на SW_BUH
+2. При drag поверх SW_BUH — амбер dashed outline (уже было)
+3. Отпускаешь → open picker
+4. Видишь два грида портов: слева Camera (eth0 свободен), справа SW_BUH (24 порта, 18 зелёных / 6 жёлтых)
+5. Клик на зелёный порт → выделен синим
+6. Кнопка «Соединить» → link создан
+
+**Сценарий 2 — свободных портов нет, надо заменить:**
+1. Тянешь Camera-2 на SW_BUH (все 24 порта заняты)
+2. Диалог открывается (не блокируется!)
+3. Видишь: все порты жёлтые, каждый показывает `→ Camera-N :eth0`
+4. Клик на порт с Camera-old → он становится **красным**
+5. Warning-баннер внизу: «Будут удалены связи (1): SW_BUH :eth5 ↔ Camera-old :eth0»
+6. Кнопка меняется на красную **«Заменить связь»**
+7. Клик → old link удалён, new link создан, Camera-old становится orphan'ом
+
+**Сценарий 3 — порт с VLAN'ом:**
+- На плитке порта показан бейдж `VLAN 20`
+- Guess cable-type учитывает тип порта соседа (SFP → fiber)
+
+### Что НЕ вошло в v0.46 (следует)
+- Проверка совместимости VLAN между source и target (нужна логика port.vlan / port.vlans / link.vlan match)
+- Auto-suggest cable-type когда один SFP, другой RJ45 — сейчас берёт fiber, надо бы warning
+- Bulk drag-drop нескольких endpoints на один switch (пока по одному)
+- Drop свитча на свитч (uplink) — работает, но без специального стиля/автовыбора trunk-порта
+
+---
+
+## v0.45.0 — Умная раскладка + компактный вид endpoint'ов включены по умолчанию
+
+Реакция на скрин Отеля Дона (100+ устройств в бесконечной строке, endpoint'ы разбросаны, «Разложить» не помогает).
+
+### 1. `collapseEndpoints` включён по умолчанию (`true`)
+Раньше: LS-ключ `netmap:collapseEndpoints` был `false` по умолчанию → все camera/pc/ap/pos/printer/lock видны как отдельные ноды с рёбрами → визуальный мусор.
+
+Теперь: **по умолчанию `true`**. Endpoint с подключением к switch/router скрыт с канваса и показывается как chip в карточке hub'а: `📷 IP-камер · 12`, `📡 Wi-Fi AP · 4`, и т.д. Клик по chip → раскрыть/свернуть один тип.
+
+Миграция: LS-ключ теперь работает наоборот — «отсутствие ключа» = `true` (compact). Явное значение `'0'` = false. Существующие пользователи не потеряют своих настроек.
+
+### 2. Toolbar — переключатель «Компактно / Развёрнуто»
+Новая кнопка `<CompactViewToggle />` в правом кластере toolbar. Работает только в Modern view (в Legacy — свои rack/compact режимы). Зелёный (compact) / серый (all visible). SVG-иконка — стрелки внутрь / крестик.
+
+### 3. `smartLayout.ts` — гибридная автогруппировка
+Новый модуль (~200 строк). Функция `autoGroupDevices(doc, { groupBy })` **преprocess**'ит doc:
+- Для каждого ungrouped device вычисляется **groupKey** по стратегии:
+  - `hybrid` (default) — `location` (если есть) > VLAN > IP /24 (fallback)
+  - `location` — только `device.location`
+  - `vlan` — только `port.vlan` / `port.vlans[0]` / `link.vlan`
+  - `ip` — только IP /24
+  - `none` — без группировки (bypass)
+- Создаются временные Groups с id `auto-<hash6>`
+- Одинокие группы (1 device) отбрасываются — лучше свободно, чем группа-обманка
+- **User-created группы неприкосновенны** (id без префикса `auto-`)
+- На повторном запуске старые `auto-*` группы удаляются, детям возвращается `groupId: undefined` → работает как «пересчитать»
+
+### 4. `store.autoLayout` — новый параметр `groupBy`
+```ts
+autoLayout(direction?: 'TB' | 'LR', opts?: {
+  preserveDisplay?: boolean;
+  groupBy?: 'none' | 'hybrid' | 'location' | 'vlan' | 'ip';   // v0.45
+});
+```
+Если `groupBy !== 'none'`, doc сначала прогоняется через `autoGroupDevices()`, потом через существующий `computeAutoLayout` (который умеет respect groups — dagre-per-group + dagre-of-groups).
+
+### 5. Кнопка «Умная раскладка» ⭐ в FAB
+В LayoutFAB (правый верхний угол) новая action «Умная раскладка · по локациям и VLAN» — иконка звезды. Клик открывает подменю с 5 стратегиями (hybrid / location / vlan / ip / none) с описаниями. Дефолт — hybrid.
+
+### 6. Импорт теперь использует smart-layout автоматически
+`importUtils.commitImport()`, `MikrotikImportDialog`, `DiscoveryDialog` — все зовут `autoLayout('TB', { groupBy: 'hybrid' })` вместо flat. Импортированные 40+ устройств больше не выстраиваются в линию.
+
+### 7. MenuBar → View
+- «⚡ Умная раскладка (по локациям / VLAN)» — новый пункт
+- «🔧 Разложить заново (без группировки)» — прежнее поведение сохранено
+
+### Что даёт в цифрах
+На Отеле Дона (38 устройств, 5 подсетей):
+- **До:** 1 строка длиной ~9000 px, endpoint'ы разбросаны отдельно, ~38 карточек + ~24 линии
+- **После:** 5 групп-контейнеров (по подсетям /24), внутри каждой — свитч с chip «PC · N / Cameras · M», связи между свитчами. Ширина ~2000 px, читается за 2 секунды.
+
+---
+
+## v0.44.3 — Динамическая версия из package.json + version badge в toolbar
+
+### Проблема
+В v0.44.1/0.44.2 версия «0.44.1» была **жёстко зашита** в `SettingsDialog.tsx` как строковый литерал. При каждом релизе её приходилось менять руками синхронно с `package.json`. В результате: auto-updater установил новый .exe, а About показывает старый номер.
+
+### Фикс
+- Vite `define` пробрасывает `__APP_VERSION__` и `__APP_BUILD_TIME__` из `package.json` в бандл во время сборки
+- `src/globals.d.ts` — TypeScript-декларации для этих констант
+- В `SettingsDialog → About` версия читается из `__APP_VERSION__` (навсегда исключает рассинхрон)
+- Добавлен блок с временем сборки (`__APP_BUILD_TIME__` = `new Date().toISOString()` в момент `vite build`)
+
+### Новый **version badge** в toolbar (верхний правый угол)
+Клик по бейджу открывает Settings → About. Всегда виден, показывает актуальную версию бандла.
+```
+[Импорт …][Modern|Legacy][Панели][Уведомл.][?][ ⏱ v0.44.3 ]
+```
+Стиль: фиолетовый gradient chip с monospace-шрифтом. Tooltip: версия + время сборки + подсказка.
+
+### `SettingsDialogHost` теперь принимает `initialTab` через event
+```js
+window.dispatchEvent(new CustomEvent('netmap:open-dialog', {
+  detail: { name: 'settings', tab: 'about' }
+}));
+```
+Клик по version-badge сразу открывает вкладку «О программе».
+
+### Как убедиться что установлена правильная версия
+1. Посмотри на **правый верхний угол toolbar** — там всегда актуальная версия
+2. Или Settings → О программе — показывает версию + время сборки в формате `18.08.2026 15:30`
+
+---
+
 ## v0.44.2 — Настоящий фикс кнопки «Импорт» + визуальные индикаторы загрузки везде
 
 ### 1. Финальный фикс кнопки Импорт (правильная причина)

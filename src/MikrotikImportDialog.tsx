@@ -542,7 +542,8 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     if (placed > 0) {
       // Give React a tick to commit the addDevice / addGroup writes, then layout.
       setTimeout(() => {
-        try { useStore.getState().autoLayout('TB'); } catch { /* ignore */ }
+        // v0.45: use smart hybrid grouping for imported topologies.
+        try { useStore.getState().autoLayout('TB', { groupBy: 'hybrid' }); } catch { /* ignore */ }
       }, 100);
     }
 

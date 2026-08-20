@@ -23,7 +23,7 @@ import type { Device, Group } from './types';
 import { resolveCollisions, growGroupToFitChildren, readSizeForKind } from './collide';
 import { edgeRouter, buildObstacles } from './edgeRouter';
 import { portSides, DYNAMIC_KINDS } from './portSides';
-import { openPortPicker, type PortOption } from './PortPickerDialog';
+import { openPortPicker, buildPortOptions, type PortOption } from './PortPickerDialog';
 import { alertDialog } from './Modal';
 
 const nodeTypes: any = {
@@ -661,29 +661,15 @@ function CanvasInner() {
     snapBackDevice(src);
 
     const state = useStore.getState();
-    const links = state.doc.links;
+    const { links, devices } = state.doc;
 
-    // Build port options for both endpoints. `free` = not used by any link.
-    const usedOn = (deviceId: string) => new Set(
-      links.flatMap(l => [
-        l.fromDeviceId === deviceId ? l.fromPortId : null,
-        l.toDeviceId   === deviceId ? l.toPortId   : null,
-      ]).filter((x): x is string => !!x)
-    );
-    const labelOf = (p: import('./types').Port) =>
-      `${p.id.toUpperCase()}${p.label ? ' · ' + p.label : ''}` +
-      `${p.type ? ' · ' + p.type : ''}` +
-      `${p.speed ? ' · ' + p.speed : ''}` +
-      `${p.poe ? ' · PoE' : ''}`;
+    // v0.46: buildPortOptions attaches `usedBy` (peer device name, link id).
+    // Occupied ports are no longer hard-blocked — the dialog offers a
+    // «Заменить связь» button that removes the old link before creating new.
+    const srcOptions: PortOption[] = buildPortOptions(src, links, devices);
+    const tgtOptions: PortOption[] = buildPortOptions(tgt, links, devices);
 
-    const srcOptions: PortOption[] = src.ports.map(p => ({
-      port: p, label: labelOf(p), free: !usedOn(src.id).has(p.id),
-    }));
-    const tgtOptions: PortOption[] = tgt.ports.map(p => ({
-      port: p, label: labelOf(p), free: !usedOn(tgt.id).has(p.id),
-    }));
-
-    // Guard: either side has no ports at all → can't connect.
+    // Only hard-block when the device has ZERO ports (nothing to pick).
     if (srcOptions.length === 0 || tgtOptions.length === 0) {
       const which = srcOptions.length === 0 ? src.name : tgt.name;
       useStore.getState().pushAlert({
@@ -695,26 +681,20 @@ function CanvasInner() {
         `У «${which}» нет портов. Добавьте порт через Inspector → Ports.`);
       return;
     }
-    // Guard: no free ports on some side.
-    const freeSrc = srcOptions.filter(o => o.free).length;
-    const freeTgt = tgtOptions.filter(o => o.free).length;
-    if (freeSrc === 0 || freeTgt === 0) {
-      const which = freeSrc === 0 ? src.name : tgt.name;
-      useStore.getState().pushAlert({
-        severity: 'warn', origin: 'connect',
-        title: 'Нет свободных портов',
-        message: `Все порты «${which}» заняты. Удалите или переназначьте существующий кабель.`,
-      });
-      await alertDialog('Нет свободных портов',
-        `Все порты «${which}» уже заняты. Освободите порт через Inspector → Ports (или удалите существующий кабель) и попробуйте снова.`);
-      return;
-    }
 
     const picked = await openPortPicker(
       { device: src, options: srcOptions },
       { device: tgt, options: tgtOptions },
     );
     if (!picked) return;   // user cancelled
+
+    // v0.46: if user picked occupied ports, remove the pre-existing links
+    // FIRST. removeLink already snapshots history, so undo restores the
+    // whole edit atomically (or we could add a bulk action later).
+    const s = useStore.getState();
+    for (const linkId of picked.replaceLinks || []) {
+      s.removeLink(linkId);
+    }
 
     const linkId = `l-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     addLinkStore({
@@ -723,10 +703,14 @@ function CanvasInner() {
       toDeviceId:   tgt.id, toPortId:   picked.targetPortId,
       cable: picked.cable,
     });
+
+    const replacedNote = picked.replaceLinks && picked.replaceLinks.length
+      ? ` (заменено связей: ${picked.replaceLinks.length})`
+      : '';
     useStore.getState().pushAlert({
       severity: 'success', origin: 'connect',
       title: 'Кабель создан',
-      message: `${src.name} · ${picked.sourcePortId.toUpperCase()}  →  ${tgt.name} · ${picked.targetPortId.toUpperCase()}`,
+      message: `${src.name} · ${picked.sourcePortId.toUpperCase()}  →  ${tgt.name} · ${picked.targetPortId.toUpperCase()}${replacedNote}`,
       deviceId: src.id, deviceName: src.name,
     });
   }, [addLinkStore, snapBackDevice]);
@@ -1255,7 +1239,17 @@ function CanvasInner() {
           }
           return;
         }
+        // v0.47 — plain click → select (store.select auto-opens right panel).
+        // Double click → focus view (handled by node's own onDoubleClick).
         if (n.type === 'group') selectGroup(n.id); else select(n.id);
+      }}
+      onNodeDoubleClick={(e, n) => {
+        // v0.47 — Canvas-level fallback: if a node type didn't declare its
+        // own onDoubleClick, ReactFlow bubbles here. We open focus mode.
+        if (n.type === 'group') return;
+        // stopPropagation prevents the click event from also firing select.
+        (e as any).stopPropagation?.();
+        useStore.getState().focusDevice(n.id);
       }}
       onNodeContextMenu={(e, n) => {
         e.preventDefault();

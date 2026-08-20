@@ -14,6 +14,7 @@ import { LayerLegend } from './LayerLegend';
 import { VlanFilterBanner } from './VlanFilterBanner';
 import { LayoutFAB } from './LayoutFAB';
 import { LoadingOverlay } from './LoadingOverlay';
+import { OnboardingHost } from './OnboardingDialog';
 import { NotificationDispatcher } from './NotificationDispatcher';
 import { VaultAutoLockOverlay } from './VaultAutoLockOverlay';
 import { VaultStudioHost } from './VaultStudio';
@@ -89,6 +90,9 @@ export default function App() {
       <FocusView />
       {/* v0.36.1: splash + progress overlay for long ops (loads, imports, exports) */}
       <LoadingOverlay />
+      {/* v0.49.0: first-run onboarding tour (7 slides + seed loader).
+          Auto-opens on first launch, re-openable via Help menu. */}
+      <OnboardingHost />
       {/* v0.36.1: fan-out ping-alerts to native Windows toast + Telegram */}
       <NotificationDispatcher />
       {/* v0.36.2: traceroute dialog — opens on `netmap:open-traceroute` event

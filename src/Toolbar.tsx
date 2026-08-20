@@ -194,6 +194,9 @@ export function Toolbar() {
       {/* v0.43.6: quick Modern/Legacy card style toggle — was buried in
           Settings, users wanted it 1-click accessible. */}
       <ViewModeToggle />
+      {/* v0.45: compact/expanded toggle — folds endpoints into hub chips.
+          ON by default now (matches user intuition of a clean overview). */}
+      <CompactViewToggle />
 
       {/* v0.41: panel-toggle buttons. When sidebar / right-panel are hidden
           (default first-run state), user can bring them back from here or
@@ -207,8 +210,39 @@ export function Toolbar() {
       {/* Hidden listeners for netmap:open-dialog — they render the actual
           modal above the rest of the app. Zero visual footprint here. */}
       <HelpButton />
+      {/* v0.44.3 — always-visible version badge. Comes from package.json
+          via vite `define` so it CANNOT drift from the installed .exe. */}
+      <VersionBadge />
       <SettingsDialogHost />
     </div>
+  );
+}
+
+/**
+ * v0.44.3 — version chip in the toolbar. Users need a quick way to confirm
+ * which version is actually running (auto-updater bugs, cached DevTools, ...).
+ * Click opens Settings → About.
+ */
+function VersionBadge() {
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings', tab: 'about' } }))}
+      title={`NetMap v${__APP_VERSION__}\nСборка: ${__APP_BUILD_TIME__}\nКлик — открыть «О программе»`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '4px 9px', marginLeft: 4,
+        background: 'linear-gradient(135deg, #EEF2FF, #F5F3FF)',
+        border: '1px solid #C7D2FE', borderRadius: 6,
+        color: '#4338CA', fontSize: 10, fontWeight: 700, letterSpacing: 0.3,
+        cursor: 'pointer', fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+      }}
+    >
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v4l2 2" />
+      </svg>
+      v{__APP_VERSION__}
+    </button>
   );
 }
 
@@ -251,6 +285,56 @@ function viewModeBtn(active: boolean): React.CSSProperties {
     fontSize: 11, fontWeight: active ? 700 : 500, cursor: 'pointer',
     boxShadow: active ? '0 1px 2px rgba(15,23,42,0.06)' : undefined,
   };
+}
+
+/**
+ * v0.45 — Compact-view toggle. When ON (default), endpoints (AP / camera /
+ * PC / POS / printer / lock) with a link to a switch/router are HIDDEN from
+ * the canvas and shown as chips inside the hub card («Wi-Fi APs 12 · Cameras 24»).
+ * User clicks a chip to expand a single kind. Reduces visual clutter on 100+
+ * device schemas by ~70%.
+ *
+ * Only affects Modern viewMode — Legacy view has its own rack/compact modes.
+ */
+function CompactViewToggle() {
+  const collapse = useStore(s => s.collapseEndpoints);
+  const toggle   = useStore(s => s.toggleCollapseEndpoints);
+  const viewMode = useStore(s => s.viewMode);
+  if (viewMode !== 'modern') return null;
+  return (
+    <button
+      onClick={toggle}
+      title={collapse
+        ? 'Компактный вид: endpoints скрыты в свитчах. Клик — показать все.'
+        : 'Все устройства видны. Клик — свернуть endpoints в свитчи.'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '4px 10px', marginRight: 6,
+        background: collapse ? '#DCFCE7' : '#F1F5F9',
+        color: collapse ? '#166534' : '#64748B',
+        border: '1px solid ' + (collapse ? '#86EFAC' : '#E2E8F0'),
+        borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+      }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {collapse ? (
+          <>
+            <polyline points="7 4 4 7 7 10" />
+            <polyline points="17 4 20 7 17 10" />
+            <polyline points="7 14 4 17 7 20" />
+            <polyline points="17 14 20 17 17 20" />
+            <line x1="4" y1="7"  x2="20" y2="7" />
+            <line x1="4" y1="17" x2="20" y2="17" />
+          </>
+        ) : (
+          <>
+            <line x1="5"  y1="12" x2="19" y2="12" />
+            <line x1="12" y1="5"  x2="12" y2="19" />
+          </>
+        )}
+      </svg>
+      {collapse ? 'Компактно' : 'Развёрнуто'}
+    </button>
+  );
 }
 
 function PanelToggles() {

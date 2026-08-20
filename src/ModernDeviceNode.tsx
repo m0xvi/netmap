@@ -112,7 +112,10 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           cursor: 'pointer',
           transition: 'box-shadow 120ms, border-color 120ms',
         }}
-        onClick={() => setFocus(id)}
+        // v0.47 — single click selects (Canvas.onNodeClick handles it +
+        // opens right panel). Double click enters focus view.
+        onDoubleClick={(e) => { e.stopPropagation(); setFocus(id); }}
+        title="Клик — выбрать · Двойной клик — крупный вид"
       >
         <div
           style={{
@@ -166,13 +169,18 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           display: 'flex', alignItems: 'center', gap: 12,
           padding: 14, cursor: 'pointer',
         }}
-        onClick={() => setFocus(id)}
-        onDoubleClick={() => {
-          // Center + zoom in on this node.
-          try {
-            rf.fitView({ nodes: [{ id }], duration: 300, padding: 0.5, maxZoom: 1.2 });
-          } catch {}
+        // v0.47 — inverted: single click selects (right panel opens via
+        // Canvas.onNodeClick + store.select), double click = focus view.
+        // Alt+double-click keeps the old "center on this node" gesture.
+        onDoubleClick={(e) => {
+          if (e.altKey) {
+            try { rf.fitView({ nodes: [{ id }], duration: 300, padding: 0.5, maxZoom: 1.2 }); } catch {}
+          } else {
+            e.stopPropagation();
+            setFocus(id);
+          }
         }}
+        title="Клик — выбрать · Двойной клик — крупный режим (focus)"
       >
         <div
           style={{
@@ -308,7 +316,10 @@ function PortHandles({ device }: { device: Device }) {
 function EndpointChip({ kind, count, ids }: { kind: DeviceKind; count: number; ids: string[] }) {
   const meta = KIND_META[kind];
   const Icon = ICONS[kind];
-  const setFocus = useStore(s => s.focusDevice);
+  // v0.47 — expanded endpoint list uses select (single click) + double click
+  // for focus, matching the main-card behaviour.
+  const setFocus  = useStore(s => s.focusDevice);
+  const selectDev = useStore(s => s.select);
   const devices = useStore(s => s.doc.devices);
   const [open, setOpen] = useState(false);
 
@@ -358,7 +369,9 @@ function EndpointChip({ kind, count, ids }: { kind: DeviceKind; count: number; i
             return (
               <button
                 key={devId}
-                onClick={(e) => { e.stopPropagation(); setFocus(devId); }}
+                onClick={(e) => { e.stopPropagation(); selectDev(devId); }}
+                onDoubleClick={(e) => { e.stopPropagation(); setFocus(devId); }}
+                title="Клик — выбрать в правой панели · Двойной клик — крупный вид"
                 style={{
                   padding: '3px 6px', border: 'none', background: 'transparent',
                   borderRadius: 4, cursor: 'pointer', textAlign: 'left',

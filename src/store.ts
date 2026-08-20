@@ -66,6 +66,7 @@ import {
   persistLoadFilters, persistSaveFilters,
 } from './persistence';
 import { computeAutoLayout, type LayoutDirection } from './autoLayout';
+import { autoGroupDevices, type GroupingStrategy } from './smartLayout';
 // v0.32: when a device's display flips between compact ↔ rack its size can
 // jump by 200+ px — nearby siblings suddenly overlap and cards may spill
 // past the group border. Reflow after the update commits.
@@ -293,6 +294,8 @@ interface State {
   toggleSidebar: () => void;
   rightPanelOpen: boolean;
   toggleRightPanel: () => void;
+  /** v0.47 — explicit set (used by select() to auto-open panel on device pick). */
+  setRightPanelOpen: (open: boolean) => void;
 
   /** ---- Layer filters (v0.5) ---- */
   filters: FilterState;
@@ -329,7 +332,7 @@ interface State {
   togglePoeAll: (id: string) => void;
 
   /** Auto-arrange devices via dagre. Direction TB or LR. Writes to history. */
-  autoLayout: (direction?: LayoutDirection, opts?: { preserveDisplay?: boolean }) => void;
+  autoLayout: (direction?: LayoutDirection, opts?: { preserveDisplay?: boolean; groupBy?: GroupingStrategy }) => void;
   /** v0.31: expand/collapse EVERY rack-capable device at once.
    *  `mode='rack'`  → open every switch / router / patchpanel / server in rack view
    *  `mode='compact'` → collapse all of them back to compact cards */
@@ -999,7 +1002,12 @@ export const useStore = create<State>((set, get) => ({
     try { localStorage.setItem('netmap:viewMode', m); } catch {}
     set({ viewMode: m });
   },
-  collapseEndpoints: (typeof window !== 'undefined' && localStorage.getItem('netmap:collapseEndpoints') === '1'),
+  // v0.45: collapseEndpoints is ON by default now (used to be false → users saw
+  // 100+ endpoints scattered across the canvas). LS key persists user choice
+  // once they toggle it explicitly. Absence of key = default ON.
+  collapseEndpoints: (typeof window !== 'undefined'
+    ? (localStorage.getItem('netmap:collapseEndpoints') !== '0')
+    : true),
   toggleCollapseEndpoints: () => set(s => {
     const next = !s.collapseEndpoints;
     try { localStorage.setItem('netmap:collapseEndpoints', next ? '1' : '0'); } catch {}
@@ -1033,6 +1041,11 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.rightPanelOpen;
     try { localStorage.setItem('netmap:rightPanelOpen', next ? '1' : '0'); } catch {}
     return { rightPanelOpen: next };
+  }),
+  setRightPanelOpen: (open) => set(s => {
+    if (s.rightPanelOpen === open) return {};
+    try { localStorage.setItem('netmap:rightPanelOpen', open ? '1' : '0'); } catch {}
+    return { rightPanelOpen: open };
   }),
   showGrid: true,
   toggleSnap: () => set(s => ({ snapToGrid: !s.snapToGrid })),
@@ -1084,10 +1097,34 @@ export const useStore = create<State>((set, get) => ({
   openContextMenu: (m) => set({ contextMenu: m }),
   closeContextMenu: () => set({ contextMenu: null }),
 
-  select: (id) => set({ selectedDeviceId: id, selectedGroupId: null, selectedPortId: null }),
-  selectGroup: (id) => set({ selectedGroupId: id, selectedDeviceId: null, selectedPortId: null }),
-  selectPort: (deviceId, portId) => set({
-    selectedDeviceId: deviceId, selectedGroupId: null, selectedPortId: portId
+  // v0.47 — auto-open the right panel when the user picks anything. This
+  // matches the requested UX: single click on a device = "show me the extended
+  // properties". Panel stays open until user closes it (× or toggle).
+  select: (id) => set(s => {
+    const patch: any = { selectedDeviceId: id, selectedGroupId: null, selectedPortId: null };
+    if (id && !s.rightPanelOpen) {
+      try { localStorage.setItem('netmap:rightPanelOpen', '1'); } catch {}
+      patch.rightPanelOpen = true;
+    }
+    return patch;
+  }),
+  selectGroup: (id) => set(s => {
+    const patch: any = { selectedGroupId: id, selectedDeviceId: null, selectedPortId: null };
+    if (id && !s.rightPanelOpen) {
+      try { localStorage.setItem('netmap:rightPanelOpen', '1'); } catch {}
+      patch.rightPanelOpen = true;
+    }
+    return patch;
+  }),
+  selectPort: (deviceId, portId) => set(s => {
+    const patch: any = {
+      selectedDeviceId: deviceId, selectedGroupId: null, selectedPortId: portId
+    };
+    if (deviceId && !s.rightPanelOpen) {
+      try { localStorage.setItem('netmap:rightPanelOpen', '1'); } catch {}
+      patch.rightPanelOpen = true;
+    }
+    return patch;
   }),
   updatePort: (deviceId, portId, patch) => set((s) => {
     const doc = {
@@ -1212,7 +1249,10 @@ export const useStore = create<State>((set, get) => ({
     return { ...historyPush(s), doc };
   }),
 
-  autoLayout: (direction = 'TB', opts?: { preserveDisplay?: boolean }) => set((s) => {
+  autoLayout: (direction = 'TB', opts?: { preserveDisplay?: boolean; groupBy?: GroupingStrategy }) => set((s) => {
+    // v0.45: `groupBy` triggers smart auto-grouping BEFORE dagre. Default 'none'
+    // for backward compatibility (LayoutFAB explicitly passes 'hybrid' now).
+    //
     // v0.34.3: added `preserveDisplay` option — when true, we DON'T force
     // rack → compact before layout. Used by setAllRackDisplay('rack') so a
     // fresh "Развернуть все" isn't immediately undone by the auto-collapse.
@@ -1222,7 +1262,8 @@ export const useStore = create<State>((set, get) => ({
     // poorly when a group has many switches. Users can still expand any
     // device manually (◱ button or ports tab) — this only affects the tidy
     // overview state right after "Разложить".
-    const compacted = opts?.preserveDisplay
+    const groupBy = opts?.groupBy ?? 'none';
+    const withDisplay = opts?.preserveDisplay
       ? s.doc
       : {
           ...s.doc,
@@ -1233,6 +1274,7 @@ export const useStore = create<State>((set, get) => ({
               : d
           ),
         };
+    const compacted = groupBy === 'none' ? withDisplay : autoGroupDevices(withDisplay, { groupBy });
     const { positions, groupPositions } = computeAutoLayout(compacted, { direction });
     if (positions.size === 0 && groupPositions.size === 0) return {};
     // v0.35.8: NEVER commit non-finite coords from autoLayout — a corner-case

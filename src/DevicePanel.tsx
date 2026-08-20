@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from './store';
-import type { Device, DeviceKind, Port, PortStatus, PortType } from './types';
+import type { Device, DeviceKind, Port, PortStatus, PortType, PortVlanMode, Vlan } from './types';
 import { templateFromDevice } from './templates';
 import { pushCustomTemplate } from './CatalogPanel';
-import { vaultStatus, vaultList, vaultGet, vaultUnlock } from './vaultClient';
+import { vaultStatus, vaultList, vaultGet, vaultUnlock, vaultUpsert } from './vaultClient';
 import { promptText, confirmDialog, alertDialog } from './Modal';
 import { inferLayer } from './layers';
 import { suggestVaultItems } from './vaultMatcher';
 import { TotpChip } from './TotpChip';
 import { ICONS, KIND_META } from './icons';
+import { VLAN_COLORS, vlanColorForIndex } from './vlanDefaults';
+import { MiniSpinner } from './Spinner';
 
 const KINDS: DeviceKind[] = ['router','switch','patchpanel','ap','camera','server','vm','vps','pc','pos','printer','lock','cloud'];
 
@@ -981,6 +983,21 @@ function LinksTab({ deviceId, links, devices, onRemove }:
   );
 }
 
+/**
+ * v0.48 — CredsTab full rewrite. Bitwarden-inline style:
+ *   • No linked item → «+ Добавить запись» button that expands an inline
+ *     create form (URL / login / password / notes) — pre-filled with
+ *     device.name / device.ip / device.mgmtUrl heuristics
+ *   • Linked item + unlocked vault → full item preview:
+ *       - URL (clickable + Copy)
+ *       - Username (Copy)
+ *       - Password (Show/Hide + Copy with auto-clear 45s)
+ *       - TOTP (live 6-digit + progress ring via <TotpChip>)
+ *       - Notes
+ *       - «Открыть в Vault Studio» + «Отвязать»
+ *   • Vault locked → inline password prompt (no separate dialog)
+ *   • Vault not initialized → CTA «Создать vault» inline
+ */
 function CredsTab({ device, update }: { device: Device; update: (id: string, p: Partial<Device>) => void }) {
   const c = device.credential || {};
   const set = (patch: Partial<typeof c>) => update(device.id, { credential: { ...c, ...patch } });
@@ -995,175 +1012,541 @@ function CredsTabInner({ device, c, set }: {
   const [vaultItems, setVaultItems] = useState<Array<{ id: string; name: string; folder?: string | null }>>([]);
   const [status, setStatus] = useState<'checking' | 'locked' | 'unlocked' | 'not-init'>('checking');
   const [linkedItem, setLinkedItem] = useState<any>(null);
-  const [copyOK, setCopyOK] = useState<'user' | 'pw' | null>(null);
+  const [copyOK, setCopyOK] = useState<'user' | 'pw' | 'url' | null>(null);
+  const [showPw, setShowPw] = useState(false);
+  const [inlineMasterPw, setInlineMasterPw] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockErr, setUnlockErr] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [picking, setPicking] = useState(false);
 
-  // Load vault status + list on mount
-  useEffect(() => {
-    (async () => {
-      const st = await vaultStatus();
-      if (!st.initialized) setStatus('not-init');
-      else if (!st.unlocked) setStatus('locked');
-      else {
-        setStatus('unlocked');
-        const list = await vaultList();
-        setVaultItems(list);
-      }
-    })();
-  }, []);
+  const refreshStatus = async () => {
+    const st = await vaultStatus();
+    if (!st.initialized) setStatus('not-init');
+    else if (!st.unlocked) setStatus('locked');
+    else {
+      setStatus('unlocked');
+      const list = await vaultList();
+      setVaultItems(list);
+    }
+  };
+  useEffect(() => { refreshStatus(); }, []);
 
-  // Load the linked item when we have both id and unlocked vault
   useEffect(() => {
     if (status !== 'unlocked' || !c.vaultItemId) { setLinkedItem(null); return; }
     (async () => {
       const res = await vaultGet(c.vaultItemId!);
       if (res.ok && res.item) setLinkedItem(res.item);
+      else setLinkedItem(null);
     })();
   }, [status, c.vaultItemId]);
 
-  async function unlock() {
-    const pw = await promptText('Мастер-пароль vault');
-    if (!pw) return;
-    const res = await vaultUnlock(pw);
-    if (res.ok) {
-      setStatus('unlocked');
-      setVaultItems(await vaultList());
-    } else {
-      await alertDialog('Ошибка', res.error === 'wrong-password' ? 'Неверный пароль' : String(res.error));
+  async function unlockInline() {
+    if (!inlineMasterPw) return;
+    setUnlockErr(''); setUnlocking(true);
+    try {
+      const res = await vaultUnlock(inlineMasterPw);
+      if (res.ok) {
+        setInlineMasterPw('');
+        await refreshStatus();
+      } else {
+        setUnlockErr((res as any).error === 'wrong-password' ? 'Неверный пароль' : String((res as any).error));
+      }
+    } finally {
+      setUnlocking(false);
     }
   }
 
-  const copy = async (kind: 'user' | 'pw', text: string) => {
+  const copy = async (kind: 'user' | 'pw' | 'url', text: string) => {
     if (!text) return;
     await navigator.clipboard.writeText(text);
-    setCopyOK(kind); setTimeout(() => setCopyOK(null), 1500);
+    setCopyOK(kind); setTimeout(() => setCopyOK(null), 1400);
     if (kind === 'pw') {
       setTimeout(() => {
         navigator.clipboard.readText().then(t => {
           if (t === text) navigator.clipboard.writeText('');
         }).catch(() => {});
-      }, 20000);
+      }, 45000);
+    }
+  };
+
+  // ---- Rendering per state ----------------------------------------------
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {/* Security note */}
+      <div style={{
+        background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: 8, padding: 10,
+        fontSize: 11, color: '#166534', display: 'flex', alignItems: 'flex-start', gap: 8,
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+        </svg>
+        <div>
+          <b>AES-256-GCM</b> шифрование с ключом из мастер-пароля vault. Пароль автоматически очищается из буфера через 45 сек.
+        </div>
+      </div>
+
+      {/* Username label for the schema (kept — this is device-level, not vault) */}
+      <Field label="Имя пользователя (для схемы)">
+        <input value={c.username || ''} onChange={e => set({ username: e.target.value })}
+               placeholder="admin"
+               style={inputStyle} />
+      </Field>
+
+      {/* ============ Vault state ============ */}
+
+      {status === 'checking' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px', fontSize: 11, color: '#64748B' }}>
+          <MiniSpinner /> Проверяем vault…
+        </div>
+      )}
+
+      {status === 'not-init' && (
+        <div style={{
+          background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 8, padding: 12,
+          display: 'grid', gap: 8,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Vault ещё не создан</div>
+          <div style={{ fontSize: 11, color: '#78350F' }}>
+            Откройте <b>Vault</b> в левой панели и придумайте мастер-пароль. После этого сможете добавлять сюда учётки одним кликом.
+          </div>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-vault-studio'))}
+                  style={{ ...btnPrimary, alignSelf: 'start' }}>
+            Открыть Vault Studio
+          </button>
+        </div>
+      )}
+
+      {status === 'locked' && (
+        <div style={{
+          background: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: 8, padding: 12,
+          display: 'grid', gap: 8,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+            Vault заблокирован
+          </div>
+          <input type="password" placeholder="Мастер-пароль"
+                 value={inlineMasterPw}
+                 onChange={e => setInlineMasterPw(e.target.value)}
+                 onKeyDown={e => { if (e.key === 'Enter') unlockInline(); }}
+                 disabled={unlocking}
+                 style={inputStyle} autoFocus />
+          {unlockErr && <div style={{ fontSize: 11, color: '#DC2626' }}>{unlockErr}</div>}
+          <button onClick={unlockInline} disabled={unlocking || !inlineMasterPw}
+                  style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center',
+                           opacity: (unlocking || !inlineMasterPw) ? 0.6 : 1 }}>
+            {unlocking && <MiniSpinner light />}{unlocking ? 'Проверяем…' : 'Разблокировать'}
+          </button>
+        </div>
+      )}
+
+      {status === 'unlocked' && (
+        <>
+          {/* Case 1: linked to a vault item — Bitwarden-style detail view */}
+          {linkedItem && (
+            <VaultLinkedCard
+              item={linkedItem}
+              copyOK={copyOK} onCopy={copy}
+              showPw={showPw} setShowPw={setShowPw}
+              onUnlink={() => set({ vaultItemId: undefined })}
+            />
+          )}
+
+          {/* Case 2: no link yet — show create + pick + suggestions */}
+          {!linkedItem && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {/* Suggestions row (auto-match by IP/name/URL) */}
+              {(() => {
+                const matches = suggestVaultItems(device, vaultItems).slice(0, 3);
+                if (matches.length === 0) return null;
+                return (
+                  <div style={{
+                    background: '#EFF6FF', border: '1px solid #93C5FD', borderRadius: 8, padding: 10, display: 'grid', gap: 6,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#1E40AF', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                      Найдено в vault
+                    </div>
+                    {matches.map(m => {
+                      const it = vaultItems.find(x => x.id === m.itemId);
+                      if (!it) return null;
+                      return (
+                        <button key={m.itemId} onClick={() => set({ vaultItemId: m.itemId })}
+                                style={{
+                                  background: '#FFFFFF', border: '1px solid #BFDBFE',
+                                  color: '#111827', padding: '7px 10px', borderRadius: 6,
+                                  cursor: 'pointer', textAlign: 'left', fontSize: 11,
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                }}
+                                onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = '#F0F9FF'}
+                                onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF'}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {it.folder ? `[${it.folder}] ` : ''}{it.name}
+                            </div>
+                            <div style={{ fontSize: 9, color: '#64748B' }}>{m.reason}</div>
+                          </div>
+                          <span style={{
+                            fontSize: 10, color: '#065F46', background: '#DCFCE7',
+                            padding: '3px 8px', borderRadius: 999, fontWeight: 700,
+                          }}>Привязать</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={() => setCreating(v => !v)}
+                        style={{
+                          ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 5,
+                          background: creating ? '#94A3B8' : '#2563EB',
+                        }}>
+                  {creating ? (<>✕ Отменить</>) : (
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                      </svg>
+                      Добавить запись
+                    </>
+                  )}
+                </button>
+                <button onClick={() => setPicking(v => !v)} style={btnSecondary}>
+                  {picking ? 'Скрыть' : 'Выбрать из vault…'}
+                </button>
+              </div>
+
+              {/* Picker dropdown */}
+              {picking && (
+                <select value={c.vaultItemId || ''}
+                        onChange={e => { set({ vaultItemId: e.target.value || undefined }); setPicking(false); }}
+                        style={inputStyle} autoFocus>
+                  <option value="">— выбрать из {vaultItems.length} записей —</option>
+                  {vaultItems.map(i => (
+                    <option key={i.id} value={i.id}>
+                      {i.folder ? `[${i.folder}] ` : ''}{i.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Inline create form */}
+              {creating && (
+                <VaultCreateInline
+                  device={device}
+                  existingUsername={c.username}
+                  onCreated={async (newId) => {
+                    setCreating(false);
+                    set({ vaultItemId: newId });
+                    // Refresh list so the picker sees the new item too
+                    const list = await vaultList();
+                    setVaultItems(list);
+                  }} />
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      <Field label="Заметки (к устройству)">
+        <textarea value={c.notes || ''} onChange={e => set({ notes: e.target.value })}
+                  rows={3} placeholder="Локальные заметки для схемы (не шифруются)"
+                  style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical' }} />
+      </Field>
+
+      <BoundVaultRecords deviceId={device.id} />
+    </div>
+  );
+}
+
+/**
+ * v0.48 — Bitwarden-style card for the currently-linked vault item.
+ * Read-only view with copy buttons + show/hide password + TOTP + unlink.
+ */
+function VaultLinkedCard({ item, copyOK, onCopy, showPw, setShowPw, onUnlink }: {
+  item: any;
+  copyOK: 'user' | 'pw' | 'url' | null;
+  onCopy: (k: 'user' | 'pw' | 'url', text: string) => void;
+  showPw: boolean; setShowPw: (b: boolean) => void;
+  onUnlink: () => void;
+}) {
+  return (
+    <div style={{
+      background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '10px 12px', borderBottom: '1px solid #F1F5F9',
+        background: 'linear-gradient(135deg, #EEF2FF, #FFFFFF)',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 6,
+          background: '#4338CA', color: '#FFFFFF',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+          </svg>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.name}
+          </div>
+          {item.folder && (
+            <div style={{ fontSize: 10, color: '#64748B' }}>{item.folder}</div>
+          )}
+        </div>
+        <button onClick={onUnlink}
+                title="Отвязать запись от устройства (сама запись в vault остаётся)"
+                style={{
+                  fontSize: 10, color: '#DC2626', background: 'transparent',
+                  border: '1px solid #FCA5A5', borderRadius: 4, padding: '3px 8px',
+                  cursor: 'pointer', fontWeight: 600,
+                }}>
+          Отвязать
+        </button>
+      </div>
+
+      {/* Fields */}
+      <div style={{ padding: 12, display: 'grid', gap: 10 }}>
+        {item.url && (
+          <VaultField label="Website URL">
+            <div style={{ display: 'flex', gap: 4 }}>
+              <a href={item.url} target="_blank" rel="noreferrer"
+                 style={{ ...inputStyle, flex: 1, textDecoration: 'none', color: '#2563EB',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          display: 'flex', alignItems: 'center' }}>
+                {item.url}
+              </a>
+              <CopyBtn ok={copyOK === 'url'} onClick={() => onCopy('url', item.url)} />
+            </div>
+          </VaultField>
+        )}
+        {item.username && (
+          <VaultField label="Username">
+            <div style={{ display: 'flex', gap: 4 }}>
+              <input readOnly value={item.username}
+                     style={{ ...inputStyle, flex: 1, fontFamily: 'ui-monospace, monospace' }} />
+              <CopyBtn ok={copyOK === 'user'} onClick={() => onCopy('user', item.username)} />
+            </div>
+          </VaultField>
+        )}
+        {item.password && (
+          <VaultField label="Password">
+            <div style={{ display: 'flex', gap: 4 }}>
+              <input readOnly type={showPw ? 'text' : 'password'} value={item.password}
+                     style={{ ...inputStyle, flex: 1, fontFamily: 'ui-monospace, monospace', letterSpacing: showPw ? 0 : 3 }} />
+              <button onClick={() => setShowPw(!showPw)} title={showPw ? 'Скрыть' : 'Показать'}
+                      style={{ ...btnSecondary, padding: '6px 8px' }}>
+                {showPw ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-11-8-11-8a20.85 20.85 0 015.36-5.51"/><path d="M22.54 11.88A20.29 20.29 0 0012 4a10.86 10.86 0 00-2 .19"/><line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
+              </button>
+              <CopyBtn ok={copyOK === 'pw'} onClick={() => onCopy('pw', item.password)}
+                       title="Копировать пароль (авто-очистка через 45 сек)" />
+            </div>
+          </VaultField>
+        )}
+        {item.hasTotp && (
+          <VaultField label="Verification code (TOTP)">
+            <TotpChip itemId={item.id} size="sm" />
+          </VaultField>
+        )}
+        {item.notes && (
+          <VaultField label="Notes">
+            <div style={{
+              ...inputStyle, whiteSpace: 'pre-wrap', minHeight: 40, background: '#F8FAFC',
+              fontFamily: 'inherit',
+            }}>{item.notes}</div>
+          </VaultField>
+        )}
+
+        {/* Action: full studio */}
+        <button onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-vault-studio'))}
+                style={{
+                  fontSize: 11, background: 'transparent', border: '1px solid #CBD5E1',
+                  color: '#334155', borderRadius: 6, padding: '6px 10px', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'start',
+                  fontWeight: 600,
+                }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+          Открыть в Vault Studio
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function VaultField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 9, fontWeight: 700, color: '#64748B',
+                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function CopyBtn({ ok, onClick, title }: { ok: boolean; onClick: () => void; title?: string }) {
+  return (
+    <button onClick={onClick} title={title || 'Копировать'} style={{
+      ...btnSecondary, padding: '6px 10px',
+      background: ok ? '#DCFCE7' : '#FFFFFF',
+      color: ok ? '#166534' : '#374151',
+      borderColor: ok ? '#86EFAC' : '#D1D5DB',
+      fontWeight: 600, minWidth: 60,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+    }}>
+      {ok ? (
+        <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M4 12l6 6L20 6"/></svg> OK</>
+      ) : (
+        <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> Copy</>
+      )}
+    </button>
+  );
+}
+
+/**
+ * v0.48 — Inline «+ Добавить запись» form. Pre-fills url / username from
+ * device fields (mgmtUrl / credential.username). Password field has «Generate»
+ * button (16-char alphanumeric, no ambiguous chars).
+ */
+function VaultCreateInline({ device, existingUsername, onCreated }: {
+  device: Device;
+  existingUsername?: string;
+  onCreated: (newItemId: string) => void;
+}) {
+  const [name, setName]     = useState(() => device.name);
+  const [url, setUrl]       = useState(() => device.mgmtUrl || (device.ip ? `https://${device.ip}` : ''));
+  const [username, setUser] = useState(() => existingUsername || '');
+  const [password, setPw]   = useState('');
+  const [notes, setNotes]   = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState('');
+  const [showPw, setShowPw] = useState(false);
+
+  const genPassword = () => {
+    // 16-char alphanumeric, no confusing chars
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+    const buf = new Uint8Array(16);
+    (window.crypto || (window as any).msCrypto).getRandomValues(buf);
+    let out = '';
+    for (let i = 0; i < 16; i++) out += alphabet[buf[i] % alphabet.length];
+    setPw(out);
+    setShowPw(true);
+  };
+
+  const doSave = async () => {
+    if (!name.trim()) { setErr('Введите название записи'); return; }
+    setSaving(true); setErr('');
+    try {
+      const res = await vaultUpsert({
+        name: name.trim(),
+        url: url.trim() || undefined,
+        username: username.trim() || undefined,
+        password: password || undefined,
+        notes: notes.trim() || undefined,
+        boundDeviceIds: [device.id],
+      } as any);
+      if (res.ok && res.id) {
+        onCreated(res.id);
+      } else {
+        setErr((res as any).locked ? 'Vault был заблокирован — повторите' : 'Не удалось сохранить');
+      }
+    } catch (e: any) {
+      setErr(e?.message || String(e));
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ background: '#D1FAE5', border: '1px solid #10B981', borderRadius: 8, padding: 10, fontSize: 11, color: '#065F46' }}>
-        Пароли шифруются AES-256-GCM с ключом из вашего мастер-пароля vault.
+    <div style={{
+      background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 10, padding: 12,
+      display: 'grid', gap: 10,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#334155',
+                    textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        Новая запись в vault
       </div>
 
-      <Field label="Имя пользователя (для схемы)">
-        <input value={c.username || ''} onChange={e => set({ username: e.target.value })} style={inputStyle} />
-      </Field>
+      <VaultField label="Название записи *">
+        <input value={name} onChange={e => setName(e.target.value)}
+               placeholder="Например: MikroTik ядро"
+               style={inputStyle} autoFocus />
+      </VaultField>
 
-      <Field label="Запись в vault">
-        {status === 'not-init' && (
-          <div style={{ fontSize: 11, opacity: 0.7 }}>
-            Vault не создан. Откройте <b>Vault</b> в левом тулбаре и придумайте мастер-пароль.
-          </div>
-        )}
-        {status === 'locked' && (
-          <button onClick={unlock} style={btnSecondary}>Разблокировать vault</button>
-        )}
-        {status === 'unlocked' && (
-          <select value={c.vaultItemId || ''} onChange={e => set({ vaultItemId: e.target.value || undefined })}
-                  style={inputStyle}>
-            <option value="">— не выбрано —</option>
-            {vaultItems.map(i => (
-              <option key={i.id} value={i.id}>
-                {i.folder ? `[${i.folder}] ` : ''}{i.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </Field>
+      <VaultField label="URL / mgmt-адрес">
+        <input value={url} onChange={e => setUrl(e.target.value)}
+               placeholder="https://192.168.1.1"
+               style={inputStyle} />
+      </VaultField>
 
-      {/* Vault auto-suggestions by IP / name / mgmtUrl */}
-      {status === 'unlocked' && !c.vaultItemId && (() => {
-        const matches = suggestVaultItems(device, vaultItems).slice(0, 3);
-        if (matches.length === 0) return null;
-        return (
-          <div style={{
-            background: '#1a2b3f', border: '1px solid #2563EB', borderRadius: 6,
-            padding: 8, display: 'grid', gap: 6,
-          }}>
-            <div style={{ fontSize: 10, opacity: 0.75, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-              Найдено в vault по IP / имени
-            </div>
-            {matches.map(m => {
-              const it = vaultItems.find(x => x.id === m.itemId);
-              if (!it) return null;
-              return (
-                <button key={m.itemId} onClick={() => set({ vaultItemId: m.itemId })}
-                        style={{
-                          background: '#FFFFFF', border: '1px solid #D1D5DB',
-                          color: '#111827', padding: '6px 8px', borderRadius: 4,
-                          cursor: 'pointer', textAlign: 'left', fontSize: 11,
-                          display: 'flex', alignItems: 'center', gap: 8,
-                        }}
-                        onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = '#F9FAFB'}
-                        onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF'}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {it.folder ? `[${it.folder}] ` : ''}{it.name}
-                    </div>
-                    <div style={{ fontSize: 9, opacity: 0.6 }}>Совпадение: {m.reason}</div>
-                  </div>
-                  <span style={{
-                    fontSize: 10, color: '#10B981', background: '#D1FAE5',
-                    padding: '2px 6px', borderRadius: 3, fontWeight: 600,
-                  }}>привязать</span>
-                </button>
-              );
-            })}
-          </div>
-        );
-      })()}
+      <VaultField label="Username">
+        <input value={username} onChange={e => setUser(e.target.value)}
+               placeholder="admin"
+               style={{ ...inputStyle, fontFamily: 'ui-monospace, monospace' }} />
+      </VaultField>
 
-      {linkedItem && (
-        <div style={{ background: '#F9FAFB', border: '1px solid #D1D5DB', borderRadius: 6, padding: 8, display: 'grid', gap: 6 }}>
-          <div style={{ fontSize: 10, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            Учётка: {linkedItem.name}
-          </div>
-          {linkedItem.username && (
-            <div style={{ display: 'flex', gap: 4 }}>
-              <input readOnly value={linkedItem.username} style={{ ...inputStyle, flex: 1, fontFamily: 'monospace' }} />
-              <button onClick={() => copy('user', linkedItem.username)} style={btnSecondary} title="Копировать имя">
-                {copyOK === 'user' ? '✓' : 'Копир'}
-              </button>
-            </div>
-          )}
-          {linkedItem.password && (
-            <div style={{ display: 'flex', gap: 4 }}>
-              <input readOnly type="password" value={linkedItem.password}
-                     style={{ ...inputStyle, flex: 1, fontFamily: 'monospace' }} />
-              <button onClick={() => copy('pw', linkedItem.password)} style={btnSecondary}
-                      title="Копировать пароль (авто-очистка через 20 сек)">
-                {copyOK === 'pw' ? '✓' : 'Копир'}
-              </button>
-            </div>
-          )}
-          {linkedItem.url && (
-            <a href={linkedItem.url} target="_blank" rel="noreferrer" style={linkBtn}>Открыть {linkedItem.url}</a>
-          )}
-          {/* v0.38: live TOTP chip if vault item has a 2FA secret */}
-          {linkedItem.hasTotp && (
-            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 10, color: '#64748B' }}>2FA:</span>
-              <TotpChip itemId={linkedItem.id} size="sm" />
-            </div>
-          )}
+      <VaultField label="Password">
+        <div style={{ display: 'flex', gap: 4 }}>
+          <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPw(e.target.value)}
+                 placeholder="••••••••"
+                 style={{ ...inputStyle, flex: 1, fontFamily: 'ui-monospace, monospace' }} />
+          <button onClick={() => setShowPw(!showPw)} title={showPw ? 'Скрыть' : 'Показать'}
+                  style={{ ...btnSecondary, padding: '6px 8px' }}>
+            {showPw ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-11-8-11-8a20.85 20.85 0 015.36-5.51"/><path d="M22.54 11.88A20.29 20.29 0 0012 4a10.86 10.86 0 00-2 .19"/><line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            )}
+          </button>
+          <button onClick={genPassword} title="Сгенерировать 16-символьный пароль"
+                  style={{ ...btnSecondary, padding: '6px 10px', fontWeight: 600 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M8 7h.01M12 7h.01M16 7h.01M8 12h.01M12 12h.01M16 12h.01M8 17h.01M12 17h.01M16 17h.01"/>
+            </svg>
+          </button>
         </div>
-      )}
+      </VaultField>
 
-      <Field label="Заметки">
-        <textarea value={c.notes || ''} onChange={e => set({ notes: e.target.value })}
-                  rows={3} style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical' }} />
-      </Field>
+      <VaultField label="Notes">
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                  placeholder="Например: доступ только с VLAN 10"
+                  style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical' }} />
+      </VaultField>
 
-      {/* v0.43.1: reverse-linked vault entries — records that have this
-          device in their boundDeviceIds[]. Complements the traditional
-          credential.vaultItemId link above. */}
-      <BoundVaultRecords deviceId={device.id} />
+      {err && <div style={{ fontSize: 11, color: '#DC2626' }}>{err}</div>}
+
+      <button onClick={doSave} disabled={saving || !name.trim()}
+              style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                       opacity: (saving || !name.trim()) ? 0.6 : 1 }}>
+        {saving && <MiniSpinner light />}{saving ? 'Сохраняем…' : 'Сохранить и привязать'}
+      </button>
     </div>
   );
 }
@@ -1776,15 +2159,25 @@ const linkBtn: React.CSSProperties = {
 // ports/links.
 
 import { VlanBadge } from './VlansPanel';
-import type { Vlan } from './types';
 
+/**
+ * v0.48 — VlansTab full rewrite. Adds:
+ *   • Explicit port mode dropdown (Access / Trunk / Hybrid / off)
+ *   • Native VLAN separately from allowed list for trunks
+ *   • Inline «+ Создать VLAN» form (no need to jump to left panel)
+ *   • Validation: access mode ignores allowed-list, trunk requires ≥1 tagged
+ *   • Bulk-mode dropdown: apply same access/trunk to all selected ports
+ *   • Live warnings when link.vlan doesn't match port.vlan
+ */
 function VlansTab({ device, update }: {
   device: Device;
   update: (id: string, p: Partial<Device>) => void;
 }) {
   const projectVlans = useStore(s => s.doc.vlans) || (EMPTY_VLANS as import('./types').Vlan[]);
+  const addVlan = useStore(s => s.addVlan);
   const links = useStore(s => s.doc.links);
   const [showAllPorts, setShowAllPorts] = useState(false);
+  const [creatingVlan, setCreatingVlan] = useState(false);
 
   // Collect distinct VLAN IDs referenced anywhere on this device
   const observed = new Set<number>();
@@ -1801,33 +2194,61 @@ function VlansTab({ device, update }: {
   const observedList = Array.from(observed).sort((a, b) => a - b);
   const vlanById = new Map(projectVlans.map(v => [v.vlanId, v]));
 
-  // If a huge switch with 48 ports — only show the ones with VLAN set, plus a "show all" toggle.
   const portsToShow = showAllPorts
     ? device.ports
-    : device.ports.filter(p => p.vlan != null || (p.vlans && p.vlans.length > 0));
+    : device.ports.filter(p => p.vlan != null || (p.vlans && p.vlans.length > 0) || p.vlanMode);
 
-  const setPortVlan = (portId: string, vlanId: number | undefined) => {
+  // ---- port mutators -----------------------------------------------------
+  const updatePort = (portId: string, patch: Partial<Port>) => {
     update(device.id, {
-      ports: device.ports.map(p => p.id === portId ? { ...p, vlan: vlanId } : p),
+      ports: device.ports.map(p => p.id === portId ? { ...p, ...patch } : p),
     });
   };
-  const togglePortTrunkVlan = (portId: string, vlanId: number) => {
-    update(device.id, {
-      ports: device.ports.map(p => {
-        if (p.id !== portId) return p;
-        const cur = new Set(p.vlans || []);
-        if (cur.has(vlanId)) cur.delete(vlanId); else cur.add(vlanId);
-        return { ...p, vlans: cur.size ? Array.from(cur).sort((a, b) => a - b) : undefined };
-      }),
+  const setPortMode = (portId: string, mode: PortVlanMode | undefined) => {
+    // Clean up incoherent fields when switching modes.
+    updatePort(portId, {
+      vlanMode: mode,
+      // If becoming pure access, drop allowed-list (kept native as PVID).
+      ...(mode === 'access' ? { vlans: undefined } : {}),
     });
+  };
+
+  // ---- inline VLAN creation ----------------------------------------------
+  const [newVlan, setNewVlan] = useState<{ id: string; name: string; cidr: string; color: string }>(() => {
+    const nextId = suggestNextVlanId(projectVlans);
+    return { id: String(nextId), name: '', cidr: '', color: vlanColorForIndex(projectVlans.length) };
+  });
+  useEffect(() => {
+    // Refresh suggested next id whenever projectVlans changes and form is not open.
+    if (!creatingVlan) {
+      setNewVlan(s => ({ ...s, id: String(suggestNextVlanId(projectVlans)),
+                                 color: vlanColorForIndex(projectVlans.length) }));
+    }
+  }, [projectVlans.length, creatingVlan]);
+  const doCreateVlan = () => {
+    const vlanId = parseInt(newVlan.id, 10);
+    if (!Number.isFinite(vlanId) || vlanId < 1 || vlanId > 4094) return;
+    if (projectVlans.some(v => v.vlanId === vlanId)) return; // already exists
+    addVlan({
+      id: `vlan-${vlanId}-${Math.random().toString(36).slice(2, 6)}`,
+      vlanId, name: newVlan.name || `VLAN ${vlanId}`,
+      cidr: newVlan.cidr || undefined,
+      color: newVlan.color,
+    });
+    setCreatingVlan(false);
   };
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      {/* Summary of VLANs seen on this device */}
+      {/* ============ Summary of VLANs seen on this device ============ */}
       <div>
-        <div style={{ fontSize: 10, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-          VLAN на устройстве
+        <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 6 }}>
+          <div style={{ fontSize: 10, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            VLAN на устройстве
+          </div>
+          <div style={{ marginLeft: 'auto', fontSize: 10, color: '#64748B' }}>
+            найдено: <b>{observedList.length}</b>
+          </div>
         </div>
         {observedList.length === 0 ? (
           <div style={{ fontSize: 11, opacity: 0.55, padding: '8px 10px',
@@ -1838,15 +2259,26 @@ function VlansTab({ device, update }: {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {observedList.map(vid => {
               const v = vlanById.get(vid);
+              const isDefined = !!v;
               return (
                 <div key={vid} style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '4px 8px 4px 4px',
-                  background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 999,
-                }}>
+                  padding: '4px 10px 4px 4px',
+                  background: isDefined ? '#FFFFFF' : '#FEF2F2',
+                  border: `1px solid ${isDefined ? '#D1D5DB' : '#FCA5A5'}`,
+                  borderRadius: 999,
+                }}
+                title={isDefined ? (v?.cidr || '') : 'Не определён в проекте — клик чтобы добавить'}
+                onClick={() => {
+                  if (!isDefined) {
+                    setNewVlan(s => ({ ...s, id: String(vid), name: `VLAN ${vid}` }));
+                    setCreatingVlan(true);
+                  }
+                }}
+                >
                   <VlanBadge id={vid} color={v?.color || '#6B7280'} size="sm" />
                   <span style={{ fontSize: 11, color: '#111827' }}>
-                    {v?.name || '(не в проекте)'}
+                    {v?.name || '(добавить в проект)'}
                   </span>
                 </div>
               );
@@ -1855,17 +2287,71 @@ function VlansTab({ device, update }: {
         )}
       </div>
 
-      {projectVlans.length === 0 && (
+      {/* ============ Inline VLAN creator ============ */}
+      <div>
+        {!creatingVlan ? (
+          <button onClick={() => setCreatingVlan(true)} style={{
+            ...btnSecondary, display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Создать VLAN
+          </button>
+        ) : (
+          <div style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 8, padding: 10, display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Новый VLAN в проекте
+              </div>
+              <button onClick={() => setCreatingVlan(false)} style={{
+                marginLeft: 'auto', background: 'transparent', border: 'none', color: '#94A3B8',
+                cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 2,
+              }}>✕</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 6 }}>
+              <input value={newVlan.id} onChange={e => setNewVlan(s => ({ ...s, id: e.target.value.replace(/\D/g, '') }))}
+                     placeholder="ID" style={{ ...inputStyle, fontFamily: 'ui-monospace, monospace', textAlign: 'center' }}
+                     maxLength={4} />
+              <input value={newVlan.name} onChange={e => setNewVlan(s => ({ ...s, name: e.target.value }))}
+                     placeholder="Имя (например GUEST)" style={inputStyle} />
+            </div>
+            <input value={newVlan.cidr} onChange={e => setNewVlan(s => ({ ...s, cidr: e.target.value }))}
+                   placeholder="CIDR: 192.168.20.0/24 (необязательно)" style={inputStyle} />
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: '#64748B', marginRight: 4 }}>Цвет:</span>
+              {VLAN_COLORS.slice(0, 9).map(c => (
+                <button key={c} onClick={() => setNewVlan(s => ({ ...s, color: c }))}
+                        style={{
+                          width: 20, height: 20, borderRadius: '50%', background: c,
+                          border: newVlan.color === c ? '2px solid #0F172A' : '2px solid transparent',
+                          cursor: 'pointer',
+                        }} />
+              ))}
+            </div>
+            {parseInt(newVlan.id, 10) > 0 && projectVlans.some(v => v.vlanId === parseInt(newVlan.id, 10)) && (
+              <div style={{ fontSize: 10, color: '#DC2626' }}>VLAN {newVlan.id} уже существует в проекте</div>
+            )}
+            <button onClick={doCreateVlan}
+                    disabled={!newVlan.id || projectVlans.some(v => v.vlanId === parseInt(newVlan.id, 10))}
+                    style={{ ...btnPrimary, opacity: (!newVlan.id) ? 0.5 : 1 }}>
+              Добавить VLAN
+            </button>
+          </div>
+        )}
+      </div>
+
+      {projectVlans.length === 0 && !creatingVlan && (
         <div style={{
           padding: 10, background: '#FEF3C7', border: '1px solid #D97706',
           color: '#78350F', borderRadius: 6, fontSize: 11,
         }}>
-          В проекте ещё нет VLAN. Откройте <b>VLAN</b> в левой панели и добавьте — тогда сможете
-          назначать их на порты этого устройства.
+          В проекте нет VLAN. Нажмите <b>Создать VLAN</b> выше — можно назначать на порты.
         </div>
       )}
 
-      {/* Per-port VLAN table */}
+      {/* ============ Per-port VLAN table ============ */}
       {projectVlans.length > 0 && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
@@ -1886,13 +2372,13 @@ function VlansTab({ device, update }: {
               Порты без VLAN. Нажмите «Все N портов» чтобы назначить.
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: 4 }}>
+            <div style={{ display: 'grid', gap: 6 }}>
               {portsToShow.map(p => (
-                <PortVlanRow key={p.id}
+                <PortVlanRowV2 key={p.id}
                              port={p}
                              projectVlans={projectVlans}
-                             onSetAccess={vid => setPortVlan(p.id, vid)}
-                             onToggleTrunk={vid => togglePortTrunkVlan(p.id, vid)} />
+                             updatePort={(patch) => updatePort(p.id, patch)}
+                             setMode={(mode) => setPortMode(p.id, mode)} />
               ))}
             </div>
           )}
@@ -1902,40 +2388,82 @@ function VlansTab({ device, update }: {
   );
 }
 
-function PortVlanRow({ port, projectVlans, onSetAccess, onToggleTrunk }: {
+/**
+ * v0.48 — new per-port row with explicit mode dropdown, native VLAN, and
+ * mode-aware controls. Supersedes PortVlanRow.
+ */
+function PortVlanRowV2({ port, projectVlans, updatePort, setMode }: {
   port: Port;
   projectVlans: Vlan[];
-  onSetAccess: (vlanId: number | undefined) => void;
-  onToggleTrunk: (vlanId: number) => void;
+  updatePort: (patch: Partial<Port>) => void;
+  setMode: (mode: PortVlanMode | undefined) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isTrunk = (port.vlans?.length || 0) > 0;
   const vlanById = new Map(projectVlans.map(v => [v.vlanId, v]));
+
+  // Effective mode: explicit → use it. Legacy: trunk if vlans[] non-empty.
+  const mode: PortVlanMode | undefined = port.vlanMode
+    ?? ((port.vlans && port.vlans.length > 0) ? 'trunk' : (port.vlan != null ? 'access' : undefined));
+
   const accessVlan = port.vlan != null ? vlanById.get(port.vlan) : null;
+  const nativeVlan = mode === 'trunk' && port.vlan != null ? vlanById.get(port.vlan) : null;
+
+  const modeColors: Record<PortVlanMode, { bg: string; fg: string; label: string }> = {
+    access:  { bg: '#DBEAFE', fg: '#1D4ED8', label: 'Access' },
+    trunk:   { bg: '#F3E8FF', fg: '#7E22CE', label: 'Trunk' },
+    hybrid:  { bg: '#FEF3C7', fg: '#92400E', label: 'Hybrid' },
+  };
 
   return (
     <div style={{ background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 6, overflow: 'hidden' }}>
       <div onClick={() => setExpanded(v => !v)}
-           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer' }}>
+           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', cursor: 'pointer' }}>
         <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: '#111827',
-                       minWidth: 50, fontWeight: 600 }}>
+                       minWidth: 46, fontWeight: 700 }}>
           {port.id.toUpperCase()}
         </span>
-        <span style={{ fontSize: 10, opacity: 0.5, minWidth: 44 }}>
-          {port.type || 'RJ45'}
-        </span>
-        <div style={{ flex: 1, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-          {accessVlan && <VlanBadge id={accessVlan.vlanId} color={accessVlan.color} size="sm" />}
-          {isTrunk && (
+        {mode && (
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: 0.4,
+            padding: '2px 6px', borderRadius: 999,
+            background: modeColors[mode].bg, color: modeColors[mode].fg,
+          }}>{modeColors[mode].label.toUpperCase()}</span>
+        )}
+        <div style={{ flex: 1, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
+          {mode === 'access' && accessVlan && (
+            <VlanBadge id={accessVlan.vlanId} color={accessVlan.color} size="sm" />
+          )}
+          {mode === 'trunk' && (
             <>
-              <span style={{ fontSize: 9, opacity: 0.6, marginLeft: 4 }}>trunk:</span>
+              {nativeVlan && (
+                <span title="Native VLAN (untagged)" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                  padding: '1px 5px', borderRadius: 4,
+                  background: '#F1F5F9', fontSize: 9, color: '#475569',
+                }}>
+                  <span style={{ fontWeight: 700 }}>native:</span>
+                  <VlanBadge id={nativeVlan.vlanId} color={nativeVlan.color} size="sm" />
+                </span>
+              )}
               {(port.vlans || []).map(vid => {
                 const v = vlanById.get(vid);
                 return <VlanBadge key={vid} id={vid} color={v?.color || '#6B7280'} size="sm" />;
               })}
             </>
           )}
-          {!accessVlan && !isTrunk && (
+          {mode === 'hybrid' && (
+            <>
+              {accessVlan && <VlanBadge id={accessVlan.vlanId} color={accessVlan.color} size="sm" />}
+              {(port.vlans || []).length > 0 && (
+                <span style={{ fontSize: 9, opacity: 0.6, marginLeft: 4 }}>+ tagged:</span>
+              )}
+              {(port.vlans || []).map(vid => {
+                const v = vlanById.get(vid);
+                return <VlanBadge key={vid} id={vid} color={v?.color || '#6B7280'} size="sm" />;
+              })}
+            </>
+          )}
+          {!mode && (
             <span style={{ fontSize: 10, opacity: 0.4, fontStyle: 'italic' }}>без VLAN</span>
           )}
         </div>
@@ -1943,48 +2471,133 @@ function PortVlanRow({ port, projectVlans, onSetAccess, onToggleTrunk }: {
       </div>
 
       {expanded && (
-        <div style={{ borderTop: '1px solid #E5E7EB', padding: 8, display: 'grid', gap: 8 }}>
-          {/* Access VLAN dropdown */}
+        <div style={{ borderTop: '1px solid #E5E7EB', padding: 10, display: 'grid', gap: 10, background: '#F8FAFC' }}>
+          {/* Mode selector */}
           <div>
-            <div style={{ fontSize: 10, opacity: 0.6, marginBottom: 4 }}>Access / PVID</div>
-            <select value={port.vlan ?? ''}
-                    onChange={e => onSetAccess(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                    style={{ ...inputStyle, width: '100%' }}>
-              <option value="">— не задан —</option>
-              {projectVlans.map(v => (
-                <option key={v.id} value={v.vlanId}>
-                  VLAN {v.vlanId} · {v.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Trunk VLANs — toggle chips */}
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.6, marginBottom: 4 }}>Trunk (разрешённые VLAN)</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {projectVlans.map(v => {
-                const on = (port.vlans || []).includes(v.vlanId);
+            <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+              Режим порта
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+              {(['off', 'access', 'trunk', 'hybrid'] as const).map(m => {
+                const isOff = m === 'off';
+                const active = isOff ? !mode : mode === m;
+                const modeVal = isOff ? undefined : (m as PortVlanMode);
+                const info: Record<string, { label: string; bg: string; fg: string }> = {
+                  off:    { label: 'Off',     bg: '#F1F5F9', fg: '#64748B' },
+                  access: { label: 'Access',  bg: '#DBEAFE', fg: '#1D4ED8' },
+                  trunk:  { label: 'Trunk',   bg: '#F3E8FF', fg: '#7E22CE' },
+                  hybrid: { label: 'Hybrid',  bg: '#FEF3C7', fg: '#92400E' },
+                };
+                const c = info[m];
                 return (
-                  <button key={v.id} onClick={() => onToggleTrunk(v.vlanId)}
-                          style={{
-                            padding: '3px 8px', borderRadius: 999,
-                            border: `1px solid ${on ? v.color : '#D1D5DB'}`,
-                            background: on ? v.color : 'transparent',
-                            color: on ? '#FFFFFF' : '#6B7280',
-                            fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                            fontFamily: 'ui-monospace, monospace',
-                          }}>
-                    {v.vlanId}
-                  </button>
+                  <button key={m}
+                    onClick={() => {
+                      if (isOff) {
+                        // Clear mode + VLAN state entirely
+                        updatePort({ vlanMode: undefined, vlan: undefined, vlans: undefined });
+                      } else {
+                        setMode(modeVal);
+                      }
+                    }}
+                    style={{
+                      padding: '5px 8px', borderRadius: 5,
+                      border: `1px solid ${active ? c.fg : '#D1D5DB'}`,
+                      background: active ? c.bg : '#FFFFFF',
+                      color: active ? c.fg : '#475569',
+                      fontSize: 11, fontWeight: active ? 700 : 500, cursor: 'pointer',
+                    }}>{c.label}</button>
                 );
               })}
             </div>
+            <div style={{ fontSize: 10, color: '#64748B', marginTop: 5, minHeight: 26 }}>
+              {mode === 'access' && 'Один untagged VLAN. Порт для конечного устройства (PC / IP-камера / принтер).'}
+              {mode === 'trunk'  && 'Несколько tagged VLAN. Обычно uplink между свитчами. Native = untagged.'}
+              {mode === 'hybrid' && 'Один untagged + несколько tagged. Используется на Cisco/HP для смешанных портов.'}
+              {!mode && 'Порт без VLAN — трафик default VLAN 1.'}
+            </div>
           </div>
+
+          {/* Access VLAN or Native VLAN (depends on mode) */}
+          {(mode === 'access' || mode === 'trunk' || mode === 'hybrid') && (
+            <div>
+              <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                {mode === 'access' ? 'Access VLAN (untagged)' :
+                 mode === 'trunk'  ? 'Native VLAN (untagged на trunk)' :
+                                     'Untagged (access-часть hybrid)'}
+              </div>
+              <select value={port.vlan ?? ''}
+                      onChange={e => updatePort({ vlan: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                      style={{ ...inputStyle, width: '100%' }}>
+                <option value="">— не задан —</option>
+                {projectVlans.map(v => (
+                  <option key={v.id} value={v.vlanId}>VLAN {v.vlanId} · {v.name}{v.cidr ? ` · ${v.cidr}` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Trunk allowed list — only for trunk/hybrid */}
+          {(mode === 'trunk' || mode === 'hybrid') && (
+            <div>
+              <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Tagged VLAN (allowed list)
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {projectVlans.map(v => {
+                  const on = (port.vlans || []).includes(v.vlanId);
+                  const isNative = port.vlan === v.vlanId;
+                  return (
+                    <button key={v.id}
+                            title={isNative ? 'Этот VLAN уже native (untagged) — обычно не добавляют в allowed' : (v.cidr || v.name)}
+                            onClick={() => {
+                              const cur = new Set(port.vlans || []);
+                              if (cur.has(v.vlanId)) cur.delete(v.vlanId); else cur.add(v.vlanId);
+                              updatePort({ vlans: cur.size ? Array.from(cur).sort((a, b) => a - b) : undefined });
+                            }}
+                            style={{
+                              padding: '4px 9px', borderRadius: 999,
+                              border: `1.5px solid ${on ? v.color : '#D1D5DB'}`,
+                              background: on ? v.color : 'transparent',
+                              color: on ? '#FFFFFF' : '#6B7280',
+                              fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                              fontFamily: 'ui-monospace, monospace',
+                              opacity: isNative && on ? 0.75 : 1,
+                            }}>
+                      {v.vlanId}
+                    </button>
+                  );
+                })}
+              </div>
+              {mode === 'trunk' && (port.vlans || []).length === 0 && (
+                <div style={{ fontSize: 10, color: '#DC2626', marginTop: 5 }}>
+                  Trunk без tagged VLAN — фактически то же самое, что access-порт с native.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Delete port button — kept minimal */}
+          {port.notes != null && (
+            <div>
+              <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 4 }}>Заметки</div>
+              <input value={port.notes || ''} onChange={e => updatePort({ notes: e.target.value })}
+                     placeholder="Куда идёт кабель…" style={{ ...inputStyle, width: '100%' }} />
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+/** Suggest next unused VLAN id — 10, 20, 30, … then jumps to next free integer. */
+function suggestNextVlanId(existing: Vlan[]): number {
+  const set = new Set(existing.map(v => v.vlanId));
+  for (const seed of [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]) {
+    if (!set.has(seed)) return seed;
+  }
+  for (let i = 1; i < 4094; i++) if (!set.has(i)) return i;
+  return 1;
 }
 
 // -----------------------------------------------------------------------------
