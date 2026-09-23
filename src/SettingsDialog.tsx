@@ -54,19 +54,18 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
       <div onClick={e => e.stopPropagation()} style={card}>
         <div style={header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>⚙</span>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Настройки</div>
           </div>
-          <button onClick={onClose} style={closeBtn}>✕</button>
+          <button onClick={onClose} style={closeBtn}>×</button>
         </div>
 
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div style={sidebar}>
-            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="⚙" label="Общие" />
-            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="📡" label="Мониторинг" />
-            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="🔔" label="Уведомления" />
-            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="🔒" label="Безопасность" />
-            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="ℹ" label="О программе" />
+            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="•" label="Общие" />
+            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="◌" label="Мониторинг" />
+            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="!" label="Уведомления" />
+            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="□" label="Безопасность" />
+            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="i" label="О программе" />
           </div>
           <div style={content}>
             {tab === 'general' && <GeneralTab />}
@@ -86,12 +85,30 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
 // General
 // ------------------------------------------------------------------------
 function GeneralTab() {
+  const [uiScale, setUiScale] = useState(() => {
+    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+  });
+  const changeUiScale = (value: number) => {
+    const next = Math.max(0.8, Math.min(1.25, value));
+    setUiScale(next);
+    try { localStorage.setItem('netmap:uiScale', String(next)); } catch {}
+    window.dispatchEvent(new CustomEvent('netmap:ui-scale', { detail: { value: next } }));
+  };
   const snap = useStore(s => s.snapToGrid);
   const toggleSnap = useStore(s => s.toggleSnap);
   const showGrid = useStore(s => s.showGrid);
   const toggleGrid = useStore(s => s.toggleGrid);
   const focusRelated = useStore(s => s.focusRelated);
   const toggleFocusRelated = useStore(s => s.toggleFocusRelated);
+  const [disableMapAnimations, setDisableMapAnimations] = useState(() => {
+    try { return localStorage.getItem('netmap:disableMapAnimations') === '1'; } catch { return false; }
+  });
+  const toggleMapAnimations = () => {
+    const disabled = !disableMapAnimations;
+    setDisableMapAnimations(disabled);
+    try { localStorage.setItem('netmap:disableMapAnimations', disabled ? '1' : '0'); } catch {}
+    window.dispatchEvent(new CustomEvent('netmap:map-motion', { detail: { disabled } }));
+  };
   const viewMode = useStore(s => s.viewMode);
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
@@ -122,6 +139,26 @@ function GeneralTab() {
           />
         )}
       </Section>
+      <Section title="Интерфейс">
+        <Field label="Масштаб всего интерфейса" hint="Настройка применяется ко всем панелям, меню и кнопкам программы.">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="range" min="0.8" max="1.25" step="0.05"
+                   value={uiScale} onChange={e => changeUiScale(Number(e.target.value))}
+                   style={{ flex: 1 }} />
+            <span style={{ minWidth: 48, textAlign: 'right', fontSize: 12, color: '#111827' }}>
+              {Math.round(uiScale * 100)}%
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            {[0.8, 1, 1.15, 1.25].map(value => (
+              <button key={value} onClick={() => changeUiScale(value)} style={{
+                ...smallScaleBtn, borderColor: uiScale === value ? '#2563EB' : '#D1D5DB',
+                color: uiScale === value ? '#1D4ED8' : '#374151',
+              }}>{Math.round(value * 100)}%</button>
+            ))}
+          </div>
+        </Field>
+      </Section>
       <Section title="Канвас">
         <Toggle label="Прилипание к сетке (Snap to grid)"
                 sub="Устройства выравниваются по сетке 20 px"
@@ -132,6 +169,9 @@ function GeneralTab() {
         <Toggle label="Фокус связанных при hover"
                 sub="Наведение на устройство приглушает несвязанные кабели и карточки"
                 checked={focusRelated} onChange={toggleFocusRelated} />
+        <Toggle label="Отключить анимации на карте"
+                sub="Отключает переходы, анимации и плавное перемещение Canvas"
+                checked={disableMapAnimations} onChange={toggleMapAnimations} />
       </Section>
       <OrphanGridSection />
     </>
@@ -271,7 +311,7 @@ function NotifyTab() {
     <>
       <Section title="Каналы доставки">
         <Toggle label="Показывать в панели уведомлений"
-                sub="Значок 🔔 в верхней панели"
+                sub="Значок Уведомления в верхней панели"
                 checked={settings.inApp}
                 onChange={v => update({ inApp: v })} />
         <Toggle label="Системные Windows toast'ы"
@@ -384,7 +424,7 @@ function SecurityTab() {
         </div>
         {status && (
           <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 12 }}>
-            Статус: {status.initialized ? (status.unlocked ? '🔓 разблокирован' : '🔒 заблокирован') : 'не создан'}
+            Статус: {status.initialized ? (status.unlocked ? '🔓 разблокирован' : 'Безопасность заблокирован') : 'не создан'}
             {' · '}записей: {status.itemCount}
           </div>
         )}
@@ -631,6 +671,10 @@ const inputStyle: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #D1D5DB', color: '#111827',
   padding: '6px 10px', borderRadius: 6, fontSize: 12, outline: 'none',
   width: '100%',
+};
+const smallScaleBtn: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 5,
+  padding: '4px 8px', cursor: 'pointer', fontSize: 10,
 };
 const primaryBtn: React.CSSProperties = {
   background: '#2563EB', border: 'none', color: '#FFFFFF',

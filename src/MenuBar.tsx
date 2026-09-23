@@ -374,12 +374,12 @@ function MonitorMenu({ onClose }: { onClose: () => void }) {
 function HelpMenu({ onClose }: { onClose: () => void }) {
   return (
     <>
-      <Item icon="🎓" label="Показать введение (onboarding)…" shortcut=""
+      <Item label="Показать введение (onboarding)…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-onboarding')); }} />
-      <Item icon="?" label="Помощь · горячие клавиши" shortcut="F1"
+      <Item label="Помощь · горячие клавиши" shortcut="F1"
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'help' } })); }} />
       <Separator />
-      <Item icon="⇩" label="Проверить обновления…" shortcut=""
+      <Item label="Проверить обновления…" shortcut=""
             onClick={async () => {
               onClose();
               try {
@@ -395,10 +395,10 @@ function HelpMenu({ onClose }: { onClose: () => void }) {
                 useStore.getState().pushAlert({ severity: 'warn', origin: 'app', title: 'Проверка обновлений', message: e?.message || String(e) });
               }
             }} />
-      <Item icon="⚙" label="Настройки…" shortcut=""
+      <Item label="Настройки…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings' } })); }} />
       <Separator />
-      <Item icon="ℹ" label="О программе" shortcut=""
+      <Item label="О программе" shortcut=""
             onClick={() => {
               onClose();
               window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings' } }));
@@ -467,7 +467,7 @@ function OrphanGridInline() {
 }
 
 function Item({ icon, label, shortcut, onClick, disabled, danger }: {
-  icon: string; label: string; shortcut: string;
+  icon?: string; label: string; shortcut: string;
   onClick: () => void; disabled?: boolean; danger?: boolean;
 }) {
   return (
@@ -483,7 +483,7 @@ function Item({ icon, label, shortcut, onClick, disabled, danger }: {
       onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = '#F1F5F9'; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
     >
-      <span style={{ width: 14, textAlign: 'center', fontSize: 11 }}>{icon}</span>
+      {icon && <span style={{ width: 14, textAlign: 'center', fontSize: 11 }}>{icon}</span>}
       <span style={{ flex: 1 }}>{label}</span>
       {shortcut && <span style={{ fontSize: 10, color: '#94A3B8' }}>{shortcut}</span>}
     </button>

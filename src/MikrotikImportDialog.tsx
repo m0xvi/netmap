@@ -33,6 +33,19 @@ interface Props {
   onClose: () => void;
 }
 
+type MatchField = 'name' | 'mac' | 'ip';
+type GroupMode = 'single' | 'subnet' | 'type' | 'none';
+type PlacementMode = 'right' | 'below';
+interface ImportConfig {
+  groupMode: GroupMode;
+  groupName: string;
+  placement: PlacementMode;
+  matchFields: MatchField[];
+  conflictAction: 'skip' | 'update' | 'replace';
+  linkTargets: Record<string, string>;
+  linkPorts: Record<string, string>;
+}
+
 const LS_LAST = 'netmap:mikrotik:last-cfg';
 const VAULT_FOLDER = 'MikroTik';   // convention — items in this folder are surfaced as credentials pickers
 
@@ -153,6 +166,11 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   /** v0.38: per-row action override — keys are MAC, values are 'add' | 'skip'
    *  | 'update' | 'replace'. Rows not present use defaultAction(row). */
   const [actions, setActions] = useState<Map<string, ImportAction>>(() => new Map());
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [importConfig, setImportConfig] = useState<ImportConfig>({
+    groupMode: 'single', groupName: '', placement: 'right', matchFields: ['mac', 'ip', 'name'],
+    conflictAction: 'skip', linkTargets: {}, linkPorts: {},
+  });
   const subnetStats = useMemo(() => scan ? summarizeSubnets(scan) : [], [scan]);
   const activeCidrs = useMemo(
     () => subnetStats.filter(s => !excludedCidrs.has(s.cidr)).map(s => s.cidr),
@@ -368,9 +386,26 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   };
 
   const doImport = async () => {
+    if (effectiveSelected.size === 0) return;
+    const defaultName = scan?.resource.identity || scan?.resource.boardName || 'MikroTik';
+    setImportConfig(prev => ({ ...prev, groupName: prev.groupName || `Импорт · ${defaultName}` }));
+    setReviewOpen(true);
+  };
+
+  const executeImport = async (config: ImportConfig) => {
+    // Capture one snapshot so the whole import can be reverted with one Ctrl+Z.
+    const importHistoryStart = useStore.getState().history.length;
+    const importBeforeDoc = useStore.getState().doc;
+    const collapseImportHistory = () => {
+      const afterImport = useStore.getState();
+      if (afterImport.history.length > importHistoryStart) {
+        const priorHistory = afterImport.history.slice(0, importHistoryStart);
+        useStore.setState({ history: [...priorHistory, importBeforeDoc].slice(-50), future: [] });
+      }
+    };
     // v0.38: gate on effective selection so exclusions are honoured.
     if (effectiveSelected.size === 0) return;
-    // v0.36.0: classify by subnet.
+    // v0.36.0: classify on the configured grouping strategy.
     // 1. For every selected row, figure out which CIDR its IP belongs to
     //    (from the router-declared /ip address list, subnetStats already
     //    computed this for us).
@@ -409,25 +444,69 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     // otherwise create fresh. We STORE cidr in subtitle so future imports
     // can find the same group.
     const existingGroups = doc.groups || [];
+    // Placement must also apply to groups. Previously only orphan devices used
+    // this setting; the delayed auto-layout then moved grouped hosts into a row.
+    const groupById = new Map(existingGroups.map(g => [g.id, g]));
+    const deviceRight = doc.devices.reduce((max, d) => {
+      const g = d.groupId ? groupById.get(d.groupId) : undefined;
+      return Math.max(max, (g?.x || 0) + d.x + 180);
+    }, 0);
+    const deviceBottom = doc.devices.reduce((max, d) => {
+      const g = d.groupId ? groupById.get(d.groupId) : undefined;
+      return Math.max(max, (g?.y || 0) + d.y + 120);
+    }, 0);
+    const groupRight = existingGroups.reduce((max, g) => Math.max(max, g.x + g.width), 0);
+    const groupBottom = existingGroups.reduce((max, g) => Math.max(max, g.y + g.height), 0);
+    const importBaseX = Math.max(deviceRight, groupRight, 0) + 260;
+    const importBaseY = Math.max(deviceBottom, groupBottom, 0) + 300;
+    let importGroupIndex = 0;
+    let configuredGroupId: string | null = null;
+    // Keep groups created during this import in memory; the document snapshot
+    // above cannot see later addGroup calls.
+    const createdGroups = new Map<string, string>();
     const findOrCreateGroup = (cidr: string | null): string => {
-      const label = cidr || 'Без IP';
+      if (config.groupMode === 'none') return '';
+      if (config.groupMode === 'single') {
+        if (configuredGroupId) return configuredGroupId;
+        const existing = existingGroups.find(g => g.name === config.groupName);
+        if (existing) { configuredGroupId = existing.id; return existing.id; }
+        const gid = 'g-mikrotik-' + Math.random().toString(36).slice(2, 8);
+        addGroup({ id: gid, name: config.groupName || 'Импорт MikroTik', parentId: null,
+          x: config.placement === 'below' ? importBaseX - 80 : importBaseX,
+          y: config.placement === 'below' ? importBaseY : 80,
+          width: 720, height: 420, color: '#2563EB', subtitle: 'mikrotik-import' });
+        configuredGroupId = gid;
+        return gid;
+      }
+      const label = config.groupMode === 'type' ? (cidr || 'unknown') : (cidr || 'Без IP');
       const stat = cidr ? subnetStats.find(s => s.cidr === cidr) : null;
       // Prefer router-provided name (interface / comment) when available.
-      const humanName = cidr
-        ? (stat?.comment && stat.comment.length < 30 ? stat.comment
-           : stat?.interfaces && stat.interfaces[0] ? `${stat.interfaces[0]} · ${cidr}`
-           : `Подсеть ${cidr}`)
-        : 'Без IP';
+      const humanName = config.groupMode === 'type'
+        ? `Тип: ${cidr || 'unknown'}`
+        : cidr
+          ? (stat?.comment && stat.comment.length < 30 ? stat.comment
+             : stat?.interfaces && stat.interfaces[0] ? `${stat.interfaces[0]} · ${cidr}`
+             : `Подсеть ${cidr}`)
+          : 'Без IP';
 
       // Match strategy: subtitle exactly equals CIDR (or 'Без IP').
+      const created = createdGroups.get(label);
+      if (created) return created;
       const existing = existingGroups.find(g => g.subtitle === label);
       if (existing) return existing.id;
 
       const gid = 'g-net-' + (cidr ? cidr.replace(/[^\w]/g, '-') : 'noip') + '-' + Math.random().toString(36).slice(2, 5);
+      importGroupIndex++;
+      createdGroups.set(label, gid);
       addGroup({
         id: gid, name: humanName, parentId: null,
-        x: 40 + Math.random() * 200, y: 40 + Math.random() * 100,
-        width: 560, height: 260,
+          x: config.placement === 'below'
+            ? importBaseX - 220 + (importGroupIndex % 3) * 620
+            : importBaseX + (importGroupIndex % 3) * 620,
+          y: config.placement === 'below'
+            ? importBaseY + Math.floor(importGroupIndex / 3) * 340
+            : 80 + Math.floor(importGroupIndex / 3) * 340,
+          width: 560, height: 260,
         color: cidr ? colorFor(cidr) : '#94A3B8',
         subtitle: label,
       });
@@ -457,18 +536,40 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     };
 
     let placed = 0;
+    let linkedWithPort = 0;
+    let linksWithoutPort = 0;
+    // Ports selected as "auto" are reserved during this import so two
+    // imported hosts cannot silently receive the same switch port.
+    const reservedImportPorts = new Map<string, Set<string>>();
+    const portForLink = (targetId: string, requested?: string): string | undefined => {
+      const target = doc.devices.find(d => d.id === targetId);
+      if (!target) return requested;
+      const reserved = reservedImportPorts.get(targetId) || new Set<string>();
+      const occupied = new Set<string>();
+      for (const link of doc.links || []) {
+        if (link.fromDeviceId === targetId && link.fromPortId) occupied.add(link.fromPortId);
+        if (link.toDeviceId === targetId && link.toPortId) occupied.add(link.toPortId);
+      }
+      const chosen = requested || target.ports.find(port => !occupied.has(port.id) && !reserved.has(port.id))?.id;
+      if (chosen) { reserved.add(chosen); reservedImportPorts.set(targetId, reserved); }
+      return chosen;
+    };
     let updated = 0;
     let replaced = 0;
     let skipped = 0;
     for (const row of filtered) {
       // v0.38: obey both effective selection AND per-row action override.
       if (!effectiveSelected.has(row.mac)) continue;
-      const action: ImportAction = actions.get(row.mac) ?? defaultAction(row);
+      const matching = findConfiguredMatch(row, config.matchFields, doc.devices);
+      const matchedId = row.existingId || matching?.id;
+      const action: ImportAction = matchedId
+        ? (actions.get(row.mac) ?? config.conflictAction)
+        : (actions.get(row.mac) ?? defaultAction(row));
 
       if (action === 'skip') { skipped++; continue; }
 
-      if (row.existingId && (action === 'update' || action === 'replace')) {
-        const existing = doc.devices.find(d => d.id === row.existingId);
+      if (matchedId && (action === 'update' || action === 'replace')) {
+        const existing = doc.devices.find(d => d.id === matchedId);
         const patch: Partial<Device> = {};
         if (action === 'replace') {
           if (row.ip) patch.ip = row.ip;
@@ -499,7 +600,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
         tags.add('mtk-synced');
         patch.tags = Array.from(tags);
         if (Object.keys(patch).length > 0) {
-          updateDevice(row.existingId, patch);
+          updateDevice(matchedId, patch);
           if (action === 'replace') replaced++;
           else updated++;
         } else {
@@ -513,8 +614,12 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       const name = row.hostname || row.vendor || `Device ${row.mac.slice(-8)}`;
       const id = `${row.suggestedKind}-${Math.random().toString(36).slice(2, 7)}`;
       const cidr = cidrOf(row.ip);
-      const gid = findOrCreateGroup(cidr);
-      const pos = nextPos(gid);
+      const gid = findOrCreateGroup(
+        config.groupMode === 'subnet' ? cidr
+          : config.groupMode === 'type' ? row.suggestedKind
+          : null
+      );
+      const pos = gid ? nextPos(gid) : nextUnattachedPosition(doc.devices, placed, config.placement);
       const ports: Port[] = [{
         id: 'lan', label: '', type: 'RJ45',
         speed: '1G', status: row.ip ? 'up' : 'down',
@@ -523,11 +628,23 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       const d: Device = {
         id, name, kind: row.suggestedKind,
         vendor: row.vendor, ip: row.ip || undefined, mac: row.mac,
-        display: 'compact', groupId: gid,
+        display: 'compact', ...(gid ? { groupId: gid } : {}),
         x: pos.x, y: pos.y,
         ports, tags: ['imported', 'dhcp', cidrTag],
       };
       addDevice(d);
+      const targetId = config.linkTargets[row.mac];
+      if (targetId) {
+        const linkPortId = portForLink(targetId, config.linkPorts[row.mac]);
+        useStore.getState().addLink({
+          id: `link-mikrotik-${Math.random().toString(36).slice(2, 9)}`,
+          fromDeviceId: targetId,
+          fromPortId: linkPortId,
+          toDeviceId: id, toPortId: 'lan',
+          cable: 'copper', label: 'MikroTik import',
+        });
+        if (linkPortId) linkedWithPort++; else linksWithoutPort++;
+      }
       placed++;
     }
     const summary = [
@@ -537,15 +654,13 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       skipped > 0 ? `пропущено ${skipped}` : null,
     ].filter(Boolean).join(', ') || 'без изменений';
 
-    // v0.23: if new devices were added, run auto-layout so the new group
-    // slots into the hierarchy cleanly instead of overlapping existing devices.
-    if (placed > 0) {
-      // Give React a tick to commit the addDevice / addGroup writes, then layout.
-      setTimeout(() => {
-        // v0.45: use smart hybrid grouping for imported topologies.
-        try { useStore.getState().autoLayout('TB', { groupBy: 'hybrid' }); } catch { /* ignore */ }
-      }, 100);
-    }
+    const connectionInfo = linkedWithPort > 0 || linksWithoutPort > 0
+      ? ` подключений: ${linkedWithPort} с портом${linksWithoutPort ? `, ${linksWithoutPort} без свободного порта` : ''}.`
+      : '';
+
+    // The import grid already honors the chosen placement. Running auto-layout
+    // here used to ignore "Ниже текущей карты" and collapse hosts into a row.
+    if (placed > 0) setTimeout(collapseImportHistory, 100);
 
     // v0.36.0: report group count instead of a single group name — devices
     // are now spread across subnet-based groups.
@@ -553,13 +668,17 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     const groupInfo = groupCount === 0 ? '' :
       groupCount === 1 ? '\nВсё уложено в одну группу.' :
                          `\nРазложено по ${groupCount} подсетям.`;
+    // addDevice/addGroup/addLink each records history for safety. When no
+    // layout is pending, collapse intermediate snapshots immediately.
+    if (placed === 0) collapseImportHistory();
     useStore.getState().pushAlert({
       severity: 'success', origin: 'import',
       title: 'Импорт из MikroTik завершён',
-      message: `${summary}${placed > 0 ? groupInfo : ''}`,
+      message: `${summary}${placed > 0 ? groupInfo : ''}${connectionInfo}`,
     });
-    await alertDialog('Импорт завершён', `Синхронизация с MikroTik: ${summary}.`
-      + (placed > 0 ? `${groupInfo}\nСхема автоматически разложена.` : ''));
+    await alertDialog('Импорт завершён', `Синхронизация с MikroTik: ${summary}.${connectionInfo}`
+      + (placed > 0 ? `${groupInfo}\nСхема автоматически разложена.` : '')
+      + (linksWithoutPort > 0 ? '\nПроверьте эти связи в инспекторе: свободного порта на выбранном устройстве не было.' : ''));
     onClose();
   };
 
@@ -581,6 +700,16 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   // container earlier in the DOM) don't paint over the modal. Without the
   // portal, z-index alone can't fight DOM order across sibling stacking
   // contexts — see e.g. that issue with the corner buttons in v0.35.
+  if (reviewOpen && scan) {
+    const reviewRows = filtered.filter(r => effectiveSelected.has(r.mac));
+    return <ImportReviewDialog
+      rows={reviewRows} doc={doc} config={importConfig}
+      onChange={setImportConfig}
+      onCancel={() => setReviewOpen(false)}
+      onConfirm={(next) => { setImportConfig(next); setReviewOpen(false); void executeImport(next); }}
+    />;
+  }
+
   return createPortal(
     <div onClick={onClose}
          style={{
@@ -593,7 +722,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
          }}>
       <div onClick={e => e.stopPropagation()}
            style={{
-             width: 'min(960px, 96vw)', maxHeight: '92vh',
+             width: 'min(800px, calc(100vw - 32px))', maxHeight: 'min(720px, calc(100vh - 32px))',
              background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 12,
              color: '#111827', display: 'flex', flexDirection: 'column',
              boxShadow: '0 20px 60px rgba(0,0,0,0.8)', overflow: 'hidden',
@@ -1087,6 +1216,119 @@ const th: React.CSSProperties = {
   letterSpacing: 0.4, opacity: 0.6, fontWeight: 700, borderBottom: '1px solid #E5E7EB',
 };
 const td: React.CSSProperties = { padding: '6px 10px', fontSize: 11 };
+
+function findConfiguredMatch(row: Row, fields: MatchField[], devices: Device[]): Device | undefined {
+  return devices.find(d => fields.some(field => {
+    if (field === 'mac') return !!row.mac && !!d.mac && d.mac.toUpperCase() === row.mac.toUpperCase();
+    if (field === 'ip') return !!row.ip && !!d.ip && d.ip === row.ip;
+    const a = row.hostname.trim().toLowerCase();
+    return !!a && !!d.name && d.name.trim().toLowerCase() === a;
+  }));
+}
+
+function nextUnattachedPosition(devices: Device[], index: number, placement: PlacementMode): { x: number; y: number } {
+  const cols = Math.max(4, Math.ceil(Math.sqrt(Math.max(1, devices.length + 1))));
+  const xs = devices.map(d => d.x).filter(Number.isFinite);
+  const ys = devices.map(d => d.y).filter(Number.isFinite);
+  const baseX = placement === 'right' ? (xs.length ? Math.max(...xs) : 0) + 220 : (xs.length ? Math.min(...xs) : 0);
+  const baseY = placement === 'below' ? (ys.length ? Math.max(...ys) : 0) + 220 : (ys.length ? Math.min(...ys) : 100);
+  return { x: baseX + (index % cols) * 180, y: baseY + Math.floor(index / cols) * 120 };
+}
+
+function freePorts(deviceId: string, doc: DeviceDoc): Device['ports'] {
+  const device = doc.devices.find(d => d.id === deviceId);
+  if (!device) return [];
+  const occupied = new Set<string>();
+  for (const link of doc.links || []) {
+    if (link.fromDeviceId === deviceId && link.fromPortId) occupied.add(link.fromPortId);
+    if (link.toDeviceId === deviceId && link.toPortId) occupied.add(link.toPortId);
+  }
+  return device.ports.filter(port => !occupied.has(port.id));
+}
+
+function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }: {
+  rows: Row[]; doc: DeviceDoc; config: ImportConfig;
+  onChange: (next: ImportConfig) => void; onCancel: () => void;
+  onConfirm: (next: ImportConfig) => void;
+}) {
+  const anchors = doc.devices.filter(d => d.kind === 'switch' || d.kind === 'router');
+  const [bulkAnchor, setBulkAnchor] = useState('');
+  const [profileName, setProfileName] = useState('');
+  const [profiles, setProfiles] = useState<Array<{ name: string; config: Omit<ImportConfig, 'linkTargets' | 'linkPorts'> }>>(() => {
+    try { return JSON.parse(localStorage.getItem('netmap:mikrotik:profiles') || '[]'); } catch { return []; }
+  });
+  const matchedCount = rows.filter(row => !!findConfiguredMatch(row, config.matchFields, doc.devices)).length;
+  const linkedCount = Object.values(config.linkTargets).filter(Boolean).length;
+  const set = (patch: Partial<ImportConfig>) => onChange({ ...config, ...patch });
+  const applyBulkAnchor = () => {
+    if (!bulkAnchor) return;
+    const targets = { ...config.linkTargets };
+    for (const row of rows) targets[row.mac] = bulkAnchor;
+    set({ linkTargets: targets });
+  };
+  const clearLinks = () => set({ linkTargets: {}, linkPorts: {} });
+  const saveProfile = async () => {
+    const name = await promptText('Сохранить профиль импорта', profileName || 'MikroTik · стандартный', 'Пароль и адрес роутера не сохраняются');
+    if (!name) return;
+    const profile = { name, config: { groupMode: config.groupMode, groupName: config.groupName, placement: config.placement, matchFields: config.matchFields, conflictAction: config.conflictAction } };
+    const next = [...profiles.filter(p => p.name !== name), profile];
+    setProfiles(next);
+    setProfileName(name);
+    try { localStorage.setItem('netmap:mikrotik:profiles', JSON.stringify(next)); } catch {}
+  };
+  const loadProfile = (name: string) => {
+    const profile = profiles.find(p => p.name === name);
+    if (!profile) return;
+    set({ ...profile.config, linkTargets: {}, linkPorts: {} });
+    setProfileName(name);
+  };
+  const deleteProfile = async () => {
+    if (!profileName) return;
+    const ok = await confirmDialog('Удалить профиль?', `Профиль «${profileName}» будет удалён только из настроек этого компьютера.`, { danger: true, okText: 'Удалить' });
+    if (!ok) return;
+    const next = profiles.filter(profile => profile.name !== profileName);
+    setProfiles(next); setProfileName('');
+    try { localStorage.setItem('netmap:mikrotik:profiles', JSON.stringify(next)); } catch {}
+  };
+  const toggleField = (field: MatchField) => set({ matchFields: config.matchFields.includes(field)
+    ? config.matchFields.filter(x => x !== field) : [...config.matchFields, field] });
+  return createPortal(<div style={reviewOverlay}>
+    <div style={reviewCard}>
+      <div style={reviewHeader}><div><b>Настройка импорта MikroTik</b><div style={reviewMuted}>Проверьте объединение, совпадения и подключения до добавления на карту.</div></div><button onClick={onCancel} style={closeBtn}>Закрыть</button></div>
+      <div style={reviewBody}>
+        <div style={profileBar}><b>Профиль импорта</b><select value={profileName} onChange={e => loadProfile(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Текущие настройки (не сохранены)</option>{profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.name}</option>)}</select><button onClick={saveProfile} style={smallBtn}>Сохранить профиль</button><button onClick={deleteProfile} disabled={!profileName} style={{ ...smallBtn, opacity: profileName ? 1 : .5 }}>Удалить</button></div>
+        <div style={reviewGrid}>
+          <Field label="Группировка">
+            <select value={config.groupMode} onChange={e => set({ groupMode: e.target.value as GroupMode })} style={inputStyle}>
+              <option value="single">Одна общая группа</option><option value="subnet">По подсетям</option><option value="type">По типам устройств</option><option value="none">Без групп</option>
+            </select>
+          </Field>
+          {config.groupMode === 'single' && <Field label="Название группы"><input value={config.groupName} onChange={e => set({ groupName: e.target.value })} style={inputStyle} /></Field>}
+          <Field label="Разместить импорт"><select value={config.placement} onChange={e => set({ placement: e.target.value as PlacementMode })} style={inputStyle}><option value="right">Справа от текущей карты</option><option value="below">Ниже текущей карты</option></select></Field>
+          <Field label="Если найдено совпадение"><select value={config.conflictAction} onChange={e => set({ conflictAction: e.target.value as ImportConfig['conflictAction'] })} style={inputStyle}><option value="skip">Пропустить</option><option value="update">Обновить пустые поля</option><option value="replace">Заменить данные</option></select></Field>
+        </div>
+        <div style={reviewSection}><b>Поля для поиска совпадений</b><div style={reviewChecks}>{(['name','mac','ip'] as MatchField[]).map(field => <label key={field} style={checkLabel}><input type="checkbox" checked={config.matchFields.includes(field)} onChange={() => toggleField(field)} />{field === 'name' ? 'имя' : field.toUpperCase()}</label>)}</div></div>
+        <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Можно назначить устройство каждому хосту отдельно или применить один router/switch ко всему списку. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={bulkBar}><select value={bulkAnchor} onChange={e => setBulkAnchor(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Выберите router/switch для всех хостов</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select><button onClick={applyBulkAnchor} disabled={!bulkAnchor} style={{ ...smallBtn, opacity: bulkAnchor ? 1 : .5 }}>Применить всем</button><button onClick={clearLinks} style={smallBtn}>Очистить</button></div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value }, linkPorts: { ...config.linkPorts, [row.mac]: '' } })} style={{ ...inputStyle, width: 210 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select>{config.linkTargets[row.mac] && <select value={config.linkPorts[row.mac] || ''} onChange={e => set({ linkPorts: { ...config.linkPorts, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 150 }}><option value="">Порт: авто</option>{freePorts(config.linkTargets[row.mac], doc).map(port => <option key={port.id} value={port.id}>{port.label || port.id}{port.speed ? ` · ${port.speed}` : ''}</option>)}</select>}</div>)}</div></div>
+      </div>
+      <div style={reviewFooter}><span style={reviewMuted}>{rows.length} хостов · {matchedCount} совпадений · {linkedCount} подключений</span><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}><button onClick={onCancel} style={smallBtn}>Назад</button><button onClick={() => onConfirm(config)} style={primaryBtn}>Применить настройки и импортировать</button></div></div>
+    </div>
+  </div>, document.body);
+}
+
+type DeviceDoc = { devices: Device[]; links?: Array<{ fromDeviceId: string; fromPortId?: string; toDeviceId: string; toPortId?: string }> };
+const reviewOverlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 4100, background: 'rgba(15,23,42,.68)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 };
+const reviewCard: React.CSSProperties = { width: 'min(900px, calc(100vw - 32px))', maxHeight: 'min(720px, calc(100vh - 32px))', background: '#fff', borderRadius: 12, color: '#111827', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 70px rgba(0,0,0,.35)' };
+const reviewHeader: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const reviewBody: React.CSSProperties = { padding: 18, overflowY: 'auto' };
+const profileBar: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: 8, marginBottom: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 11 };
+const reviewGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr', gap: 10 };
+const reviewSection: React.CSSProperties = { marginTop: 16, paddingTop: 12, borderTop: '1px solid #E5E7EB', display: 'grid', gap: 8 };
+const reviewChecks: React.CSSProperties = { display: 'flex', gap: 12 };
+const bulkBar: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6 };
+const reviewRows: React.CSSProperties = { display: 'grid', gap: 4, maxHeight: 230, overflowY: 'auto' };
+const reviewRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#F8FAFC', borderRadius: 6 };
+const reviewMuted: React.CSSProperties = { color: '#64748B', fontSize: 11 };
+const reviewFooter: React.CSSProperties = { padding: '10px 18px', borderTop: '1px solid #E5E7EB', display: 'flex', alignItems: 'center' };
 
 // -----------------------------------------------------------------------------
 // VlanImportSection — reads MikroTik VLANs (v0.19) and lets the user pick which

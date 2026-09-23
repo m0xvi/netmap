@@ -191,6 +191,9 @@ export function commitImport(
   };
 
   const existingGroups: Group[] = doc.groups || [];
+  // addGroup updates Zustand immediately, but this function also needs to
+  // reuse groups created earlier in the same import pass.
+  const createdGroups = new Map<string, string>();
   const findOrCreateGroup = (cidr: string | null): string => {
     const label = cidr || 'Без IP';
     const stat = cidr ? subnetStats.find(s => s.cidr === cidr) : null;
@@ -199,9 +202,12 @@ export function commitImport(
          : stat?.interfaces && stat.interfaces[0] ? `${stat.interfaces[0]} · ${cidr}`
          : `Подсеть ${cidr}`)
       : 'Без IP';
+    const created = createdGroups.get(label);
+    if (created) return created;
     const existing = existingGroups.find(g => g.subtitle === label);
     if (existing) return existing.id;
     const gid = 'g-net-' + (cidr ? cidr.replace(/[^\w]/g, '-') : 'noip') + '-' + Math.random().toString(36).slice(2, 5);
+    createdGroups.set(label, gid);
     addGroup({
       id: gid, name: humanName, parentId: null,
       x: 40 + Math.random() * 200, y: 40 + Math.random() * 100,

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from './store';
 import { promptText, confirmDialog } from './Modal';
-import type { Group, Vlan } from './types';
+import type { Group, Vlan, NetworkLayer } from './types';
 
 // Stable empty ref shared across renders so zustand's Object.is check stays true
 // when the project has no VLANs — otherwise infinite render loop (React #185).
@@ -32,6 +32,16 @@ export function MultiSelectBar() {
       const merged = Array.from(new Set([...(d.tags || []), ...newTags]));
       updateDevice(d.id, { tags: merged });
     });
+  };
+
+  const bulkSetLocation = async () => {
+    const location = await promptText('Location для выбранных устройств', selected[0]?.location || '', 'Например: Серверная, Ресепшн или 2 этаж');
+    if (location == null) return;
+    selected.forEach(d => updateDevice(d.id, { location: location.trim() || undefined }));
+  };
+
+  const bulkSetLayer = (layer: NetworkLayer | null) => {
+    selected.forEach(d => updateDevice(d.id, { layer: layer || undefined }));
   };
 
   const bulkMoveToGroup = (groupId: string | null) => {
@@ -85,11 +95,13 @@ export function MultiSelectBar() {
       }}>{ids.size} выбрано</span>
 
       <button onClick={bulkAddTag} style={btn()}>🏷 Тег</button>
+      <button onClick={bulkSetLocation} style={btn()}>Location</button>
 
       {/* Move to group */}
       <div style={{ position: 'relative' }}>
         <GroupSelect groups={groups} onPick={bulkMoveToGroup} />
       </div>
+      <LayerSelect onPick={bulkSetLayer} />
 
       <button onClick={bulkTogglePoe} style={btn()}>⚡ Toggle PoE</button>
 
@@ -100,6 +112,22 @@ export function MultiSelectBar() {
       <button onClick={clearSelection} style={btn()}>✕</button>
     </div>
   );
+}
+
+function LayerSelect({ onPick }: { onPick: (layer: NetworkLayer | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const options: Array<{ id: NetworkLayer | null; label: string; color: string }> = [
+    { id: null, label: 'Авто / очистить', color: '#94A3B8' },
+    { id: 'core', label: 'Core', color: '#7C3AED' },
+    { id: 'distribution', label: 'Distribution', color: '#2563EB' },
+    { id: 'access', label: 'Access', color: '#059669' },
+  ];
+  return <>
+    <button onClick={() => setOpen(v => !v)} style={btn()}>Layer ▾</button>
+    {open && <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, background: '#F9FAFB', border: '1px solid #D1D5DB', borderRadius: 6, padding: '4px 0', minWidth: 150, boxShadow: '0 8px 24px rgba(15,23,42,0.12)' }}>
+      {options.map(option => <div key={option.id || 'auto'} onClick={() => { onPick(option.id); setOpen(false); }} style={item}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: option.color, marginRight: 6 }} />{option.label}</div>)}
+    </div>}
+  </>;
 }
 
 function GroupSelect({ groups, onPick }: { groups: Group[]; onPick: (id: string | null) => void }) {
