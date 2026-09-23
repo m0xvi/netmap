@@ -34,6 +34,12 @@ export function MultiSelectBar() {
     });
   };
 
+  const bulkSetLocation = async () => {
+    const location = await promptText('Location для выбранных устройств', selected[0]?.location || '', 'Например: Серверная, Ресепшн или 2 этаж');
+    if (location == null) return;
+    selected.forEach(d => updateDevice(d.id, { location: location.trim() || undefined }));
+  };
+
   const bulkMoveToGroup = (groupId: string | null) => {
     selected.forEach(d => {
       const oldGroup = groups.find(g => g.id === d.groupId);
@@ -85,6 +91,7 @@ export function MultiSelectBar() {
       }}>{ids.size} выбрано</span>
 
       <button onClick={bulkAddTag} style={btn()}>🏷 Тег</button>
+      <button onClick={bulkSetLocation} style={btn()}>Location</button>
 
       {/* Move to group */}
       <div style={{ position: 'relative' }}>

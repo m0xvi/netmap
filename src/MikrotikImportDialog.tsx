@@ -393,6 +393,16 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   };
 
   const executeImport = async (config: ImportConfig) => {
+    // Capture one snapshot so the whole import can be reverted with one Ctrl+Z.
+    const importHistoryStart = useStore.getState().history.length;
+    const importBeforeDoc = useStore.getState().doc;
+    const collapseImportHistory = () => {
+      const afterImport = useStore.getState();
+      if (afterImport.history.length > importHistoryStart) {
+        const priorHistory = afterImport.history.slice(0, importHistoryStart);
+        useStore.setState({ history: [...priorHistory, importBeforeDoc].slice(-50), future: [] });
+      }
+    };
     // v0.38: gate on effective selection so exclusions are honoured.
     if (effectiveSelected.size === 0) return;
     // v0.36.0: classify on the configured grouping strategy.
@@ -614,6 +624,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       setTimeout(() => {
         // v0.45: use smart hybrid grouping for imported topologies.
         try { useStore.getState().autoLayout('TB', { groupBy: config.groupMode === 'subnet' ? 'hybrid' : 'none' }); } catch { /* ignore */ }
+        collapseImportHistory();
       }, 100);
     }
 
@@ -623,6 +634,9 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     const groupInfo = groupCount === 0 ? '' :
       groupCount === 1 ? '\nВсё уложено в одну группу.' :
                          `\nРазложено по ${groupCount} подсетям.`;
+    // addDevice/addGroup/addLink each records history for safety. When no
+    // layout is pending, collapse intermediate snapshots immediately.
+    if (placed === 0) collapseImportHistory();
     useStore.getState().pushAlert({
       severity: 'success', origin: 'import',
       title: 'Импорт из MikroTik завершён',
