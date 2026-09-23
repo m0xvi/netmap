@@ -291,9 +291,11 @@ export function LayoutFAB() {
             (offset=0) outward with an increasing stagger, so they visually
             "fly out of" the main button from right to left. */}
         {actions.map((a, i) => {
-          // v0.43.6: FAB moved to TOP-RIGHT, actions fly out DOWNWARD.
-          const gap = 50;                   // px between pill centres
-          const targetY = gap * (i + 1);    // positive = below the FAB
+          // v0.50.1: actions fan out horizontally to the LEFT of the FAB.
+          // Keeping every action on the same center line prevents the uneven
+          // vertical column that used to cover the map and its groups.
+          const gap = 50;
+          const targetX = -(gap * (i + 1));
           return (
             <div key={a.id} style={{ position: 'absolute', top: 0, right: 0 }}>
               <button
@@ -304,7 +306,7 @@ export function LayoutFAB() {
                 style={{
                   ...actionBtn(a.danger, a.disabled),
                   transform: open
-                    ? `translate(0, ${targetY}px) scale(1)`
+                    ? `translate(${targetX}px, 0) scale(1)`
                     : 'translate(0, 0) scale(0.4)',
                   opacity: open ? (a.disabled ? 0.4 : 1) : 0,
                   pointerEvents: open && !a.disabled ? 'auto' : 'none',
@@ -316,7 +318,7 @@ export function LayoutFAB() {
               {a.id === 'smart' && open && smartMenuOpen && (
                 <div style={{
                   position: 'absolute',
-                  top: targetY - 4,
+                  top: -4,
                   right: 52,
                   background: '#fff',
                   borderRadius: 10,
@@ -403,6 +405,7 @@ const fabWrap: React.CSSProperties = {
   top: 20, right: 20,
   zIndex: 30,
   width: 48, height: 48,
+  overflow: 'visible',
 };
 const backdrop: React.CSSProperties = {
   position: 'fixed', inset: 0, zIndex: -1, background: 'transparent',

@@ -86,6 +86,15 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
 // General
 // ------------------------------------------------------------------------
 function GeneralTab() {
+  const [uiScale, setUiScale] = useState(() => {
+    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+  });
+  const changeUiScale = (value: number) => {
+    const next = Math.max(0.8, Math.min(1.25, value));
+    setUiScale(next);
+    try { localStorage.setItem('netmap:uiScale', String(next)); } catch {}
+    window.dispatchEvent(new CustomEvent('netmap:ui-scale', { detail: { value: next } }));
+  };
   const snap = useStore(s => s.snapToGrid);
   const toggleSnap = useStore(s => s.toggleSnap);
   const showGrid = useStore(s => s.showGrid);
@@ -121,6 +130,26 @@ function GeneralTab() {
             checked={collapseEndpoints} onChange={toggleCollapseEndpoints}
           />
         )}
+      </Section>
+      <Section title="Интерфейс">
+        <Field label="Масштаб всего интерфейса" hint="Настройка применяется ко всем панелям, меню и кнопкам программы.">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="range" min="0.8" max="1.25" step="0.05"
+                   value={uiScale} onChange={e => changeUiScale(Number(e.target.value))}
+                   style={{ flex: 1 }} />
+            <span style={{ minWidth: 48, textAlign: 'right', fontSize: 12, color: '#111827' }}>
+              {Math.round(uiScale * 100)}%
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            {[0.8, 1, 1.15, 1.25].map(value => (
+              <button key={value} onClick={() => changeUiScale(value)} style={{
+                ...smallScaleBtn, borderColor: uiScale === value ? '#2563EB' : '#D1D5DB',
+                color: uiScale === value ? '#1D4ED8' : '#374151',
+              }}>{Math.round(value * 100)}%</button>
+            ))}
+          </div>
+        </Field>
       </Section>
       <Section title="Канвас">
         <Toggle label="Прилипание к сетке (Snap to grid)"
@@ -631,6 +660,10 @@ const inputStyle: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #D1D5DB', color: '#111827',
   padding: '6px 10px', borderRadius: 6, fontSize: 12, outline: 'none',
   width: '100%',
+};
+const smallScaleBtn: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 5,
+  padding: '4px 8px', cursor: 'pointer', fontSize: 10,
 };
 const primaryBtn: React.CSSProperties = {
   background: '#2563EB', border: 'none', color: '#FFFFFF',
