@@ -101,6 +101,15 @@ function GeneralTab() {
   const toggleGrid = useStore(s => s.toggleGrid);
   const focusRelated = useStore(s => s.focusRelated);
   const toggleFocusRelated = useStore(s => s.toggleFocusRelated);
+  const [disableMapAnimations, setDisableMapAnimations] = useState(() => {
+    try { return localStorage.getItem('netmap:disableMapAnimations') === '1'; } catch { return false; }
+  });
+  const toggleMapAnimations = () => {
+    const disabled = !disableMapAnimations;
+    setDisableMapAnimations(disabled);
+    try { localStorage.setItem('netmap:disableMapAnimations', disabled ? '1' : '0'); } catch {}
+    window.dispatchEvent(new CustomEvent('netmap:map-motion', { detail: { disabled } }));
+  };
   const viewMode = useStore(s => s.viewMode);
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
@@ -161,6 +170,9 @@ function GeneralTab() {
         <Toggle label="Фокус связанных при hover"
                 sub="Наведение на устройство приглушает несвязанные кабели и карточки"
                 checked={focusRelated} onChange={toggleFocusRelated} />
+        <Toggle label="Отключить анимации на карте"
+                sub="Отключает переходы, анимации и плавное перемещение Canvas"
+                checked={disableMapAnimations} onChange={toggleMapAnimations} />
       </Section>
       <OrphanGridSection />
     </>

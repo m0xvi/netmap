@@ -34,7 +34,7 @@ interface Props {
 }
 
 type MatchField = 'name' | 'mac' | 'ip';
-type GroupMode = 'single' | 'subnet' | 'none';
+type GroupMode = 'single' | 'subnet' | 'type' | 'none';
 type PlacementMode = 'right' | 'below';
 interface ImportConfig {
   groupMode: GroupMode;
@@ -446,10 +446,19 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     const existingGroups = doc.groups || [];
     // Placement must also apply to groups. Previously only orphan devices used
     // this setting; the delayed auto-layout then moved grouped hosts into a row.
-    const finiteXs = doc.devices.map(d => d.x).filter(Number.isFinite);
-    const finiteYs = doc.devices.map(d => d.y).filter(Number.isFinite);
-    const importBaseX = finiteXs.length ? Math.max(...finiteXs) + 260 : 260;
-    const importBaseY = finiteYs.length ? Math.max(...finiteYs) + 300 : 300;
+    const groupById = new Map(existingGroups.map(g => [g.id, g]));
+    const deviceRight = doc.devices.reduce((max, d) => {
+      const g = d.groupId ? groupById.get(d.groupId) : undefined;
+      return Math.max(max, (g?.x || 0) + d.x + 180);
+    }, 0);
+    const deviceBottom = doc.devices.reduce((max, d) => {
+      const g = d.groupId ? groupById.get(d.groupId) : undefined;
+      return Math.max(max, (g?.y || 0) + d.y + 120);
+    }, 0);
+    const groupRight = existingGroups.reduce((max, g) => Math.max(max, g.x + g.width), 0);
+    const groupBottom = existingGroups.reduce((max, g) => Math.max(max, g.y + g.height), 0);
+    const importBaseX = Math.max(deviceRight, groupRight, 0) + 260;
+    const importBaseY = Math.max(deviceBottom, groupBottom, 0) + 300;
     let importGroupIndex = 0;
     let configuredGroupId: string | null = null;
     // Keep groups created during this import in memory; the document snapshot
@@ -469,14 +478,16 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
         configuredGroupId = gid;
         return gid;
       }
-      const label = cidr || 'Без IP';
+      const label = config.groupMode === 'type' ? (cidr || 'unknown') : (cidr || 'Без IP');
       const stat = cidr ? subnetStats.find(s => s.cidr === cidr) : null;
       // Prefer router-provided name (interface / comment) when available.
-      const humanName = cidr
-        ? (stat?.comment && stat.comment.length < 30 ? stat.comment
-           : stat?.interfaces && stat.interfaces[0] ? `${stat.interfaces[0]} · ${cidr}`
-           : `Подсеть ${cidr}`)
-        : 'Без IP';
+      const humanName = config.groupMode === 'type'
+        ? `Тип: ${cidr || 'unknown'}`
+        : cidr
+          ? (stat?.comment && stat.comment.length < 30 ? stat.comment
+             : stat?.interfaces && stat.interfaces[0] ? `${stat.interfaces[0]} · ${cidr}`
+             : `Подсеть ${cidr}`)
+          : 'Без IP';
 
       // Match strategy: subtitle exactly equals CIDR (or 'Без IP').
       const created = createdGroups.get(label);
@@ -603,7 +614,11 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       const name = row.hostname || row.vendor || `Device ${row.mac.slice(-8)}`;
       const id = `${row.suggestedKind}-${Math.random().toString(36).slice(2, 7)}`;
       const cidr = cidrOf(row.ip);
-      const gid = findOrCreateGroup(config.groupMode === 'subnet' ? cidr : null);
+      const gid = findOrCreateGroup(
+        config.groupMode === 'subnet' ? cidr
+          : config.groupMode === 'type' ? row.suggestedKind
+          : null
+      );
       const pos = gid ? nextPos(gid) : nextUnattachedPosition(doc.devices, placed, config.placement);
       const ports: Port[] = [{
         id: 'lan', label: '', type: 'RJ45',
@@ -1285,7 +1300,7 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
         <div style={reviewGrid}>
           <Field label="Группировка">
             <select value={config.groupMode} onChange={e => set({ groupMode: e.target.value as GroupMode })} style={inputStyle}>
-              <option value="single">Одна общая группа</option><option value="subnet">По подсетям</option><option value="none">Без групп</option>
+              <option value="single">Одна общая группа</option><option value="subnet">По подсетям</option><option value="type">По типам устройств</option><option value="none">Без групп</option>
             </select>
           </Field>
           {config.groupMode === 'single' && <Field label="Название группы"><input value={config.groupName} onChange={e => set({ groupName: e.target.value })} style={inputStyle} /></Field>}

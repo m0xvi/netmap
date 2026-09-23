@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, addEdge, useReactFlow, ReactFlowProvider,
@@ -67,6 +67,14 @@ function CanvasInner() {
   const highlightIds = useStore(s => s.highlightIds);
   const snapToGrid = useStore(s => s.snapToGrid);
   const showGrid = useStore(s => s.showGrid);
+  const [reduceMotion, setReduceMotion] = useState(() => {
+    try { return localStorage.getItem('netmap:disableMapAnimations') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    const onMotion = (e: Event) => setReduceMotion(!!(e as CustomEvent<{ disabled: boolean }>).detail?.disabled);
+    window.addEventListener('netmap:map-motion', onMotion);
+    return () => window.removeEventListener('netmap:map-motion', onMotion);
+  }, []);
   const filters = useStore(s => s.filters);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -175,7 +183,9 @@ function CanvasInner() {
           id: d.id,
           type,
           position: { x: d.x, y: d.y },
-          ...(d.groupId ? { parentId: d.groupId, extent: 'parent' as const } : {}),
+          // Do not constrain children to the parent rectangle: a device must
+          // be draggable out of a group and re-parented into another one.
+          ...(d.groupId ? { parentId: d.groupId } : {}),
           data: { device: d, highlighted: highlightIds.has(d.id) }
         };
       });
@@ -1226,10 +1236,12 @@ function CanvasInner() {
 
   return (
     <div ref={wrapperRef} onDragOver={onDragOver} onDrop={onDrop}
+         className={reduceMotion ? 'netmap-no-animations' : undefined}
          style={{
            width: '100%', height: '100%',
            cursor: knifeMode ? 'crosshair' : undefined,
          }}>
+      {reduceMotion && <style>{`.netmap-no-animations *, .netmap-no-animations *::before, .netmap-no-animations *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }`}</style>}
     <ReactFlow
       snapToGrid={snapToGrid}
       snapGrid={[20, 20]}

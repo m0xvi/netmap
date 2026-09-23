@@ -312,7 +312,7 @@ export function LayoutFAB() {
           // separate pitch; otherwise they overlap the central FAB.
           const targetX = fabCategory ? -(125 + i * 130) : -(50 * (i + 1));
           return (
-            <div key={a.id} style={{ position: 'absolute', top: 0, right: 0 }}>
+            <div key={a.id} style={{ position: 'absolute', top: 0, right: fabCategory ? 130 + i * 130 : 0 }}>
               <button
                 onClick={a.disabled ? undefined : a.onClick}
                 disabled={a.disabled}
@@ -321,7 +321,7 @@ export function LayoutFAB() {
                 style={{
                   ...(fabCategory ? actionBtn(a.danger, a.disabled) : categoryBtn),
                   transform: open
-                    ? `translate(${targetX}px, 0) scale(1)`
+                    ? (fabCategory ? 'translate(0, 0) scale(1)' : `translate(${targetX}px, 0) scale(1)`)
                     : 'translate(0, 0) scale(0.4)',
                   opacity: open ? (a.disabled ? 0.4 : 1) : 0,
                   pointerEvents: open && !a.disabled ? 'auto' : 'none',
@@ -440,7 +440,7 @@ const mainBtn: React.CSSProperties = {
 };
 const categoryBtn: React.CSSProperties = {
   position: 'absolute', top: 4, left: 0, transform: 'translate(0, 0)',
-  width: 112, height: 40, borderRadius: 20, background: '#FFFFFF',
+  width: 120, height: 40, borderRadius: 20, background: '#FFFFFF',
   border: '2px solid #E5E7EB', color: '#374151', cursor: 'pointer',
   boxShadow: '0 4px 12px rgba(15,23,42,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px',
   transition: 'transform 320ms cubic-bezier(.34, 1.56, .64, 1), opacity 260ms ease-out', willChange: 'transform, opacity',
