@@ -47,16 +47,18 @@ export default function App() {
     // React Flow must not scroll the page and move the whole interface.
     const html = document.documentElement;
     const body = document.body;
-    const previous = { htmlOverflow: html.style.overflow, bodyOverflow: body.style.overflow, bodyMargin: body.style.margin };
+    const previous = { htmlOverflow: html.style.overflow, bodyOverflow: body.style.overflow, bodyMargin: body.style.margin, bodyZoom: body.style.zoom };
     html.style.overflow = 'hidden';
     body.style.overflow = 'hidden';
     body.style.margin = '0';
+    body.style.zoom = String(uiScale);
     return () => {
       html.style.overflow = previous.htmlOverflow;
       body.style.overflow = previous.bodyOverflow;
       body.style.margin = previous.bodyMargin;
+      body.style.zoom = previous.bodyZoom;
     };
-  }, []);
+  }, [uiScale]);
 
   useEffect(() => {
     // v0.36.1: mark hydration complete so LoadingOverlay splash hides.
@@ -70,7 +72,7 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, overflow: 'hidden', zoom: uiScale }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, overflow: 'hidden' }}>
       {/* v0.42: HTML custom menubar (File/View/Tools/Monitor/Help). Sits
           above the toolbar, replaces the old hamburger ☰ AppMenu. */}
       <MenuBar />

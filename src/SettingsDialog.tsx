@@ -54,19 +54,19 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
       <div onClick={e => e.stopPropagation()} style={card}>
         <div style={header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>⚙</span>
+            <span style={{ fontSize: 20 }}>Настройки</span>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Настройки</div>
           </div>
-          <button onClick={onClose} style={closeBtn}>✕</button>
+          <button onClick={onClose} style={closeBtn}>×</button>
         </div>
 
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div style={sidebar}>
-            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="⚙" label="Общие" />
-            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="📡" label="Мониторинг" />
-            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="🔔" label="Уведомления" />
-            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="🔒" label="Безопасность" />
-            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="ℹ" label="О программе" />
+            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="Настройки" label="Общие" />
+            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="Мониторинг" label="Мониторинг" />
+            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="Уведомления" label="Уведомления" />
+            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="Безопасность" label="Безопасность" />
+            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="О программе" label="О программе" />
           </div>
           <div style={content}>
             {tab === 'general' && <GeneralTab />}
@@ -312,7 +312,7 @@ function NotifyTab() {
     <>
       <Section title="Каналы доставки">
         <Toggle label="Показывать в панели уведомлений"
-                sub="Значок 🔔 в верхней панели"
+                sub="Значок Уведомления в верхней панели"
                 checked={settings.inApp}
                 onChange={v => update({ inApp: v })} />
         <Toggle label="Системные Windows toast'ы"
@@ -425,7 +425,7 @@ function SecurityTab() {
         </div>
         {status && (
           <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 12 }}>
-            Статус: {status.initialized ? (status.unlocked ? '🔓 разблокирован' : '🔒 заблокирован') : 'не создан'}
+            Статус: {status.initialized ? (status.unlocked ? '🔓 разблокирован' : 'Безопасность заблокирован') : 'не создан'}
             {' · '}записей: {status.itemCount}
           </div>
         )}

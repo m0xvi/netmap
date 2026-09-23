@@ -312,7 +312,7 @@ export function LayoutFAB() {
           // separate pitch; otherwise they overlap the central FAB.
           const targetX = fabCategory ? -(125 + i * 130) : -(50 * (i + 1));
           return (
-            <div key={a.id} style={{ position: 'absolute', top: 0, right: fabCategory ? 130 + i * 130 : 0 }}>
+            <div key={a.id} style={{ position: 'absolute', top: 0, right: fabCategory ? 60 + i * 130 : 0, width: fabCategory ? 120 : undefined, height: fabCategory ? 40 : undefined }}>
               <button
                 onClick={a.disabled ? undefined : a.onClick}
                 disabled={a.disabled}
