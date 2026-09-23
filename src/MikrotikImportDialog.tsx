@@ -444,6 +444,13 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     // otherwise create fresh. We STORE cidr in subtitle so future imports
     // can find the same group.
     const existingGroups = doc.groups || [];
+    // Placement must also apply to groups. Previously only orphan devices used
+    // this setting; the delayed auto-layout then moved grouped hosts into a row.
+    const finiteXs = doc.devices.map(d => d.x).filter(Number.isFinite);
+    const finiteYs = doc.devices.map(d => d.y).filter(Number.isFinite);
+    const importBaseX = finiteXs.length ? Math.max(...finiteXs) + 260 : 260;
+    const importBaseY = finiteYs.length ? Math.max(...finiteYs) + 300 : 300;
+    let importGroupIndex = 0;
     let configuredGroupId: string | null = null;
     const findOrCreateGroup = (cidr: string | null): string => {
       if (config.groupMode === 'none') return '';
@@ -452,10 +459,9 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
         const existing = existingGroups.find(g => g.name === config.groupName);
         if (existing) { configuredGroupId = existing.id; return existing.id; }
         const gid = 'g-mikrotik-' + Math.random().toString(36).slice(2, 8);
-        const xs = doc.devices.map(d => d.x).filter(Number.isFinite);
-        const ys = doc.devices.map(d => d.y).filter(Number.isFinite);
         addGroup({ id: gid, name: config.groupName || 'Импорт MikroTik', parentId: null,
-          x: (xs.length ? Math.max(...xs) : 0) + 160, y: ys.length ? Math.min(...ys) : 80,
+          x: config.placement === 'below' ? importBaseX - 80 : importBaseX,
+          y: config.placement === 'below' ? importBaseY : 80,
           width: 720, height: 420, color: '#2563EB', subtitle: 'mikrotik-import' });
         configuredGroupId = gid;
         return gid;
@@ -474,10 +480,16 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       if (existing) return existing.id;
 
       const gid = 'g-net-' + (cidr ? cidr.replace(/[^\w]/g, '-') : 'noip') + '-' + Math.random().toString(36).slice(2, 5);
+      importGroupIndex++;
       addGroup({
         id: gid, name: humanName, parentId: null,
-        x: 40 + Math.random() * 200, y: 40 + Math.random() * 100,
-        width: 560, height: 260,
+          x: config.placement === 'below'
+            ? importBaseX - 220 + (importGroupIndex % 3) * 620
+            : importBaseX + (importGroupIndex % 3) * 620,
+          y: config.placement === 'below'
+            ? importBaseY + Math.floor(importGroupIndex / 3) * 340
+            : 80 + Math.floor(importGroupIndex / 3) * 340,
+          width: 560, height: 260,
         color: cidr ? colorFor(cidr) : '#94A3B8',
         subtitle: label,
       });
@@ -625,16 +637,9 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       ? ` подключений: ${linkedWithPort} с портом${linksWithoutPort ? `, ${linksWithoutPort} без свободного порта` : ''}.`
       : '';
 
-    // v0.23: if new devices were added, run auto-layout so the new group
-    // slots into the hierarchy cleanly instead of overlapping existing devices.
-    if (placed > 0) {
-      // Give React a tick to commit the addDevice / addGroup writes, then layout.
-      setTimeout(() => {
-        // v0.45: use smart hybrid grouping for imported topologies.
-        try { useStore.getState().autoLayout('TB', { groupBy: config.groupMode === 'subnet' ? 'hybrid' : 'none' }); } catch { /* ignore */ }
-        collapseImportHistory();
-      }, 100);
-    }
+    // The import grid already honors the chosen placement. Running auto-layout
+    // here used to ignore "Ниже текущей карты" and collapse hosts into a row.
+    if (placed > 0) setTimeout(collapseImportHistory, 100);
 
     // v0.36.0: report group count instead of a single group name — devices
     // are now spread across subnet-based groups.

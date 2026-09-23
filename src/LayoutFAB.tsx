@@ -308,8 +308,9 @@ export function LayoutFAB() {
           // v0.50.1: actions fan out horizontally to the LEFT of the FAB.
           // Keeping every action on the same center line prevents the uneven
           // vertical column that used to cover the map and its groups.
-          const gap = 50;
-          const targetX = -(gap * (i + 1));
+          // Category pills are wider than icon actions, so they need a
+          // separate pitch; otherwise they overlap the central FAB.
+          const targetX = fabCategory ? -(125 + i * 130) : -(50 * (i + 1));
           return (
             <div key={a.id} style={{ position: 'absolute', top: 0, right: 0 }}>
               <button
@@ -324,7 +325,7 @@ export function LayoutFAB() {
                     : 'translate(0, 0) scale(0.4)',
                   opacity: open ? (a.disabled ? 0.4 : 1) : 0,
                   pointerEvents: open && !a.disabled ? 'auto' : 'none',
-                  transitionDelay: open ? `${i * 35}ms` : `${(actions.length - 1 - i) * 20}ms`,
+                  transitionDelay: open ? `${i * 35}ms` : `${(displayedActions.length - 1 - i) * 20}ms`,
                 }}>
                 {a.icon}
                 {!fabCategory && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600 }}>{a.label}</span>}
