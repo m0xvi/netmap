@@ -550,6 +550,23 @@ function CanvasInner() {
     return () => window.removeEventListener('netmap:focus-device', onFocus as EventListener);
   }, [rf]);
 
+  // v0.52: publish and restore view presets without coupling the toolbar to
+  // React Flow internals.
+  useEffect(() => {
+    const publishViewport = () => {
+      const viewport = rf.getViewport();
+      window.dispatchEvent(new CustomEvent('netmap:viewport-changed', { detail: viewport }));
+    };
+    const onSetViewport = (e: Event) => {
+      const viewport = (e as CustomEvent<{ x: number; y: number; zoom: number }>).detail;
+      if (!viewport || !Number.isFinite(viewport.x) || !Number.isFinite(viewport.y) || !Number.isFinite(viewport.zoom)) return;
+      rf.setViewport(viewport, { duration: 350 });
+    };
+    window.addEventListener('netmap:set-viewport', onSetViewport as EventListener);
+    requestAnimationFrame(publishViewport);
+    return () => window.removeEventListener('netmap:set-viewport', onSetViewport as EventListener);
+  }, [rf]);
+
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChange(changes);
     // v0.35.5: skip position commits whose value already matches the doc.
@@ -1220,6 +1237,9 @@ function CanvasInner() {
       edges={displayedEdges}
       onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
+      onMoveEnd={(_event, viewport) => {
+        window.dispatchEvent(new CustomEvent('netmap:viewport-changed', { detail: viewport }));
+      }}
       onConnect={onConnect}
       isValidConnection={isValidConnection as any}
       onEdgeDoubleClick={onEdgeDoubleClick}
