@@ -193,17 +193,6 @@ export function Toolbar() {
       </div>
 
       <SavedViews />
-      {/* v0.43.6: quick Modern/Legacy card style toggle — was buried in
-          Settings, users wanted it 1-click accessible. */}
-      <ViewModeToggle />
-      {/* v0.45: compact/expanded toggle — folds endpoints into hub chips.
-          ON by default now (matches user intuition of a clean overview). */}
-      <CompactViewToggle />
-
-      {/* v0.41: panel-toggle buttons. When sidebar / right-panel are hidden
-          (default first-run state), user can bring them back from here or
-          from the edge-tab buttons on the map itself. */}
-      <PanelToggles />
 
       {/* v0.36.1: right cluster stripped to essentials. FocusRelated / Help
           moved into AppMenu (☰). Only Notifications stay here — visibility
@@ -274,6 +263,10 @@ function restoreViewFilters(raw: any): FilterState {
 function SavedViews() {
   const filters = useStore(s => s.filters);
   const setFilters = useStore(s => s.setFilters);
+  const viewMode = useStore(s => s.viewMode);
+  const setViewMode = useStore(s => s.setViewMode);
+  const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
   const workspace = useStore(s => s.workspace);
   const projectId = workspace?.activeId || 'default';
   const storageKey = `netmap:saved-views:${projectId}`;
@@ -339,6 +332,13 @@ function SavedViews() {
       <button onClick={() => preset('cameras')} style={viewItem}>Только камеры</button>
       <button onClick={() => preset('new')} style={viewItem}>Только новые</button>
       <div style={viewsDivider} />
+      <div style={viewsTitle}>Отображение</div>
+      <div style={viewModeRow}>
+        <button onClick={() => setViewMode('modern')} style={{ ...viewModeChoice, ...(viewMode === 'modern' ? viewModeChoiceActive : {}) }}>Modern</button>
+        <button onClick={() => setViewMode('legacy')} style={{ ...viewModeChoice, ...(viewMode === 'legacy' ? viewModeChoiceActive : {}) }}>Legacy</button>
+      </div>
+      <button onClick={toggleCollapseEndpoints} style={viewItem}>{collapseEndpoints ? '✓ Компактный вид endpoint-ов' : 'Компактный вид endpoint-ов'}</button>
+      <div style={viewsDivider} />
       <button onClick={saveCurrent} style={viewItem}>Сохранить текущий вид</button>
       {saved.length > 0 && <div style={viewsTitle}>Мои виды</div>}
       {saved.map(view => <div key={view.id} style={savedRow}><button onClick={() => apply(view.filters, view.viewport)} style={{ ...viewItem, flex: 1 }}>{view.name}</button><button onClick={() => remove(view)} title="Удалить вид" style={deleteView}>×</button></div>)}
@@ -350,6 +350,9 @@ const viewButton: React.CSSProperties = { background: '#F8FAFC', border: '1px so
 const viewsMenu: React.CSSProperties = { position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100, minWidth: 230, padding: 6, background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 8, boxShadow: '0 12px 28px rgba(15,23,42,.16)' };
 const viewsTitle: React.CSSProperties = { padding: '5px 8px', fontSize: 9, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4 };
 const viewItem: React.CSSProperties = { display: 'block', width: '100%', background: 'transparent', border: 0, color: '#1E293B', padding: '7px 8px', borderRadius: 5, textAlign: 'left', cursor: 'pointer', fontSize: 11 };
+const viewModeRow: React.CSSProperties = { display: 'flex', gap: 4, padding: '0 4px 4px' };
+const viewModeChoice: React.CSSProperties = { flex: 1, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#64748B', borderRadius: 5, padding: '5px 6px', cursor: 'pointer', fontSize: 10 };
+const viewModeChoiceActive: React.CSSProperties = { background: '#EFF6FF', borderColor: '#93C5FD', color: '#1D4ED8', fontWeight: 700 };
 const savedRow: React.CSSProperties = { display: 'flex', alignItems: 'center' };
 const deleteView: React.CSSProperties = { background: 'transparent', border: 0, color: '#94A3B8', cursor: 'pointer', fontSize: 16, padding: '2px 6px' };
 const viewsDivider: React.CSSProperties = { height: 1, background: '#E2E8F0', margin: '5px 0' };
