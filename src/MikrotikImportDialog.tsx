@@ -1189,7 +1189,6 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
         </div>
         <div style={reviewSection}><b>Поля для поиска совпадений</b><div style={reviewChecks}>{(['name','mac','ip'] as MatchField[]).map(field => <label key={field} style={checkLabel}><input type="checkbox" checked={config.matchFields.includes(field)} onChange={() => toggleField(field)} />{field === 'name' ? 'имя' : field.toUpperCase()}</label>)}</div></div>
         <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Выберите router или switch. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 240 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select></div>)}</div></div>
-        <div style={reviewMap}><b>Мини-карта опорных устройств</b><div style={miniMap}>{anchors.length === 0 ? <span style={reviewMuted}>В проекте пока нет router/switch.</span> : anchors.map((a, i) => <div key={a.id} style={{ ...miniNode, left: 18 + (i % 4) * 145, top: 18 + Math.floor(i / 4) * 54 }} title={a.name}>{a.kind === 'router' ? 'R' : 'S'} · {a.name}</div>)}</div></div>
       </div>
       <div style={reviewFooter}><span style={reviewMuted}>{rows.length} хостов готовы к импорту</span><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}><button onClick={onCancel} style={smallBtn}>Назад</button><button onClick={() => onConfirm(config)} style={primaryBtn}>Применить настройки и импортировать</button></div></div>
     </div>
@@ -1207,9 +1206,6 @@ const reviewChecks: React.CSSProperties = { display: 'flex', gap: 12 };
 const reviewRows: React.CSSProperties = { display: 'grid', gap: 4, maxHeight: 230, overflowY: 'auto' };
 const reviewRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#F8FAFC', borderRadius: 6 };
 const reviewMuted: React.CSSProperties = { color: '#64748B', fontSize: 11 };
-const reviewMap: React.CSSProperties = { marginTop: 16, paddingTop: 12, borderTop: '1px solid #E5E7EB' };
-const miniMap: React.CSSProperties = { position: 'relative', height: 130, marginTop: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, overflow: 'hidden' };
-const miniNode: React.CSSProperties = { position: 'absolute', width: 130, padding: '7px 6px', borderRadius: 6, background: '#fff', border: '1px solid #93C5FD', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const reviewFooter: React.CSSProperties = { padding: '10px 18px', borderTop: '1px solid #E5E7EB', display: 'flex', alignItems: 'center' };
 
 // -----------------------------------------------------------------------------
