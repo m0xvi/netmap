@@ -43,6 +43,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Keep the desktop workspace fixed to the viewport. Wheel gestures over
+    // React Flow must not scroll the page and move the whole interface.
+    const html = document.documentElement;
+    const body = document.body;
+    const previous = { htmlOverflow: html.style.overflow, bodyOverflow: body.style.overflow, bodyMargin: body.style.margin };
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.margin = '0';
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.margin = previous.bodyMargin;
+    };
+  }, []);
+
+  useEffect(() => {
     // v0.36.1: mark hydration complete so LoadingOverlay splash hides.
     Promise.all([
       Promise.resolve(hydrateFromNativeBackend()),
@@ -54,7 +70,7 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', zoom: uiScale } as React.CSSProperties}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, overflow: 'hidden', zoom: uiScale }}>
       {/* v0.42: HTML custom menubar (File/View/Tools/Monitor/Help). Sits
           above the toolbar, replaces the old hamburger ☰ AppMenu. */}
       <MenuBar />

@@ -452,6 +452,9 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     const importBaseY = finiteYs.length ? Math.max(...finiteYs) + 300 : 300;
     let importGroupIndex = 0;
     let configuredGroupId: string | null = null;
+    // Keep groups created during this import in memory; the document snapshot
+    // above cannot see later addGroup calls.
+    const createdGroups = new Map<string, string>();
     const findOrCreateGroup = (cidr: string | null): string => {
       if (config.groupMode === 'none') return '';
       if (config.groupMode === 'single') {
@@ -476,11 +479,14 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
         : 'Без IP';
 
       // Match strategy: subtitle exactly equals CIDR (or 'Без IP').
+      const created = createdGroups.get(label);
+      if (created) return created;
       const existing = existingGroups.find(g => g.subtitle === label);
       if (existing) return existing.id;
 
       const gid = 'g-net-' + (cidr ? cidr.replace(/[^\w]/g, '-') : 'noip') + '-' + Math.random().toString(36).slice(2, 5);
       importGroupIndex++;
+      createdGroups.set(label, gid);
       addGroup({
         id: gid, name: humanName, parentId: null,
           x: config.placement === 'below'

@@ -439,7 +439,7 @@ const mainBtn: React.CSSProperties = {
   transition: 'transform 220ms cubic-bezier(.5, 1.5, .5, 1), box-shadow 200ms',
 };
 const categoryBtn: React.CSSProperties = {
-  position: 'absolute', top: 4, left: '50%', transform: 'translate(-50%, 0)',
+  position: 'absolute', top: 4, left: 0, transform: 'translate(0, 0)',
   width: 112, height: 40, borderRadius: 20, background: '#FFFFFF',
   border: '2px solid #E5E7EB', color: '#374151', cursor: 'pointer',
   boxShadow: '0 4px 12px rgba(15,23,42,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px',
