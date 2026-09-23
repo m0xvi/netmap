@@ -129,11 +129,13 @@ export function LayoutFAB() {
     });
     setDismissed(true);
     setOpen(false);
+    setFabCategory(null);
     setSmartMenuOpen(false);
   };
 
   // v0.45: submenu for choosing grouping strategy
   const [smartMenuOpen, setSmartMenuOpen] = useState(false);
+  const [fabCategory, setFabCategory] = useState<'layout' | 'history' | 'tools' | null>(null);
 
   const actions: Action[] = [
     {
@@ -250,6 +252,18 @@ export function LayoutFAB() {
     },
   ];
 
+  const categoryActions: Action[] = [
+    { id: 'layout-category', label: 'Раскладка', icon: actions.find(a => a.id === 'smart')?.icon, onClick: () => { setFabCategory('layout'); setSmartMenuOpen(false); } },
+    { id: 'history-category', label: 'История', icon: actions.find(a => a.id === 'undo')?.icon, onClick: () => setFabCategory('history') },
+    { id: 'tools-category', label: 'Инструменты', icon: actions.find(a => a.id === 'knife')?.icon, onClick: () => setFabCategory('tools') },
+  ];
+  const displayedActions = fabCategory
+    ? actions.filter(a => fabCategory === 'layout'
+      ? ['smart', 'layout', 'expand', 'collapse'].includes(a.id)
+      : fabCategory === 'history' ? ['undo', 'redo'].includes(a.id)
+      : ['knife', 'hideEdges', 'png', 'svg', 'json'].includes(a.id))
+    : categoryActions;
+
   return (
     <>
       {/* Messy-hint banner (only when collapsed) */}
@@ -290,7 +304,7 @@ export function LayoutFAB() {
             Each pill is absolutely positioned; on open we translate them from
             (offset=0) outward with an increasing stagger, so they visually
             "fly out of" the main button from right to left. */}
-        {actions.map((a, i) => {
+        {displayedActions.map((a, i) => {
           // v0.50.1: actions fan out horizontally to the LEFT of the FAB.
           // Keeping every action on the same center line prevents the uneven
           // vertical column that used to cover the map and its groups.
@@ -304,7 +318,7 @@ export function LayoutFAB() {
                 title={a.label}
                 aria-label={a.label}
                 style={{
-                  ...actionBtn(a.danger, a.disabled),
+                  ...(fabCategory ? actionBtn(a.danger, a.disabled) : categoryBtn),
                   transform: open
                     ? `translate(${targetX}px, 0) scale(1)`
                     : 'translate(0, 0) scale(0.4)',
@@ -313,6 +327,7 @@ export function LayoutFAB() {
                   transitionDelay: open ? `${i * 35}ms` : `${(actions.length - 1 - i) * 20}ms`,
                 }}>
                 {a.icon}
+                {!fabCategory && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600 }}>{a.label}</span>}
               </button>
               {/* v0.45: submenu for the smart-layout button — 4 strategies. */}
               {a.id === 'smart' && open && smartMenuOpen && (
@@ -358,7 +373,7 @@ export function LayoutFAB() {
 
         {/* Main FAB */}
         <button
-          onClick={() => setOpen(v => !v)}
+          onClick={() => setOpen(v => { if (v) setFabCategory(null); return !v; })}
           title={open ? 'Закрыть меню' : 'Действия'}
           aria-label={open ? 'Закрыть меню' : 'Действия'}
           style={{
@@ -421,6 +436,13 @@ const mainBtn: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   padding: 0, zIndex: 2,
   transition: 'transform 220ms cubic-bezier(.5, 1.5, .5, 1), box-shadow 200ms',
+};
+const categoryBtn: React.CSSProperties = {
+  position: 'absolute', top: 4, left: '50%', transform: 'translate(-50%, 0)',
+  width: 112, height: 40, borderRadius: 20, background: '#FFFFFF',
+  border: '2px solid #E5E7EB', color: '#374151', cursor: 'pointer',
+  boxShadow: '0 4px 12px rgba(15,23,42,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px',
+  transition: 'transform 320ms cubic-bezier(.34, 1.56, .64, 1), opacity 260ms ease-out', willChange: 'transform, opacity',
 };
 const actionBtn = (danger?: boolean, disabled?: boolean): React.CSSProperties => ({
   position: 'absolute',

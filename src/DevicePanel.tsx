@@ -126,8 +126,7 @@ function InspectorHeader({ device, onRename, onKindChange, onDelete }: {
         {/* Name + subtitle */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {editingName ? (
-            <input autoFocus value={device.name}
-                   onChange={e => onRename(e.target.value)}
+            <DraftInput autoFocus value={device.name} onCommit={onRename}
                    onBlur={() => setEditingName(false)}
                    onKeyDown={e => (e.key === 'Enter' || e.key === 'Escape') && setEditingName(false)}
                    style={{
@@ -283,6 +282,22 @@ function InspectorTabs({ tab, onChange }: {
   );
 }
 
+function DraftInput({ value, onCommit, ...props }: { value: string; onCommit: (value: string) => void } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return <input {...props} autoFocus={props.autoFocus ?? true} value={draft}
+    onChange={e => setDraft(e.target.value)}
+    onBlur={e => { onCommit(draft); props.onBlur?.(e); }}
+    onKeyDown={e => { if (e.key === 'Enter') { onCommit(draft); props.onKeyDown?.(e); } else if (e.key === 'Escape') { setDraft(value); props.onKeyDown?.(e); } }} />;
+}
+
+function DraftTextField({ value, onCommit, ...props }: { value: string; onCommit: (value: string) => void } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return <input {...props} value={draft} onChange={e => setDraft(e.target.value)}
+    onBlur={() => onCommit(draft)} onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { setDraft(value); e.currentTarget.blur(); } }} style={{ ...inputStyle, ...props.style }} />;
+}
+
 function InfoTab({ device, update }: { device: Device; update: (id: string, p: Partial<Device>) => void }) {
   const doc = useStore(s => s.doc);
   const potentialHosts = doc.devices.filter(d => d.kind === 'server' && d.id !== device.id);
@@ -343,24 +358,19 @@ function InfoTab({ device, update }: { device: Device; update: (id: string, p: P
       )}
 
       <Field label="IP-адрес">
-        <input value={device.ip || ''} onChange={e => update(device.id, { ip: e.target.value })}
-               placeholder="192.168.11.1/24" style={inputStyle} />
+        <DraftTextField value={device.ip || ''} placeholder="192.168.11.1/24" onCommit={value => update(device.id, { ip: value || undefined })} />
       </Field>
       <Field label="MAC">
-        <input value={device.mac || ''} onChange={e => update(device.id, { mac: e.target.value })}
-               placeholder="AA:BB:CC:DD:EE:FF" style={inputStyle} />
+        <DraftTextField value={device.mac || ''} placeholder="AA:BB:CC:DD:EE:FF" onCommit={value => update(device.id, { mac: value || undefined })} />
       </Field>
       <Field label="Производитель">
-        <input value={device.vendor || ''} onChange={e => update(device.id, { vendor: e.target.value })}
-               style={inputStyle} />
+        <DraftTextField value={device.vendor || ''} onCommit={value => update(device.id, { vendor: value || undefined })} />
       </Field>
       <Field label="Модель">
-        <input value={device.model || ''} onChange={e => update(device.id, { model: e.target.value })}
-               style={inputStyle} />
+        <DraftTextField value={device.model || ''} onCommit={value => update(device.id, { model: value || undefined })} />
       </Field>
       <Field label="Расположение">
-        <input value={device.location || ''} onChange={e => update(device.id, { location: e.target.value })}
-               style={inputStyle} />
+        <DraftTextField value={device.location || ''} onCommit={value => update(device.id, { location: value || undefined })} />
       </Field>
       <Field label="Уровень (Cisco 3-tier)">
         <select
@@ -379,8 +389,7 @@ function InfoTab({ device, update }: { device: Device; update: (id: string, p: P
       </Field>
       <Field label="URL управления">
         <div style={{ display: 'flex', gap: 6 }}>
-          <input value={device.mgmtUrl || ''} onChange={e => update(device.id, { mgmtUrl: e.target.value })}
-                 placeholder="https://..." style={{ ...inputStyle, flex: 1 }} />
+          <DraftTextField value={device.mgmtUrl || ''} onCommit={value => update(device.id, { mgmtUrl: value || undefined })} placeholder="https://..." style={{ ...inputStyle, flex: 1 }} />
           {device.mgmtUrl && (
             <a href={device.mgmtUrl} target="_blank" rel="noreferrer" style={linkBtn}>Открыть ↗</a>
           )}
