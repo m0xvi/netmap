@@ -54,7 +54,6 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
       <div onClick={e => e.stopPropagation()} style={card}>
         <div style={header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>Настройки</span>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Настройки</div>
           </div>
           <button onClick={onClose} style={closeBtn}>×</button>
@@ -62,11 +61,11 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
 
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div style={sidebar}>
-            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="Настройки" label="Общие" />
-            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="Мониторинг" label="Мониторинг" />
-            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="Уведомления" label="Уведомления" />
-            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="Безопасность" label="Безопасность" />
-            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="О программе" label="О программе" />
+            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="•" label="Общие" />
+            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="◌" label="Мониторинг" />
+            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="!" label="Уведомления" />
+            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="□" label="Безопасность" />
+            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="i" label="О программе" />
           </div>
           <div style={content}>
             {tab === 'general' && <GeneralTab />}
