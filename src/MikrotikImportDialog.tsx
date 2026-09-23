@@ -43,6 +43,7 @@ interface ImportConfig {
   matchFields: MatchField[];
   conflictAction: 'skip' | 'update' | 'replace';
   linkTargets: Record<string, string>;
+  linkPorts: Record<string, string>;
 }
 
 const LS_LAST = 'netmap:mikrotik:last-cfg';
@@ -168,7 +169,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [importConfig, setImportConfig] = useState<ImportConfig>({
     groupMode: 'single', groupName: '', placement: 'right', matchFields: ['mac', 'ip', 'name'],
-    conflictAction: 'skip', linkTargets: {},
+    conflictAction: 'skip', linkTargets: {}, linkPorts: {},
   });
   const subnetStats = useMemo(() => scan ? summarizeSubnets(scan) : [], [scan]);
   const activeCidrs = useMemo(
@@ -575,7 +576,8 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       if (targetId) {
         useStore.getState().addLink({
           id: `link-mikrotik-${Math.random().toString(36).slice(2, 9)}`,
-          fromDeviceId: targetId, toDeviceId: id,
+          fromDeviceId: targetId, fromPortId: config.linkPorts[row.mac] || undefined,
+          toDeviceId: id, toPortId: 'lan',
           cable: 'copper', label: 'MikroTik import',
         });
       }
@@ -1167,6 +1169,17 @@ function nextUnattachedPosition(devices: Device[], index: number, placement: Pla
   return { x: baseX + (index % cols) * 180, y: baseY + Math.floor(index / cols) * 120 };
 }
 
+function freePorts(deviceId: string, doc: DeviceDoc): Device['ports'] {
+  const device = doc.devices.find(d => d.id === deviceId);
+  if (!device) return [];
+  const occupied = new Set<string>();
+  for (const link of doc.links || []) {
+    if (link.fromDeviceId === deviceId && link.fromPortId) occupied.add(link.fromPortId);
+    if (link.toDeviceId === deviceId && link.toPortId) occupied.add(link.toPortId);
+  }
+  return device.ports.filter(port => !occupied.has(port.id));
+}
+
 function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }: {
   rows: Row[]; doc: DeviceDoc; config: ImportConfig;
   onChange: (next: ImportConfig) => void; onCancel: () => void;
@@ -1174,6 +1187,10 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
 }) {
   const anchors = doc.devices.filter(d => d.kind === 'switch' || d.kind === 'router');
   const [bulkAnchor, setBulkAnchor] = useState('');
+  const [profileName, setProfileName] = useState('');
+  const [profiles, setProfiles] = useState<Array<{ name: string; config: Omit<ImportConfig, 'linkTargets' | 'linkPorts'> }>>(() => {
+    try { return JSON.parse(localStorage.getItem('netmap:mikrotik:profiles') || '[]'); } catch { return []; }
+  });
   const matchedCount = rows.filter(row => !!findConfiguredMatch(row, config.matchFields, doc.devices)).length;
   const linkedCount = Object.values(config.linkTargets).filter(Boolean).length;
   const set = (patch: Partial<ImportConfig>) => onChange({ ...config, ...patch });
@@ -1183,13 +1200,29 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
     for (const row of rows) targets[row.mac] = bulkAnchor;
     set({ linkTargets: targets });
   };
-  const clearLinks = () => set({ linkTargets: {} });
+  const clearLinks = () => set({ linkTargets: {}, linkPorts: {} });
+  const saveProfile = async () => {
+    const name = await promptText('Сохранить профиль импорта', profileName || 'MikroTik · стандартный', 'Пароль и адрес роутера не сохраняются');
+    if (!name) return;
+    const profile = { name, config: { groupMode: config.groupMode, groupName: config.groupName, placement: config.placement, matchFields: config.matchFields, conflictAction: config.conflictAction } };
+    const next = [...profiles.filter(p => p.name !== name), profile];
+    setProfiles(next);
+    setProfileName(name);
+    try { localStorage.setItem('netmap:mikrotik:profiles', JSON.stringify(next)); } catch {}
+  };
+  const loadProfile = (name: string) => {
+    const profile = profiles.find(p => p.name === name);
+    if (!profile) return;
+    set({ ...profile.config, linkTargets: {}, linkPorts: {} });
+    setProfileName(name);
+  };
   const toggleField = (field: MatchField) => set({ matchFields: config.matchFields.includes(field)
     ? config.matchFields.filter(x => x !== field) : [...config.matchFields, field] });
   return createPortal(<div style={reviewOverlay}>
     <div style={reviewCard}>
       <div style={reviewHeader}><div><b>Настройка импорта MikroTik</b><div style={reviewMuted}>Проверьте объединение, совпадения и подключения до добавления на карту.</div></div><button onClick={onCancel} style={closeBtn}>Закрыть</button></div>
       <div style={reviewBody}>
+        <div style={profileBar}><b>Профиль импорта</b><select value={profileName} onChange={e => loadProfile(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Текущие настройки (не сохранены)</option>{profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.name}</option>)}</select><button onClick={saveProfile} style={smallBtn}>Сохранить профиль</button></div>
         <div style={reviewGrid}>
           <Field label="Группировка">
             <select value={config.groupMode} onChange={e => set({ groupMode: e.target.value as GroupMode })} style={inputStyle}>
@@ -1201,18 +1234,19 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
           <Field label="Если найдено совпадение"><select value={config.conflictAction} onChange={e => set({ conflictAction: e.target.value as ImportConfig['conflictAction'] })} style={inputStyle}><option value="skip">Пропустить</option><option value="update">Обновить пустые поля</option><option value="replace">Заменить данные</option></select></Field>
         </div>
         <div style={reviewSection}><b>Поля для поиска совпадений</b><div style={reviewChecks}>{(['name','mac','ip'] as MatchField[]).map(field => <label key={field} style={checkLabel}><input type="checkbox" checked={config.matchFields.includes(field)} onChange={() => toggleField(field)} />{field === 'name' ? 'имя' : field.toUpperCase()}</label>)}</div></div>
-        <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Можно назначить устройство каждому хосту отдельно или применить один router/switch ко всему списку. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={bulkBar}><select value={bulkAnchor} onChange={e => setBulkAnchor(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Выберите router/switch для всех хостов</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select><button onClick={applyBulkAnchor} disabled={!bulkAnchor} style={{ ...smallBtn, opacity: bulkAnchor ? 1 : .5 }}>Применить всем</button><button onClick={clearLinks} style={smallBtn}>Очистить</button></div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 240 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select></div>)}</div></div>
+        <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Можно назначить устройство каждому хосту отдельно или применить один router/switch ко всему списку. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={bulkBar}><select value={bulkAnchor} onChange={e => setBulkAnchor(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Выберите router/switch для всех хостов</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select><button onClick={applyBulkAnchor} disabled={!bulkAnchor} style={{ ...smallBtn, opacity: bulkAnchor ? 1 : .5 }}>Применить всем</button><button onClick={clearLinks} style={smallBtn}>Очистить</button></div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value }, linkPorts: { ...config.linkPorts, [row.mac]: '' } })} style={{ ...inputStyle, width: 210 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select>{config.linkTargets[row.mac] && <select value={config.linkPorts[row.mac] || ''} onChange={e => set({ linkPorts: { ...config.linkPorts, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 150 }}><option value="">Порт: авто</option>{freePorts(config.linkTargets[row.mac], doc).map(port => <option key={port.id} value={port.id}>{port.label || port.id}{port.speed ? ` · ${port.speed}` : ''}</option>)}</select>}</div>)}</div></div>
       </div>
       <div style={reviewFooter}><span style={reviewMuted}>{rows.length} хостов · {matchedCount} совпадений · {linkedCount} подключений</span><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}><button onClick={onCancel} style={smallBtn}>Назад</button><button onClick={() => onConfirm(config)} style={primaryBtn}>Применить настройки и импортировать</button></div></div>
     </div>
   </div>, document.body);
 }
 
-type DeviceDoc = { devices: Device[] };
+type DeviceDoc = { devices: Device[]; links?: Array<{ fromDeviceId: string; fromPortId?: string; toDeviceId: string; toPortId?: string }> };
 const reviewOverlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 4100, background: 'rgba(15,23,42,.68)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 };
 const reviewCard: React.CSSProperties = { width: 'min(1050px, 96vw)', maxHeight: '92vh', background: '#fff', borderRadius: 12, color: '#111827', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 70px rgba(0,0,0,.35)' };
 const reviewHeader: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const reviewBody: React.CSSProperties = { padding: 18, overflowY: 'auto' };
+const profileBar: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: 8, marginBottom: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 11 };
 const reviewGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr', gap: 10 };
 const reviewSection: React.CSSProperties = { marginTop: 16, paddingTop: 12, borderTop: '1px solid #E5E7EB', display: 'grid', gap: 8 };
 const reviewChecks: React.CSSProperties = { display: 'flex', gap: 12 };
