@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { Canvas } from './Canvas';
 import { RightPanel } from './RightPanel';
@@ -29,6 +29,36 @@ export default function App() {
   const rightPanelOpen = useStore(s => s.rightPanelOpen);
   const toggleSidebar = useStore(s => s.toggleSidebar);
   const toggleRightPanel = useStore(s => s.toggleRightPanel);
+  const [uiScale, setUiScale] = useState(() => {
+    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+  });
+
+  useEffect(() => {
+    const onScale = (e: Event) => {
+      const value = Number((e as CustomEvent<{ value: number }>).detail?.value);
+      if (Number.isFinite(value)) setUiScale(Math.max(0.8, Math.min(1.25, value)));
+    };
+    window.addEventListener('netmap:ui-scale', onScale);
+    return () => window.removeEventListener('netmap:ui-scale', onScale);
+  }, []);
+
+  useEffect(() => {
+    // Keep the desktop workspace fixed to the viewport. Wheel gestures over
+    // React Flow must not scroll the page and move the whole interface.
+    const html = document.documentElement;
+    const body = document.body;
+    const previous = { htmlOverflow: html.style.overflow, bodyOverflow: body.style.overflow, bodyMargin: body.style.margin, bodyZoom: body.style.zoom };
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.margin = '0';
+    body.style.zoom = String(uiScale);
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.margin = previous.bodyMargin;
+      body.style.zoom = previous.bodyZoom;
+    };
+  }, [uiScale]);
 
   useEffect(() => {
     // v0.36.1: mark hydration complete so LoadingOverlay splash hides.
@@ -42,7 +72,7 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, overflow: 'hidden' }}>
       {/* v0.42: HTML custom menubar (File/View/Tools/Monitor/Help). Sits
           above the toolbar, replaces the old hamburger ☰ AppMenu. */}
       <MenuBar />

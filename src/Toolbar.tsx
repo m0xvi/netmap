@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { useStore } from './store';
+import { useStore, type FilterState } from './store';
 import { ProjectMenu } from './FileMenu';
 import { SettingsDialogHost } from './SettingsDialog';
+import { promptText, confirmDialog } from './Modal';
 
 /**
  * v0.35.7 top toolbar redesign:
@@ -191,17 +192,7 @@ export function Toolbar() {
         )}
       </div>
 
-      {/* v0.43.6: quick Modern/Legacy card style toggle — was buried in
-          Settings, users wanted it 1-click accessible. */}
-      <ViewModeToggle />
-      {/* v0.45: compact/expanded toggle — folds endpoints into hub chips.
-          ON by default now (matches user intuition of a clean overview). */}
-      <CompactViewToggle />
-
-      {/* v0.41: panel-toggle buttons. When sidebar / right-panel are hidden
-          (default first-run state), user can bring them back from here or
-          from the edge-tab buttons on the map itself. */}
-      <PanelToggles />
+      <SavedViews />
 
       {/* v0.36.1: right cluster stripped to essentials. FocusRelated / Help
           moved into AppMenu (☰). Only Notifications stay here — visibility
@@ -256,6 +247,116 @@ function VersionBadge() {
  * Was inside Settings → «Оформление карты», users complained it's too many
  * clicks. Now it's a persistent 2-button segmented control.
  */
+type SavedViewport = { x: number; y: number; zoom: number };
+type SavedView = { id: string; name: string; viewport: SavedViewport; filters: FilterState };
+
+function defaultViewFilters(): FilterState {
+  return { hiddenKinds: new Set(), hiddenCables: new Set(), poeOnly: false, tag: null, vlan: null, hiddenLayers: new Set() };
+}
+function serialiseViewFilters(filters: FilterState) {
+  return { hiddenKinds: [...filters.hiddenKinds], hiddenCables: [...filters.hiddenCables], poeOnly: filters.poeOnly, tag: filters.tag, vlan: filters.vlan, hiddenLayers: [...filters.hiddenLayers] };
+}
+function restoreViewFilters(raw: any): FilterState {
+  return { hiddenKinds: new Set(raw.hiddenKinds || []), hiddenCables: new Set(raw.hiddenCables || []), poeOnly: !!raw.poeOnly, tag: raw.tag ?? null, vlan: raw.vlan ?? null, hiddenLayers: new Set(raw.hiddenLayers || []) };
+}
+
+function SavedViews() {
+  const filters = useStore(s => s.filters);
+  const setFilters = useStore(s => s.setFilters);
+  const viewMode = useStore(s => s.viewMode);
+  const setViewMode = useStore(s => s.setViewMode);
+  const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const workspace = useStore(s => s.workspace);
+  const projectId = workspace?.activeId || 'default';
+  const storageKey = `netmap:saved-views:${projectId}`;
+  const [open, setOpen] = useState(false);
+  const [viewport, setViewport] = useState<SavedViewport>({ x: 0, y: 0, zoom: 1 });
+  const [saved, setSaved] = useState<SavedView[]>(() => {
+    try {
+      return (JSON.parse(localStorage.getItem(storageKey) || '[]') as any[]).map(v => ({ ...v, filters: restoreViewFilters(v.filters) }));
+    } catch { return []; }
+  });
+  const [savedProjectId, setSavedProjectId] = useState(projectId);
+  useEffect(() => {
+    const onViewport = (e: Event) => {
+      const v = (e as CustomEvent<SavedViewport>).detail;
+      if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.zoom)) setViewport(v);
+    };
+    window.addEventListener('netmap:viewport-changed', onViewport);
+    return () => window.removeEventListener('netmap:viewport-changed', onViewport);
+  }, []);
+  useEffect(() => {
+    if (savedProjectId !== projectId) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(saved.map(v => ({ ...v, filters: serialiseViewFilters(v.filters) })))); } catch {}
+  }, [saved, savedProjectId, projectId, storageKey]);
+  useEffect(() => {
+    if (savedProjectId === projectId) return;
+    try {
+      const next = (JSON.parse(localStorage.getItem(storageKey) || '[]') as any[]).map(v => ({ ...v, filters: restoreViewFilters(v.filters) }));
+      setSaved(next);
+    } catch { setSaved([]); }
+    setSavedProjectId(projectId);
+    setOpen(false);
+  }, [projectId, storageKey, savedProjectId]);
+
+  const apply = (nextFilters: FilterState, nextViewport?: SavedViewport) => {
+    setFilters(nextFilters);
+    if (nextViewport) window.dispatchEvent(new CustomEvent('netmap:set-viewport', { detail: nextViewport }));
+    else requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')));
+    setOpen(false);
+  };
+  const preset = (name: string) => {
+    const f = defaultViewFilters();
+    if (name === 'infrastructure') ['camera','pc','pos','printer','lock'].forEach(k => f.hiddenKinds.add(k));
+    if (name === 'cameras') ['router','switch','patchpanel','ap','server','vm','vps','pc','pos','printer','lock','cloud'].forEach(k => f.hiddenKinds.add(k));
+    if (name === 'new') f.tag = 'imported';
+    apply(f);
+  };
+  const saveCurrent = async () => {
+    const name = await promptText('Сохранить вид карты', 'Мой вид', 'Будут сохранены масштаб, позиция и фильтры.');
+    if (!name?.trim()) return;
+    const view: SavedView = { id: `view-${Date.now()}`, name: name.trim(), viewport, filters: { ...filters, hiddenKinds: new Set(filters.hiddenKinds), hiddenCables: new Set(filters.hiddenCables), hiddenLayers: new Set(filters.hiddenLayers) } };
+    setSaved(prev => [...prev, view]);
+  };
+  const remove = async (view: SavedView) => {
+    if (!await confirmDialog('Удалить сохранённый вид?', `Вид «${view.name}» будет удалён с этого компьютера.`, { danger: true, okText: 'Удалить' })) return;
+    setSaved(prev => prev.filter(v => v.id !== view.id));
+  };
+  return <div style={{ position: 'relative' }}>
+    <button onClick={() => setOpen(v => !v)} title="Сохранённые виды карты" style={viewButton}>Виды</button>
+    {open && <div style={viewsMenu}>
+      <div style={viewsTitle}>Быстрые виды</div>
+      <button onClick={() => preset('overview')} style={viewItem}>Обзор</button>
+      <button onClick={() => preset('infrastructure')} style={viewItem}>Только инфраструктура</button>
+      <button onClick={() => preset('cameras')} style={viewItem}>Только камеры</button>
+      <button onClick={() => preset('new')} style={viewItem}>Только новые</button>
+      <div style={viewsDivider} />
+      <div style={viewsTitle}>Отображение</div>
+      <div style={viewModeRow}>
+        <button onClick={() => setViewMode('modern')} style={{ ...viewModeChoice, ...(viewMode === 'modern' ? viewModeChoiceActive : {}) }}>Modern</button>
+        <button onClick={() => setViewMode('legacy')} style={{ ...viewModeChoice, ...(viewMode === 'legacy' ? viewModeChoiceActive : {}) }}>Legacy</button>
+      </div>
+      <button onClick={toggleCollapseEndpoints} style={viewItem}>{collapseEndpoints ? '✓ Компактный вид endpoint-ов' : 'Компактный вид endpoint-ов'}</button>
+      <div style={viewsDivider} />
+      <button onClick={saveCurrent} style={viewItem}>Сохранить текущий вид</button>
+      {saved.length > 0 && <div style={viewsTitle}>Мои виды</div>}
+      {saved.map(view => <div key={view.id} style={savedRow}><button onClick={() => apply(view.filters, view.viewport)} style={{ ...viewItem, flex: 1 }}>{view.name}</button><button onClick={() => remove(view)} title="Удалить вид" style={deleteView}>×</button></div>)}
+    </div>}
+  </div>;
+}
+
+const viewButton: React.CSSProperties = { background: '#F8FAFC', border: '1px solid #CBD5E1', color: '#334155', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' };
+const viewsMenu: React.CSSProperties = { position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100, minWidth: 230, padding: 6, background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 8, boxShadow: '0 12px 28px rgba(15,23,42,.16)' };
+const viewsTitle: React.CSSProperties = { padding: '5px 8px', fontSize: 9, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4 };
+const viewItem: React.CSSProperties = { display: 'block', width: '100%', background: 'transparent', border: 0, color: '#1E293B', padding: '7px 8px', borderRadius: 5, textAlign: 'left', cursor: 'pointer', fontSize: 11 };
+const viewModeRow: React.CSSProperties = { display: 'flex', gap: 4, padding: '0 4px 4px' };
+const viewModeChoice: React.CSSProperties = { flex: 1, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#64748B', borderRadius: 5, padding: '5px 6px', cursor: 'pointer', fontSize: 10 };
+const viewModeChoiceActive: React.CSSProperties = { background: '#EFF6FF', borderColor: '#93C5FD', color: '#1D4ED8', fontWeight: 700 };
+const savedRow: React.CSSProperties = { display: 'flex', alignItems: 'center' };
+const deleteView: React.CSSProperties = { background: 'transparent', border: 0, color: '#94A3B8', cursor: 'pointer', fontSize: 16, padding: '2px 6px' };
+const viewsDivider: React.CSSProperties = { height: 1, background: '#E2E8F0', margin: '5px 0' };
+
 function ViewModeToggle() {
   const viewMode = useStore(s => s.viewMode);
   const setViewMode = useStore(s => s.setViewMode);

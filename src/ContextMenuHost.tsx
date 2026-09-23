@@ -5,10 +5,10 @@ import type { StickyColor, NetworkLayer } from './types';
 import { inferLayer, LAYER_META } from './layers';
 
 const STICKY_COLOR_META: Record<StickyColor, { emoji: string; label: string }> = {
-  yellow: { emoji: '🟡', label: 'Жёлтая' },
-  green:  { emoji: '🟢', label: 'Зелёная' },
-  blue:   { emoji: '🔵', label: 'Синяя' },
-  pink:   { emoji: '🩷', label: 'Розовая' },
+  yellow: { emoji: 'Ж', label: 'Жёлтая' },
+  green:  { emoji: 'З', label: 'Зелёная' },
+  blue:   { emoji: 'С', label: 'Синяя' },
+  pink:   { emoji: 'Р', label: 'Розовая' },
 };
 
 export function ContextMenuHost() {
@@ -48,9 +48,9 @@ export function ContextMenuHost() {
     };
 
     items = [
-      { label: `${dev.name}`, icon: '📎', disabled: true },
+      { label: `${dev.name}`, icon: '•', disabled: true },
       { separator: true, label: '' },
-      { label: 'Открыть свойства', icon: '⚙️', action: () => select(dev.id) },
+      { label: 'Открыть свойства', icon: '⚙', action: () => select(dev.id) },
       {
         label: isExpanded ? 'Свернуть' : 'Развернуть (порты)',
         icon: isExpanded ? '◲' : '◱',
@@ -58,22 +58,22 @@ export function ContextMenuHost() {
       },
       {
         label: 'Добавить заметку',
-        icon: '📌',
+        icon: '•',
         submenu: [
-          { label: '🟡 Жёлтая',  action: () => addNoteWithColor('yellow') },
-          { label: '🟢 Зелёная', action: () => addNoteWithColor('green')  },
-          { label: '🔵 Синяя',   action: () => addNoteWithColor('blue')   },
-          { label: '🩷 Розовая', action: () => addNoteWithColor('pink')   },
+          { label: 'Ж Жёлтая',  action: () => addNoteWithColor('yellow') },
+          { label: 'З Зелёная', action: () => addNoteWithColor('green')  },
+          { label: 'С Синяя',   action: () => addNoteWithColor('blue')   },
+          { label: 'Р Розовая', action: () => addNoteWithColor('pink')   },
         ]
       },
-      { label: 'Переименовать', icon: '✏️', action: async () => {
+      { label: 'Переименовать', icon: '✎', action: async () => {
           const name = await promptText('Переименовать устройство', dev.name);
           if (name && name.trim()) updateDevice(dev.id, { name: name.trim() });
       }},
       { label: 'Дублировать', icon: '⧉', action: () => duplicateDevice(dev.id) },
       {
         label: `Уровень: ${LAYER_META[inferLayer(dev)].emoji} ${LAYER_META[inferLayer(dev)].label}${dev.layer ? '' : ' (авто)'}`,
-        icon: '🏛',
+        icon: '▦',
         submenu: [
           {
             label: `🤖 Авто (сейчас ${LAYER_META[inferLayer({ ...dev, layer: undefined })].label})`,
@@ -137,7 +137,7 @@ export function ContextMenuHost() {
         icon: g.collapsed ? '▶' : '▼',
         action: () => updateGroup(g.id, { collapsed: !g.collapsed })
       },
-      { label: 'Переименовать', icon: '✏️', action: async () => {
+      { label: 'Переименовать', icon: '✎', action: async () => {
           const name = await promptText('Переименовать группу', g.name);
           if (name && name.trim()) updateGroup(g.id, { name: name.trim() });
       }},
@@ -168,7 +168,7 @@ export function ContextMenuHost() {
     if (!note) { close(); return null; }
 
     items = [
-      { label: '📌 Заметка', disabled: true },
+      { label: '• Заметка', disabled: true },
       { separator: true, label: '' },
       {
         label: 'Сменить цвет',
@@ -217,17 +217,17 @@ export function ContextMenuHost() {
       { separator: true, label: '' },
       {
         label: 'Открыть свойства порта',
-        icon: '⚙️',
+        icon: '⚙',
         action: () => selectPort(dev.id, port.id),
       },
       {
         label: 'Статус',
-        icon: port.status === 'up' ? '🟢' : port.status === 'error' ? '🔴' : port.status === 'disabled' ? '⚫' : '⚪',
+        icon: port.status === 'up' ? 'З' : port.status === 'error' ? '!' : port.status === 'disabled' ? '—' : '○',
         submenu: [
-          { label: '🟢 UP',      disabled: port.status === 'up',       action: () => updatePort(dev.id, port.id, { status: 'up' }) },
-          { label: '⚪ DOWN',    disabled: port.status === 'down' || !port.status, action: () => updatePort(dev.id, port.id, { status: 'down' }) },
-          { label: '⚫ DISABLED', disabled: port.status === 'disabled', action: () => updatePort(dev.id, port.id, { status: 'disabled' }) },
-          { label: '🔴 ERROR',   disabled: port.status === 'error',    action: () => updatePort(dev.id, port.id, { status: 'error' }) },
+          { label: 'З UP',      disabled: port.status === 'up',       action: () => updatePort(dev.id, port.id, { status: 'up' }) },
+          { label: '○ DOWN',    disabled: port.status === 'down' || !port.status, action: () => updatePort(dev.id, port.id, { status: 'down' }) },
+          { label: '— DISABLED', disabled: port.status === 'disabled', action: () => updatePort(dev.id, port.id, { status: 'disabled' }) },
+          { label: '! ERROR',   disabled: port.status === 'error',    action: () => updatePort(dev.id, port.id, { status: 'error' }) },
         ],
       },
       {
@@ -272,7 +272,7 @@ export function ContextMenuHost() {
       }] : []),
       {
         label: 'Переименовать / описание',
-        icon: '✏️',
+        icon: '✎',
         action: async () => {
           const raw = await promptText(
             `Описание порта ${port.id.toUpperCase()}`,
