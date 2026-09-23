@@ -130,7 +130,7 @@ function TracerouteDialog({ initial, onClose }: {
       <div onClick={e => e.stopPropagation()} style={card}>
         <div style={header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>🛣</span>
+            <span style={{ fontSize: 20 }}>⇢</span>
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Traceroute</div>
               <div style={{ fontSize: 10, color: '#6B7280' }}>

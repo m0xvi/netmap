@@ -159,9 +159,9 @@ function ImportTab({ onDone, disabled }: { onDone: () => void; disabled: boolean
       <div>
         <label style={fieldLabel}>Формат файла</label>
         <div style={{ display: 'flex', gap: 6 }}>
-          <RadioPill checked={format === 'kdbx'}     onClick={() => setFormat('kdbx')}     label="🔐 KeePass (.kdbx)" />
-          <RadioPill checked={format === 'bitwarden'} onClick={() => setFormat('bitwarden')} label="📦 Bitwarden JSON" />
-          <RadioPill checked={format === 'csv'}      onClick={() => setFormat('csv')}      label="📄 CSV" />
+          <RadioPill checked={format === 'kdbx'}     onClick={() => setFormat('kdbx')}     label="▣ KeePass (.kdbx)" />
+          <RadioPill checked={format === 'bitwarden'} onClick={() => setFormat('bitwarden')} label="□ Bitwarden JSON" />
+          <RadioPill checked={format === 'csv'}      onClick={() => setFormat('csv')}      label="≡ CSV" />
         </div>
       </div>
 
@@ -189,7 +189,7 @@ function ImportTab({ onDone, disabled }: { onDone: () => void; disabled: boolean
 
       <div style={{ display: 'flex', gap: 8 }}>
         <button style={primaryBtn} disabled={!file || busy || disabled} onClick={parse}>
-          {busy ? 'Читаю…' : '🔎 Проверить'}
+          {busy ? 'Читаю…' : 'Проверить'}
         </button>
         {preview && (
           <button style={{ ...primaryBtn, background: '#059669' }} disabled={busy || disabled} onClick={commit}>
@@ -226,8 +226,8 @@ function ImportTab({ onDone, disabled }: { onDone: () => void; disabled: boolean
               <div key={i} style={{ fontSize: 11, padding: '3px 6px', background: 'white', borderRadius: 4 }}>
                 <span style={{ fontWeight: 600 }}>{it.name || '(без имени)'}</span>
                 {it.username && <span style={{ color: '#64748B', marginLeft: 6 }}>{it.username}</span>}
-                {it.folderPath && <span style={{ color: '#94A3B8', marginLeft: 6, fontSize: 10 }}>📁 {it.folderPath}</span>}
-                {it.totpSecret && <span style={{ marginLeft: 6 }}>🔐</span>}
+                {it.folderPath && <span style={{ color: '#94A3B8', marginLeft: 6, fontSize: 10 }}>▤ {it.folderPath}</span>}
+                {it.totpSecret && <span style={{ marginLeft: 6 }}>▣</span>}
               </div>
             ))}
             {preview.items.length > 30 && (
@@ -297,9 +297,9 @@ function ExportTab({ disabled }: { disabled: boolean }) {
       <div>
         <label style={fieldLabel}>Формат</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <RadioPill checked={format === 'kdbx'}      onClick={() => setFormat('kdbx')}      label="🔐 KeePass (.kdbx)" />
-          <RadioPill checked={format === 'bitwarden'} onClick={() => setFormat('bitwarden')} label="📦 Bitwarden JSON (не шифр.)" />
-          <RadioPill checked={format === 'csv'}       onClick={() => setFormat('csv')}       label="📄 CSV (не шифр.)" />
+          <RadioPill checked={format === 'kdbx'}      onClick={() => setFormat('kdbx')}      label="▣ KeePass (.kdbx)" />
+          <RadioPill checked={format === 'bitwarden'} onClick={() => setFormat('bitwarden')} label="□ Bitwarden JSON (не шифр.)" />
+          <RadioPill checked={format === 'csv'}       onClick={() => setFormat('csv')}       label="≡ CSV (не шифр.)" />
         </div>
       </div>
 
@@ -316,7 +316,7 @@ function ExportTab({ disabled }: { disabled: boolean }) {
                    placeholder="Повторите" style={inputStyle} />
           </div>
           <div style={{ fontSize: 11, color: '#64748B', background: '#F1F5F9', padding: 8, borderRadius: 6 }}>
-            💡 Файл откроется в KeePass 2 / KeePassXC / KeeWeb. TOTP-секреты сохраняются как <code>otp</code>
+            ℹ Файл откроется в KeePass 2 / KeePassXC / KeeWeb. TOTP-секреты сохраняются как <code>otp</code>
             поле в формате <code>otpauth://</code>, совместимо с KeeOTP / KeePassXC.
           </div>
         </>
@@ -522,7 +522,7 @@ function MigrateTab({ onDone, disabled }: { onDone: () => void; disabled: boolea
                 </td>
                 <td style={td}>
                   {c.existingVaultId
-                    ? <span style={{ color: '#059669', fontSize: 10 }}>🔗 привязан</span>
+                    ? <span style={{ color: '#059669', fontSize: 10 }}>↔ привязан</span>
                     : <span style={{ color: '#B45309', fontSize: 10 }}>новая запись</span>}
                 </td>
               </tr>

@@ -154,7 +154,7 @@ export function ProjectMenu() {
           <MenuItem icon="✎" label="Переименовать…"       onClick={doRename} disabled={!active} />
 
           <Separator />
-          <MenuItem icon="🗑" label="Удалить активный проект…" onClick={doDelete} danger
+          <MenuItem icon="✕" label="Удалить активный проект…" onClick={doDelete} danger
                     disabled={workspace.projects.length <= 1} />
         </div>
       )}
@@ -324,14 +324,14 @@ export function AppMenu() {
           </div>
 
           <div style={sectionHeader}>Проект</div>
-          <MenuItem icon="💾" label="Сохранить сейчас" sub="Ctrl+S"
+          <MenuItem icon="↧" label="Сохранить сейчас" sub="Ctrl+S"
                     onClick={doSave} />
           <MenuItem icon="⤢" label="Восстановить вид (вписать всё)" sub="F"
                     onClick={() => {
                       setOpen(false);
                       window.dispatchEvent(new CustomEvent('netmap:fit-view'));
                     }} />
-          <MenuItem icon="🔧" label="Разложить заново (авто-layout)"
+          <MenuItem icon="⚙" label="Разложить заново (авто-layout)"
                     sub="Если ноды спрятались или сжались в одну точку"
                     onClick={async () => {
                       setOpen(false);
@@ -372,7 +372,7 @@ export function AppMenu() {
 
           <Separator />
           <div style={sectionHeader}>Инструменты</div>
-          <MenuItem icon="🔐" label="Vault Studio…"
+          <MenuItem icon="▣" label="Vault Studio…"
                     sub="Ctrl+K"
                     onClick={() => {
                       setOpen(false);

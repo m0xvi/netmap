@@ -1,5 +1,5 @@
 // Preload runs in a privileged context but exposes only a narrow API to the renderer.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('netmap', {
   // Doc storage
@@ -126,4 +126,15 @@ contextBridge.exposeInMainWorld('netmap', {
 
   // Utility: paths / info
   getDbPath: () => ipcRenderer.invoke('netmap:getDbPath'),
+
+  // v0.51.16: UI scale via Chromium-native page zoom (webFrame).
+  // CSS `zoom` on <body> breaks React Flow pointer math (drag/drop/connect
+  // offset by the zoom factor) and clips the bottom/right of the UI.
+  // Page zoom scales everything uniformly without coordinate distortion.
+  setUiZoom: (factor) => {
+    try {
+      const f = Number(factor);
+      if (Number.isFinite(f) && f >= 0.5 && f <= 2) webFrame.setZoomFactor(f);
+    } catch { /* noop */ }
+  },
 });

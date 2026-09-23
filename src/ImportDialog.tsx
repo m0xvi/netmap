@@ -493,7 +493,7 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                         cursor: 'pointer',
                       }}
                     >
-                      {s.fromRouter ? '📡 ' : ''}{s.cidr} · {s.deviceCount}
+                      {s.fromRouter ? '⌁ ' : ''}{s.cidr} · {s.deviceCount}
                     </button>
                   );
                 })}
@@ -655,7 +655,7 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                 </span>
                 {importPreview.toAdd > 0 && <span style={{ color: '#059669' }}>+{importPreview.toAdd} новых</span>}
                 {importPreview.toUpdate > 0 && <span style={{ color: '#B45309' }}>↻{importPreview.toUpdate} обновить</span>}
-                {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>⚡{importPreview.toReplace} заменить</span>}
+                {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>↯{importPreview.toReplace} заменить</span>}
                 {importPreview.toSkip > 0 && <span style={{ color: '#6B7280' }}>⊘{importPreview.toSkip} пропустить</span>}
               </>
             )}

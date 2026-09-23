@@ -815,7 +815,7 @@ function PortSummary({ ports }: { ports: Port[] }) {
     <div style={{ display: 'flex', gap: 3, fontSize: 9, alignItems: 'center' }}>
       <span style={pillStyle('#065F46', '#D1FAE5')}>{up}↑</span>
       <span style={pillStyle('#374151', '#D1D5DB')}>{dn}↓</span>
-      {poe > 0 && <span style={pillStyle('#78350F', '#FEF3C7')}>{poe}⚡</span>}
+      {poe > 0 && <span style={pillStyle('#78350F', '#FEF3C7')}>{poe}↯</span>}
     </div>
   );
 }

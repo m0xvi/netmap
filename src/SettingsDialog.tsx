@@ -86,7 +86,11 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
 // ------------------------------------------------------------------------
 function GeneralTab() {
   const [uiScale, setUiScale] = useState(() => {
-    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+    try {
+      const v = Number(localStorage.getItem('netmap:uiScale'));
+      if (!Number.isFinite(v) || v < 0.8 || v > 1.25) return 1;
+      return v;
+    } catch { return 1; }
   });
   const changeUiScale = (value: number) => {
     const next = Math.max(0.8, Math.min(1.25, value));
@@ -298,7 +302,7 @@ function NotifyTab() {
         botToken: settings.telegramBotToken,
         chatId: settings.telegramChatId,
         proxyUrl: settings.telegramProxyUrl,
-        message: '✅ NetMap — тестовое сообщение.\nЕсли вы это видите, интеграция настроена правильно.',
+        message: '✓ NetMap — тестовое сообщение.\nЕсли вы это видите, интеграция настроена правильно.',
       });
       if (res.ok) setTestResult('✓ Отправлено. Проверьте чат.');
       else setTestResult('✗ ' + (res.error || 'Не удалось'));
@@ -424,7 +428,7 @@ function SecurityTab() {
         </div>
         {status && (
           <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 12 }}>
-            Статус: {status.initialized ? (status.unlocked ? '🔓 разблокирован' : 'Безопасность заблокирован') : 'не создан'}
+            Статус: {status.initialized ? (status.unlocked ? 'разблокирован' : 'заблокирован') : 'не создан'}
             {' · '}записей: {status.itemCount}
           </div>
         )}
@@ -499,7 +503,7 @@ function SecurityTab() {
             style={{ padding: '4px 10px', border: '1px solid #FCA5A5', background: '#FEE2E2',
                      color: '#B91C1C', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
           >
-            🗑 Очистить журнал
+            Очистить журнал
           </button>
         </div>
       </Section>
@@ -546,7 +550,7 @@ function AboutTab() {
       </Section>
       <Section title="Обратная связь">
         <div style={{ fontSize: 12, color: '#374151' }}>
-          Ошибки и запросы фич — присылайте разработчику. Используйте кнопку «🐞 Показать сырой ответ» в диалогах импорта и «Скопировать отчёт» в баннере ошибок — это ускорит диагностику.
+          Ошибки и запросы фич — присылайте разработчику. Используйте кнопку «⌗ Показать сырой ответ» в диалогах импорта и «Скопировать отчёт» в баннере ошибок — это ускорит диагностику.
         </div>
       </Section>
     </>

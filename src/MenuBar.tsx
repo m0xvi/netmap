@@ -236,7 +236,7 @@ function FileMenu({ onClose, onBackups }: { onClose: () => void; onBackups: () =
   return (
     <>
       <Section>Проект</Section>
-      <Item icon="💾" label="Сохранить сейчас" shortcut="Ctrl+S"
+      <Item icon="↧" label="Сохранить сейчас" shortcut="Ctrl+S"
             onClick={() => {
               onClose();
               useStore.getState().pushAlert({ severity: 'success', origin: 'app', title: 'Сохранено', message: 'Записано в локальную базу.' });
@@ -293,7 +293,7 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
       <Section>Канвас</Section>
       <Item icon="⤢" label="Восстановить вид (fit)" shortcut="F"
             onClick={() => { window.dispatchEvent(new CustomEvent('netmap:fit-view')); onClose(); }} />
-      <Item icon="⚡" label="Умная раскладка (по локациям / VLAN)" shortcut=""
+      <Item icon="↯" label="Умная раскладка (по локациям / VLAN)" shortcut=""
             onClick={async () => {
               onClose();
               try {
@@ -301,7 +301,7 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
                 setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
               } catch (e: any) { await alertDialog('Ошибка', e?.message || 'smart-layout failed'); }
             }} />
-      <Item icon="🔧" label="Разложить заново (без группировки)" shortcut=""
+      <Item icon="⚙" label="Разложить заново (без группировки)" shortcut=""
             onClick={async () => {
               onClose();
               try { useStore.getState().autoLayout('TB'); setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400); }
@@ -341,11 +341,11 @@ function ToolsMenu({ onClose, onMikrotik, onImport, onDiscovery }: {
             onClick={() => onImport(undefined)} />
       <Separator />
       <Section>Менеджер паролей</Section>
-      <Item icon="🔐" label="Vault Studio…" shortcut="Ctrl+K"
+      <Item icon="▣" label="Vault Studio…" shortcut="Ctrl+K"
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-vault-studio')); }} />
       <Separator />
       <Section>Диагностика</Section>
-      <Item icon="🛣" label="Traceroute…" shortcut=""
+      <Item icon="⇢" label="Traceroute…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-traceroute', { detail: {} })); }} />
     </>
   );
@@ -365,7 +365,7 @@ function MonitorMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings' } })); }} />
       <Separator />
       <Section>Уведомления</Section>
-      <Item icon="🔔" label="Центр уведомлений…" shortcut=""
+      <Item icon="" label="Центр уведомлений…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-alerts')); }} />
     </>
   );

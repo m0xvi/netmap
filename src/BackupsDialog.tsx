@@ -61,10 +61,13 @@ export function BackupsDialog({ open, onClose }: Props) {
 
   const doRestoreInPlace = async () => {
     if (!preview) return;
+    // v0.51.16: честный текст подтверждения — восстановление создаёт НОВЫЙ
+    // проект из snapshot и делает его активным; старый проект остаётся в
+    // списке (ничего не удаляется).
     if (!(await confirmDialog(
-      'Заменить текущий проект?',
-      'Все несохранённые изменения будут потеряны. Текущее состояние сначала уйдёт в новую резервную копию.',
-      { danger: true, okText: 'Заменить' }
+      'Восстановить вместо текущего проекта?',
+      'Из резервной копии будет создан новый проект, и он станет активным. Текущий проект останется в списке — его можно удалить позже вручную.',
+      { danger: true, okText: 'Восстановить' }
     ))) return;
     setBusy(true);
     try {
@@ -157,12 +160,12 @@ export function BackupsDialog({ open, onClose }: Props) {
                   padding: 12, background: '#F1F5F9', borderRadius: 8,
                   fontSize: 12, color: '#334155', lineHeight: 1.7,
                 }}>
-                  <div>📛 Название проекта: <b>{preview.name || '(без названия)'}</b></div>
-                  <div>📦 Устройств: <b>{(preview.devices || []).length}</b></div>
-                  <div>🔗 Связей: <b>{(preview.links || []).length}</b></div>
-                  <div>📁 Групп: <b>{(preview.groups || []).length}</b></div>
-                  <div>🏷 VLAN'ов: <b>{(preview.vlans || []).length}</b></div>
-                  <div>📝 Sticky-заметок: <b>{(preview.stickies || []).length}</b></div>
+                  <div>Название проекта: <b>{preview.name || '(без названия)'}</b></div>
+                  <div>Устройств: <b>{(preview.devices || []).length}</b></div>
+                  <div>Связей: <b>{(preview.links || []).length}</b></div>
+                  <div>Групп: <b>{(preview.groups || []).length}</b></div>
+                  <div>VLAN'ов: <b>{(preview.vlans || []).length}</b></div>
+                  <div>Sticky-заметок: <b>{(preview.stickies || []).length}</b></div>
                 </div>
 
                 <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -174,19 +177,19 @@ export function BackupsDialog({ open, onClose }: Props) {
                     disabled={busy}
                     onClick={doRestoreInPlace}
                   >
-                    ⚠ Заменить текущий
+                    Заменить текущий
                   </button>
                   <button
                     style={{ ...smallBtn, background: '#FEE2E2', borderColor: '#FCA5A5', color: '#B91C1C' }}
                     onClick={() => selected && doDelete(selected)}
-                  >🗑 Удалить</button>
+                  >Удалить</button>
                 </div>
 
                 <div style={{
                   marginTop: 12, padding: 10, background: '#EFF6FF', border: '1px solid #BFDBFE',
                   borderRadius: 6, fontSize: 11, color: '#1E40AF', lineHeight: 1.5,
                 }}>
-                  💡 «Восстановить как новый проект» безопаснее — оригинал не пострадает,
+                  «Восстановить как новый проект» безопаснее — оригинал не пострадает,
                   можно сравнить и уже потом решить оставить или удалить старый.
                 </div>
               </>

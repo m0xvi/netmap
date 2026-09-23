@@ -308,20 +308,29 @@ export function LayoutFAB() {
           // v0.50.1: actions fan out horizontally to the LEFT of the FAB.
           // Keeping every action on the same center line prevents the uneven
           // vertical column that used to cover the map and its groups.
-          // Category pills are wider than icon actions, so they need a
-          // separate pitch; otherwise they overlap the central FAB.
-          const targetX = fabCategory ? -(125 + i * 130) : -(50 * (i + 1));
+          //
+          // v0.51.16: позиционирование переписано. Раньше кнопки-категории
+          // (широкие пилюли 120px) раскладывались с шагом 50px и наезжали
+          // друг на друга на 70px, а первая ещё и обрезалась правым краем
+          // канваса. Теперь все кнопки привязаны ПРАВЫМ краем к точке у
+          // главной кнопки и разносятся влево шагом, зависящим от ширины:
+          // 134px для широких пилюль, 50px для круглых иконок.
+          const isCategoryView = !fabCategory;
+          const pitch = isCategoryView ? 134 : 50;
+          const targetX = -(56 + i * pitch);
           return (
-            <div key={a.id} style={{ position: 'absolute', top: 0, right: fabCategory ? 60 + i * 130 : 0, width: fabCategory ? 120 : undefined, height: fabCategory ? 40 : undefined }}>
+            <div key={a.id} style={{ position: 'absolute', top: 0, right: 0, width: 0, height: 0 }}>
               <button
                 onClick={a.disabled ? undefined : a.onClick}
                 disabled={a.disabled}
                 title={a.label}
                 aria-label={a.label}
                 style={{
-                  ...(fabCategory ? actionBtn(a.danger, a.disabled) : categoryBtn),
+                  ...(isCategoryView ? categoryBtn : actionBtn(a.danger, a.disabled)),
+                  left: 'auto', right: 0,
+                  transformOrigin: 'right center',
                   transform: open
-                    ? (fabCategory ? 'translate(0, 0) scale(1)' : `translate(${targetX}px, 0) scale(1)`)
+                    ? `translate(${targetX}px, 0) scale(1)`
                     : 'translate(0, 0) scale(0.4)',
                   opacity: open ? (a.disabled ? 0.4 : 1) : 0,
                   pointerEvents: open && !a.disabled ? 'auto' : 'none',
@@ -330,12 +339,15 @@ export function LayoutFAB() {
                 {a.icon}
                 {!fabCategory && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600 }}>{a.label}</span>}
               </button>
-              {/* v0.45: submenu for the smart-layout button — 4 strategies. */}
+              {/* v0.45: submenu for the smart-layout button — 4 strategies.
+                  v0.51.16: открывается ВВЕРХ от ряда кнопок, чтобы не
+                  перекрывать соседние действия. */}
               {a.id === 'smart' && open && smartMenuOpen && (
                 <div style={{
                   position: 'absolute',
-                  top: -4,
-                  right: 52,
+                  top: 'auto',
+                  bottom: 12,
+                  right: 0,
                   background: '#fff',
                   borderRadius: 10,
                   boxShadow: '0 12px 32px rgba(15,23,42,0.18)',

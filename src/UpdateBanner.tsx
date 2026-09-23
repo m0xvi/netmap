@@ -17,6 +17,7 @@ import {
   type UpdateStatus,
 } from './updaterClient';
 import { useStore } from './store';
+import { alertDialog } from './Modal';
 
 export function UpdateBanner() {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
@@ -73,14 +74,14 @@ export function UpdateBanner() {
     const short = explainUpdateError(status.error || '');
     return (
       <Bar color="#B91C1C" bg="#FEE2E2" border="#FCA5A5">
-        <span>⚠ {short}</span>
+        <IconWarn /> <span>{short}</span>
         <div style={{ flex: 1 }} />
         <button
           style={{ ...dismissBtn, marginRight: 6 }}
           onClick={() => {
             // Full details in a modal / console for the curious.
             console.error('[updater] full error:', status.error);
-            alert('Подробности обновления:\n\n' + (status.error || 'unknown'));
+            void alertDialog('Подробности обновления', status.error || 'unknown');
           }}
         >Подробнее</button>
         <button style={dismissBtn} onClick={() => setDismissed(true)}>Скрыть</button>
@@ -91,7 +92,7 @@ export function UpdateBanner() {
   if (status.state === 'downloaded') {
     return (
       <Bar color="#065F46" bg="#D1FAE5" border="#6EE7B7">
-        <span>✓ Готова версия <b>{version || 'новая'}</b>. Перезапустить и установить?</span>
+        <IconCheck /> <span>Готова версия <b>{version || 'новая'}</b>. Перезапустить и установить?</span>
         <div style={{ flex: 1 }} />
         <button style={secondaryBtn} onClick={() => setDismissed(true)}>Позже</button>
         <button style={primaryBtn} onClick={() => { installUpdateNow(); }}>
@@ -105,7 +106,7 @@ export function UpdateBanner() {
     const p = status.progress;
     return (
       <Bar color="#1E40AF" bg="#DBEAFE" border="#BFDBFE">
-        <span>⬇ Загружаем обновление <b>{version || ''}</b>…</span>
+        <span>Загружаем обновление <b>{version || ''}</b>…</span>
         <div style={{
           flex: 1, height: 6, background: '#FFFFFF',
           borderRadius: 3, overflow: 'hidden', margin: '0 12px',
@@ -125,7 +126,7 @@ export function UpdateBanner() {
   if (status.state === 'available') {
     return (
       <Bar color="#1E40AF" bg="#DBEAFE" border="#BFDBFE">
-        <span>🔔 Доступна новая версия <b>{version || ''}</b>. Начинаем загрузку…</span>
+        <span>Доступна новая версия <b>{version || ''}</b>. Начинаем загрузку…</span>
         <div style={{ flex: 1 }} />
         <button style={secondaryBtn} onClick={() => downloadUpdateNow()}>
           Загрузить сейчас
@@ -136,6 +137,25 @@ export function UpdateBanner() {
   }
 
   return null;
+}
+
+// Small inline SVG status icons (no emoji in UI — HANDOFF §2.2).
+function IconWarn() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+function IconCheck() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
 }
 
 function Bar({ children, color, bg, border }: {

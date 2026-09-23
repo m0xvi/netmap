@@ -4,7 +4,7 @@
  *
  *   ┌─────────────────┐
  *   │  Devices     ⌄  │  ← header + collapse
- *   │  🔎 Search…     │
+ *   │   Search…     │
  *   │                 │
  *   │  NETWORK    ⌄   │  ← accordion sections
  *   │  ▪ Core Switch  │  ← draggable rows

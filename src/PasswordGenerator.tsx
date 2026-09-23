@@ -124,7 +124,7 @@ export function PasswordGenerator({ open, onClose, onApply, initialLength = 20 }
                 }}
                 style={smallBtn}
               >
-                {Date.now() - copiedAt < 1500 ? '✓ Скопировано' : '📋 Копировать'}
+                {Date.now() - copiedAt < 1500 ? '✓ Скопировано' : '⎘ Копировать'}
               </button>
               {onApply && (
                 <button

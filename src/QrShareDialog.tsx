@@ -110,12 +110,12 @@ export function QrShareDialog({ open, onClose, value, title, subtitle, wifi }: P
             onClick={() => setShowValue(v => !v)}
             style={smallBtn}
           >
-            {showValue ? '🙈 Скрыть значение' : '👁 Показать значение'}
+            {showValue ? '○ Скрыть значение' : '● Показать значение'}
           </button>
           <button
             onClick={() => { navigator.clipboard.writeText(value).catch(() => {}); }}
             style={smallBtn}
-          >📋 Копировать</button>
+          >⎘ Копировать</button>
         </div>
         {showValue && (
           <div style={{

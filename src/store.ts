@@ -1551,7 +1551,9 @@ export const useStore = create<State>((set, get) => ({
     if (migrated.version === 2) migrated = migrateV2toV3(migrated);
     const doc = normalize(migrated as NetMapDoc);
     persist(doc);
-    set({ doc, selectedDeviceId: null, selectedGroupId: null, selectedPortId: null });
+    // v0.51.16: кладём снимок ДО импорта в историю — восстановление из
+    // бэкапа / вставка схемы целиком откатывается одним Ctrl+Z.
+    set((s) => ({ ...historyPush(s), doc, selectedDeviceId: null, selectedGroupId: null, selectedPortId: null }));
   },
   resetToSeed: () => {
     // v0.29: also clear the "layout has been done" flag so the welcome banner

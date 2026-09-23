@@ -95,9 +95,11 @@ export function DevicesTablePanel() {
 
   const bulkDelete = async () => {
     if (selected.size === 0) return;
+    // v0.51.16: текст говорил «Отменить нельзя», но удаление идёт через
+    // historyPush и откатывается одним Ctrl+Z (коалесцинг в окне 400 мс).
     if (!(await confirmDialog(
       `Удалить ${selected.size} устройств(а)?`,
-      'Также будут удалены все связи с этими устройствами. Отменить нельзя.',
+      'Также будут удалены все связи с этими устройствами. Можно отменить через Ctrl+Z.',
       { danger: true, okText: 'Удалить' }
     ))) return;
     for (const id of selected) removeDevice(id);
@@ -112,15 +114,15 @@ export function DevicesTablePanel() {
           Устройства · {rows.length} из {devices.length}
         </div>
         <input
-          placeholder="🔎 поиск по имени / IP / MAC / vendor / тегу"
+          placeholder="поиск по имени / IP / MAC / vendor / тегу"
           value={query} onChange={(e) => setQuery(e.target.value)}
           style={inputStyle}
         />
 
         <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
           <FilterChip active={statusFilter === 'all'}     onClick={() => setStatusFilter('all')}     label="Все" />
-          <FilterChip active={statusFilter === 'online'}  onClick={() => setStatusFilter('online')}  label="🟢 Онлайн" />
-          <FilterChip active={statusFilter === 'offline'} onClick={() => setStatusFilter('offline')} label="🔴 Оффлайн" />
+          <FilterChip active={statusFilter === 'online'}  onClick={() => setStatusFilter('online')}  label="● Онлайн" />
+          <FilterChip active={statusFilter === 'offline'} onClick={() => setStatusFilter('offline')} label="● Оффлайн" />
         </div>
         <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
           <FilterChip active={kindFilter === 'all'} onClick={() => setKindFilter('all')} label={`Все типы (${kinds.length})`} />
@@ -232,7 +234,7 @@ export function DevicesTablePanel() {
           </div>
           <div style={{ flex: 1 }} />
           <button onClick={() => setSelected(new Set())} style={smallBtn}>Снять</button>
-          <button onClick={bulkDelete} style={{ ...smallBtn, background: '#FEE2E2', borderColor: '#FCA5A5', color: '#B91C1C' }}>🗑 Удалить</button>
+          <button onClick={bulkDelete} style={{ ...smallBtn, background: '#FEE2E2', borderColor: '#FCA5A5', color: '#B91C1C' }}>✕ Удалить</button>
         </div>
       )}
     </div>

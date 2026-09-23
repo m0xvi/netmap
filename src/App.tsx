@@ -30,7 +30,11 @@ export default function App() {
   const toggleSidebar = useStore(s => s.toggleSidebar);
   const toggleRightPanel = useStore(s => s.toggleRightPanel);
   const [uiScale, setUiScale] = useState(() => {
-    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+    try {
+      const v = Number(localStorage.getItem('netmap:uiScale'));
+      if (!Number.isFinite(v) || v < 0.8 || v > 1.25) return 1;
+      return v;
+    } catch { return 1; }
   });
 
   useEffect(() => {
@@ -42,6 +46,20 @@ export default function App() {
     return () => window.removeEventListener('netmap:ui-scale', onScale);
   }, []);
 
+  // v0.51.16: как применяется масштаб.
+  // В Electron (нативный бэкенд) — page-zoom через webFrame (см. preload):
+  // он масштабирует всё окно целиком и НЕ ломает координаты мыши на канвасе
+  // (перетаскивание, drop из каталога, коннекты портов, рамки выделения).
+  // Старый путь через `body.style.zoom` этим управлял плохо: координаты
+  // курсора и getBoundingClientRect() масштабируются, а внутренняя математика
+  // React Flow — нет, поэтому при масштабе ≠ 100% карточки «убегали» от
+  // курсора, а интерфейс отсекался снизу/справа (100vh × zoom).
+  // В браузерном preview (нет бэкенда) остаёмся на CSS zoom как компромисс,
+  // но компенсируем размер корневого контейнера, чтобы ничего не отсекалось.
+  const hasNativeZoom = typeof window !== 'undefined'
+    && typeof (window as any).netmap?.setUiZoom === 'function';
+  const cssZoomFallback = hasNativeZoom ? 1 : uiScale;
+
   useEffect(() => {
     // Keep the desktop workspace fixed to the viewport. Wheel gestures over
     // React Flow must not scroll the page and move the whole interface.
@@ -51,14 +69,19 @@ export default function App() {
     html.style.overflow = 'hidden';
     body.style.overflow = 'hidden';
     body.style.margin = '0';
-    body.style.zoom = String(uiScale);
+    if (hasNativeZoom) {
+      (window as any).netmap.setUiZoom(uiScale);
+      body.style.zoom = '';
+    } else {
+      body.style.zoom = String(uiScale);
+    }
     return () => {
       html.style.overflow = previous.htmlOverflow;
       body.style.overflow = previous.bodyOverflow;
       body.style.margin = previous.bodyMargin;
       body.style.zoom = previous.bodyZoom;
     };
-  }, [uiScale]);
+  }, [uiScale, hasNativeZoom]);
 
   useEffect(() => {
     // v0.36.1: mark hydration complete so LoadingOverlay splash hides.
@@ -72,7 +95,15 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      // v0.51.16: при CSS-zoom (браузерный preview) 100vh «растягивается»
+      // на коэффициент масштаба и интерфейс обрезается снизу/справа.
+      // Делим размер на зум, чтобы после масштабирования занять ровно вьюпорт.
+      height: cssZoomFallback !== 1 ? `calc(100vh / ${cssZoomFallback})` : '100vh',
+      width: cssZoomFallback !== 1 ? `calc(100vw / ${cssZoomFallback})` : undefined,
+      minHeight: 0, overflow: 'hidden',
+    }}>
       {/* v0.42: HTML custom menubar (File/View/Tools/Monitor/Help). Sits
           above the toolbar, replaces the old hamburger ☰ AppMenu. */}
       <MenuBar />

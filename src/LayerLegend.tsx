@@ -36,7 +36,7 @@ export function LayerLegend() {
                  textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700,
                  marginBottom: expanded ? 6 : 0 }}
       >
-        <span>🏛 Иерархия</span>
+        <span>◆ Иерархия</span>
         <span style={{ marginLeft: 'auto', fontSize: 8 }}>{expanded ? '▾' : '▸'}</span>
       </div>
       {expanded && (['core','distribution','access'] as NetworkLayer[]).map(l => {

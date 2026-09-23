@@ -7,7 +7,7 @@ import { promptText, confirmDialog } from './Modal';
 /**
  * v0.35.7 top toolbar redesign:
  *
- *   [Logo] [ProjectMenu ⌄]  [Health widget]  [🔎 search ⌘K …]         [☰ AppMenu] [Focus] [🔔] [?]
+ *   [Logo] [ProjectMenu ⌄]  [Health widget]  [ search ⌘K …]         [☰ AppMenu] [Focus] [] [?]
  *
  * — «Add Device» removed: there's already a full left-sidebar palette.
  * — «Import» removed: moved into the AppMenu hamburger.
@@ -27,7 +27,9 @@ export function Toolbar() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      // Ctrl+F — фокус на поиск. ВАЖНО: не занимаем Ctrl+K — он открывает
+      // Vault Studio (см. VaultStudio.tsx и меню Инструменты).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -159,7 +161,7 @@ export function Toolbar() {
             <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
-        <kbd style={kbdHint}>⌘ K</kbd>
+        <kbd style={kbdHint}>Ctrl F</kbd>
         {q && results.length > 0 && (
           <div style={dropdown}>
             {results.map(r => (
@@ -812,7 +814,8 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         </HelpSection>
 
         <HelpSection title="Горячие клавиши">
-          <HelpRow k="Ctrl+K / ⌘K" v="Фокус на поиск" />
+          <HelpRow k="Ctrl+F" v="Фокус на поиск" />
+          <HelpRow k="Ctrl+K" v="Vault Studio (менеджер паролей)" />
           <HelpRow k="Ctrl+Z / Ctrl+Y" v="Отменить / повторить" />
           <HelpRow k="Delete" v="Удалить выделенное" />
           <HelpRow k="T" v="Режим ножа (обрезать кабели)" />

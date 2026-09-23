@@ -41,7 +41,7 @@ export function PathBanner() {
       maxWidth: '85%', minWidth: 320,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 14 }}>🧭</span>
+        <span style={{ fontSize: 14 }}>⇢</span>
         <span style={endpoint}>{devA?.name || '?'}</span>
         <span style={{ opacity: 0.5 }}>→</span>
         <span style={endpoint}>{devB?.name || '?'}</span>

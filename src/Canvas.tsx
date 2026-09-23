@@ -531,7 +531,7 @@ function CanvasInner() {
         useStore.getState().pushAlert({
           severity: 'warn', origin: 'app',
           title: 'Устройства сжаты в одну точку',
-          message: `Все ${doc.devices.length} устройств в области < 50 px. Нажмите ☰ AppMenu → Восстановить вид (F) или запустите Auto Layout.`,
+          message: `Все ${doc.devices.length} устройств в области < 50 px. Нажмите F (вписать всё) или запустите авто-раскладку из плавающей кнопки.`,
         });
       }
     }, 1500);
@@ -1323,7 +1323,7 @@ function CanvasInner() {
       fitView
       minZoom={0.1}
       maxZoom={2}
-      colorMode="dark"
+      colorMode="light"
       proOptions={{ hideAttribution: true }}
     >
       {showGrid && <Background gap={20} size={1} color="#E5E7EB" />}

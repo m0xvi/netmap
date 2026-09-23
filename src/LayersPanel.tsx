@@ -146,7 +146,7 @@ export function LayersPanel() {
                 <div style={{ fontSize: 9, opacity: 0.6 }}>{lm.description}</div>
               </div>
               <span style={{ opacity: 0.5, fontSize: 9 }}>{count}</span>
-              <span style={{ fontSize: 12 }}>{visible ? '👁' : '⊘'}</span>
+              <span style={{ fontSize: 12 }}>{visible ? '●' : '⊘'}</span>
             </label>
           );
         })}
@@ -166,7 +166,7 @@ export function LayersPanel() {
               <div style={{ color: meta.color, display: 'flex', width: 16 }}><Icon size={14} /></div>
               <span style={{ flex: 1, textTransform: 'capitalize' }}>{meta.label.toLowerCase()}</span>
               <span style={{ opacity: 0.5, fontSize: 9 }}>{count}</span>
-              <span style={{ fontSize: 12 }}>{visible ? '👁' : '⊘'}</span>
+              <span style={{ fontSize: 12 }}>{visible ? '●' : '⊘'}</span>
             </label>
           );
         })}
@@ -186,7 +186,7 @@ export function LayersPanel() {
                 border: c === 'wifi' ? `1px dashed ${meta.color}` : 'none',
               }} />
               <span style={{ flex: 1 }}>{meta.label}</span>
-              <span style={{ fontSize: 12 }}>{visible ? '👁' : '⊘'}</span>
+              <span style={{ fontSize: 12 }}>{visible ? '●' : '⊘'}</span>
             </label>
           );
         })}
@@ -196,7 +196,7 @@ export function LayersPanel() {
       <Section title="Питание">
         <label style={rowStyle(!filters.poeOnly)}
                onClick={() => setPoeOnly(!filters.poeOnly)}>
-          <span style={{ width: 16, textAlign: 'center' }}>⚡</span>
+          <span style={{ width: 16, textAlign: 'center' }}>↯</span>
           <span style={{ flex: 1 }}>Только PoE-активные</span>
           <span style={{ fontSize: 12 }}>{filters.poeOnly ? '✓' : ''}</span>
         </label>

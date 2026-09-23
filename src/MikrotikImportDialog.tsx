@@ -523,7 +523,9 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     // Named `estGroupCount` to avoid colliding with `groupCount` used later
     // for the summary message.
     const estGroupCount = Math.max(1, subnetStats.filter(s => s.deviceCount > 0).length || 1);
-    const estPerGroup = Math.max(4, Math.ceil(selected.size / estGroupCount));
+    // v0.51.16: оцениваем сетку по ЭФФЕКТИВНОЙ выборке (с учётом исключённых
+    // подсетей и фильтров), иначе форма сетки считалась по скрытым строкам.
+    const estPerGroup = Math.max(4, Math.ceil(effectiveSelected.size / estGroupCount));
     const autoCols = Math.max(4, Math.min(20, Math.ceil(Math.sqrt(estPerGroup))));
     const gridCols = orphanCols > 0 ? orphanCols : autoCols;
     const nextPos = (groupId: string) => {
@@ -677,7 +679,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       message: `${summary}${placed > 0 ? groupInfo : ''}${connectionInfo}`,
     });
     await alertDialog('Импорт завершён', `Синхронизация с MikroTik: ${summary}.${connectionInfo}`
-      + (placed > 0 ? `${groupInfo}\nСхема автоматически разложена.` : '')
+      + (placed > 0 ? groupInfo : '')
       + (linksWithoutPort > 0 ? '\nПроверьте эти связи в инспекторе: свободного порта на выбранном устройстве не было.' : ''));
     onClose();
   };
@@ -754,7 +756,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
             <div style={{ padding: '10px 18px', borderBottom: '1px solid #E5E7EB',
                           background: '#D1FAE5', fontSize: 11, color: '#065F46',
                           display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ fontSize: 14 }}>🔐</span>
+              <span style={{ fontSize: 14 }}>▣</span>
               <div style={{ flex: 1 }}>
                 Пароль <b>не сохраняется</b> в localStorage. Хранится только в памяти на время запроса,
                 после — обнуляется. Для регулярного использования — сохраните учётку в
@@ -780,7 +782,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                       ))}
                     </select>
                   ) : vStatus === 'locked' ? (
-                    <button onClick={doUnlockVault} style={smallBtn}>🔓 Разблокировать vault</button>
+                    <button onClick={doUnlockVault} style={smallBtn}>○ Разблокировать vault</button>
                   ) : vStatus === 'not-init' ? (
                     <div style={{ fontSize: 11, opacity: 0.6 }}>
                       Vault ещё не создан — откройте «Vault» в тулбаре и придумайте мастер-пароль
@@ -794,7 +796,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                           disabled={!host || !passwordRef.current}
                           style={{ ...smallBtn, opacity: (!host || !passwordRef.current) ? 0.5 : 1 }}
                           title="Сохранить введённые данные в vault для повторного использования">
-                    💾 Сохранить в vault
+                    ↧ Сохранить в vault
                   </button>
                 )}
               </div>
@@ -909,7 +911,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
             {/* MikroTik user setup hint */}
             <details style={{ padding: '8px 18px', borderBottom: '1px solid #E5E7EB', fontSize: 11 }}>
               <summary style={{ cursor: 'pointer', opacity: 0.75 }}>
-                💡 Как создать безопасного read-only юзера на MikroTik
+                ℹ Как создать безопасного read-only юзера на MikroTik
               </summary>
               <pre style={{
                 margin: '8px 0 0', padding: 10, background: '#F9FAFB', borderRadius: 6,
@@ -998,7 +1000,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                 <div style={{ padding: '8px 16px', display: 'flex', gap: 10, alignItems: 'center',
                               borderBottom: '1px solid #E5E7EB' }}>
                   <input value={q} onChange={e => setQ(e.target.value)}
-                         placeholder="🔎 IP, MAC, hostname, vendor..."
+                         placeholder="IP, MAC, hostname, vendor..."
                          style={{ ...inputStyle, flex: 1 }} />
                   <label style={checkLabel}>
                     <input type="checkbox" checked={showExisting} onChange={e => setShowExisting(e.target.checked)} />
@@ -1158,7 +1160,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                     <span style={{ fontSize: 11, display: 'inline-flex', gap: 8 }}>
                       {importPreview.toAdd > 0 && <span style={{ color: '#059669' }}>+{importPreview.toAdd} новых</span>}
                       {importPreview.toUpdate > 0 && <span style={{ color: '#B45309' }}>↻{importPreview.toUpdate} обновить</span>}
-                      {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>⚡{importPreview.toReplace} заменить</span>}
+                      {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>↯{importPreview.toReplace} заменить</span>}
                       {importPreview.toSkip > 0 && <span style={{ color: '#6B7280' }}>⊘{importPreview.toSkip} пропустить</span>}
                     </span>
                   )}
@@ -1166,7 +1168,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                   <button onClick={onClose} style={smallBtn}>Отмена</button>
                   <button onClick={doImport} disabled={importPreview.total === 0}
                           style={{ ...primaryBtn, opacity: importPreview.total === 0 ? 0.5 : 1 }}>
-                    📥 Импортировать {importPreview.total}
+                    ⤓ Импортировать {importPreview.total}
                   </button>
                 </div>
               </>
@@ -1338,8 +1340,13 @@ const reviewFooter: React.CSSProperties = { padding: '10px 18px', borderTop: '1p
 import type { MikrotikVlan } from './mikrotikClient';
 import { vlanColorForIndex } from './vlanDefaults';
 
+// Stable empty reference — `s.doc.vlans || []` создавал бы НОВЫЙ массив на
+// каждый рендер и раскачивал zustand в цикл (см. правило стабильных
+// референсов в HANDOFF §2.5).
+const EMPTY_VLANS_MTK: readonly import('./types').Vlan[] = Object.freeze([]);
+
 function VlanImportSection({ vlans }: { vlans: MikrotikVlan[] }) {
-  const existingVlans = useStore(s => s.doc.vlans || []);
+  const existingVlans = useStore(s => s.doc.vlans) || EMPTY_VLANS_MTK;
   const addVlanFn = useStore(s => s.addVlan);
   const [selected, setSelected] = useState<Set<number>>(() => {
     // Preselect only VLANs that aren't yet in the project
@@ -1561,7 +1568,7 @@ function SubnetPickerSection({ stats, excluded, onToggle, onAll, onNone }: {
             <button key={s.cidr}
                     onClick={() => onToggle(s.cidr)}
                     title={[
-                      s.fromRouter ? '📡 объявлена на роутере' : '🔎 определена из IP-адресов устройств',
+                      s.fromRouter ? '⌁ объявлена на роутере' : ' определена из IP-адресов устройств',
                       s.interfaces?.length ? `Интерфейсы: ${s.interfaces.join(', ')}` : '',
                       s.comment ? `Комментарий: ${s.comment}` : '',
                     ].filter(Boolean).join('\n')}
@@ -1584,7 +1591,7 @@ function SubnetPickerSection({ stats, excluded, onToggle, onAll, onNone }: {
               }}>{s.deviceCount}</span>
               {s.fromRouter && (
                 <span title="Из /ip address"
-                      style={{ fontSize: 9, color: on ? '#059669' : '#9CA3AF' }}>📡</span>
+                      style={{ fontSize: 9, color: on ? '#059669' : '#9CA3AF' }}>⌁</span>
               )}
             </button>
           );
@@ -1717,7 +1724,7 @@ function EmptyResultDiagnostic({ rowsTotal, scan, transport, buildCfg }: {
           <button onClick={run} disabled={loading} style={{
             ...primaryBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'wait' : 'pointer',
           }}>
-            {loading ? 'Читаю…' : '🐞 Показать сырой ответ роутера'}
+            {loading ? 'Читаю…' : '⌗ Показать сырой ответ роутера'}
           </button>
           <div style={{ fontSize: 10, color: '#6B7280', marginTop: 4 }}>
             Выполнит команды напрямую по SSH и покажет что вернул MikroTik.
@@ -1744,7 +1751,7 @@ function EmptyResultDiagnostic({ rowsTotal, scan, transport, buildCfg }: {
               const text = Object.entries(raw).map(([cmd, r]) =>
                 `\n=== ${cmd} ===\n${r.ok ? r.out : '[ошибка] ' + r.error}`).join('\n');
               try { navigator.clipboard.writeText(text); } catch {}
-            }} style={{ ...smallBtn, marginLeft: 'auto', fontSize: 10 }}>📋 Скопировать всё</button>
+            }} style={{ ...smallBtn, marginLeft: 'auto', fontSize: 10 }}>⎘ Скопировать всё</button>
           </div>
           {Object.entries(raw).map(([cmd, r]) => (
             <details key={cmd} style={{ marginBottom: 6 }}>

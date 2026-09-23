@@ -58,12 +58,14 @@ export function NetworkOverviewPanel() {
     const warning = alerts.filter(a => a.severity === 'warn').length;
     const info = alerts.filter(a => a.severity === 'info' || a.severity === 'success').length;
 
-    // Utilisation heuristic — up-to-hub ratio, purely visual.
-    // Real utilisation would need snmp/ifSpeed / ifInOctets counters.
-    const coreUtil = Math.min(95, 40 + Math.random() * 40);
-    const distUtil = Math.min(90, 30 + Math.random() * 35);
-    const accessUtil = Math.min(85, 20 + Math.random() * 40);
-    const wanUtil = Math.min(95, 50 + Math.random() * 30);
+    // v0.51.16: значения-заглушки ФИКСИРОВАННЫЕ. Раньше здесь был
+    // Math.random() внутри useMemo — бары дёргались при каждом чихе
+    // (ping-результат, правка схемы → useMemo пересчитывается → новые
+    // случайные числа). Реальная утилизация появится вместе с SNMP-опросом.
+    const coreUtil = 62;
+    const distUtil = 47;
+    const accessUtil = 34;
+    const wanUtil = 71;
 
     return {
       total, online, clients, links, uptimePct, bwGbps,

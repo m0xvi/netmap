@@ -94,7 +94,7 @@ export function MultiSelectBar() {
         fontSize: 11, fontWeight: 600,
       }}>{ids.size} выбрано</span>
 
-      <button onClick={bulkAddTag} style={btn()}>🏷 Тег</button>
+      <button onClick={bulkAddTag} style={btn()}># Тег</button>
       <button onClick={bulkSetLocation} style={btn()}>Location</button>
 
       {/* Move to group */}
@@ -103,11 +103,11 @@ export function MultiSelectBar() {
       </div>
       <LayerSelect onPick={bulkSetLayer} />
 
-      <button onClick={bulkTogglePoe} style={btn()}>⚡ Toggle PoE</button>
+      <button onClick={bulkTogglePoe} style={btn()}>↯ Toggle PoE</button>
 
       <BulkVlanSelect selectedIds={ids} />
 
-      <button onClick={bulkDelete} style={btn('#FEE2E2', '#FCA5A5', '#B91C1C')}>🗑 Удалить</button>
+      <button onClick={bulkDelete} style={btn('#FEE2E2', '#FCA5A5', '#B91C1C')}>✕ Удалить</button>
 
       <button onClick={clearSelection} style={btn()}>✕</button>
     </div>

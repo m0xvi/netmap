@@ -34,47 +34,47 @@ function keepOnly(kinds: DeviceKind[]): FilterState {
 
 export const LAYER_PRESETS: LayerPreset[] = [
   {
-    id: 'all', label: 'Всё', emoji: '👁',
+    id: 'all', label: 'Всё', emoji: '●',
     hint: 'Сбросить все фильтры и показать всё',
     build: () => empty(),
   },
   {
-    id: 'data', label: 'Data', emoji: '🖧',
+    id: 'data', label: 'Data', emoji: '▦',
     hint: 'Только сеть передачи данных: роутеры, свитчи, ПК, серверы, VM, VPS, POS, принтеры',
     build: () => keepOnly(['router','switch','patchpanel','pc','server','vm','vps','pos','printer','cloud']),
   },
   {
-    id: 'cctv', label: 'CCTV', emoji: '📹',
+    id: 'cctv', label: 'CCTV', emoji: '◉',
     hint: 'Только видеонаблюдение: камеры + магистраль до них',
     build: () => keepOnly(['router','switch','patchpanel','camera']),
   },
   {
-    id: 'wifi', label: 'Wi-Fi', emoji: '📶',
+    id: 'wifi', label: 'Wi-Fi', emoji: '⌁',
     hint: 'Wi-Fi инфраструктура: точки доступа + свитчи PoE',
     build: () => keepOnly(['router','switch','patchpanel','ap']),
   },
   {
-    id: 'salto', label: 'SALTO', emoji: '🔐',
+    id: 'salto', label: 'SALTO', emoji: '▣',
     hint: 'СКУД / замки + магистраль',
     build: () => keepOnly(['router','switch','patchpanel','lock']),
   },
   {
-    id: 'poe', label: 'PoE only', emoji: '⚡',
+    id: 'poe', label: 'PoE only', emoji: '↯',
     hint: 'Только устройства с активным PoE — быстро увидеть питание',
     build: () => ({ ...empty(), poeOnly: true }),
   },
   {
-    id: 'external', label: 'Внешнее', emoji: '☁️',
+    id: 'external', label: 'Внешнее', emoji: '≈',
     hint: 'Только провайдеры и VPS — что «наружу»',
     build: () => keepOnly(['cloud','vps','router']),
   },
   {
-    id: 'core-only', label: 'Ядро', emoji: '🏛',
+    id: 'core-only', label: 'Ядро', emoji: '◆',
     hint: 'Только уровень CORE — магистраль сети',
     build: () => ({ ...empty(), hiddenLayers: new Set(['distribution','access'] as any) }),
   },
   {
-    id: 'core-dist', label: 'Ядро+Дист', emoji: '🌉',
+    id: 'core-dist', label: 'Ядро+Дист', emoji: '◇',
     hint: 'CORE и DISTRIBUTION — без пользовательских устройств',
     build: () => ({ ...empty(), hiddenLayers: new Set(['access'] as any) }),
   },

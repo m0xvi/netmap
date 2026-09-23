@@ -229,7 +229,7 @@ export function StickyNoteCard({
             color: col.text, borderRadius: 3, padding: '1px 5px',
             fontSize: 10, lineHeight: 1, cursor: 'pointer', zIndex: 22,
           }}
-        >📜</button>
+        >≡</button>
       )}
 
       {/* Resize handle (bottom-right, over the "curl") */}
@@ -332,7 +332,7 @@ function RolledSticky({ note, color, offsetX, offsetY, rotation, onExpand, onDel
       onMouseLeave={() => setHover(false)}
       onClick={(e) => { e.stopPropagation(); onExpand(); }}
       onContextMenu={onContextMenu}
-      title={peek ? `📜 ${peek}` : '📜 Заметка (клик — развернуть)'}
+      title={peek ? `≡ ${peek}` : '≡ Заметка (клик — развернуть)'}
       style={{
         position: 'absolute',
         left: offsetX + 40, top: offsetY + 30,

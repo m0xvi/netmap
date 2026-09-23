@@ -793,7 +793,7 @@ function ApExpandedCard({ d, meta, Icon, borderColor, cardShadow }: {
             <span style={{
               fontSize: 9, fontWeight: 700, color: '#B45309', background: '#FEF3C7',
               padding: '1px 5px', borderRadius: 3,
-            }}>⚡ PoE</span>
+            }}>↯ PoE</span>
           )}
           <span style={{
             fontSize: 9, fontWeight: 700,
@@ -1068,7 +1068,7 @@ function CameraDvrChip({ regId }: { regId: string }) {
            border: '1px solid #A5F3FC',
            maxWidth: 130, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
          }}>
-      <span style={{ fontSize: 10 }}>📹</span>
+      <span style={{ fontSize: 10 }}>◉</span>
       <span style={{ fontFamily: 'ui-monospace, monospace' }}>{regName}</span>
     </div>
   );
