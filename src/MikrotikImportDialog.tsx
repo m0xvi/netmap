@@ -507,6 +507,8 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     };
 
     let placed = 0;
+    let linkedWithPort = 0;
+    let linksWithoutPort = 0;
     // Ports selected as "auto" are reserved during this import so two
     // imported hosts cannot silently receive the same switch port.
     const reservedImportPorts = new Map<string, Set<string>>();
@@ -600,13 +602,15 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       addDevice(d);
       const targetId = config.linkTargets[row.mac];
       if (targetId) {
+        const linkPortId = portForLink(targetId, config.linkPorts[row.mac]);
         useStore.getState().addLink({
           id: `link-mikrotik-${Math.random().toString(36).slice(2, 9)}`,
           fromDeviceId: targetId,
-          fromPortId: portForLink(targetId, config.linkPorts[row.mac]),
+          fromPortId: linkPortId,
           toDeviceId: id, toPortId: 'lan',
           cable: 'copper', label: 'MikroTik import',
         });
+        if (linkPortId) linkedWithPort++; else linksWithoutPort++;
       }
       placed++;
     }
@@ -616,6 +620,10 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       replaced > 0 ? `заменено ${replaced}` : null,
       skipped > 0 ? `пропущено ${skipped}` : null,
     ].filter(Boolean).join(', ') || 'без изменений';
+
+    const connectionInfo = linkedWithPort > 0 || linksWithoutPort > 0
+      ? ` подключений: ${linkedWithPort} с портом${linksWithoutPort ? `, ${linksWithoutPort} без свободного порта` : ''}.`
+      : '';
 
     // v0.23: if new devices were added, run auto-layout so the new group
     // slots into the hierarchy cleanly instead of overlapping existing devices.
@@ -640,10 +648,11 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     useStore.getState().pushAlert({
       severity: 'success', origin: 'import',
       title: 'Импорт из MikroTik завершён',
-      message: `${summary}${placed > 0 ? groupInfo : ''}`,
+      message: `${summary}${placed > 0 ? groupInfo : ''}${connectionInfo}`,
     });
-    await alertDialog('Импорт завершён', `Синхронизация с MikroTik: ${summary}.`
-      + (placed > 0 ? `${groupInfo}\nСхема автоматически разложена.` : ''));
+    await alertDialog('Импорт завершён', `Синхронизация с MikroTik: ${summary}.${connectionInfo}`
+      + (placed > 0 ? `${groupInfo}\nСхема автоматически разложена.` : '')
+      + (linksWithoutPort > 0 ? '\nПроверьте эти связи в инспекторе: свободного порта на выбранном устройстве не было.' : ''));
     onClose();
   };
 
