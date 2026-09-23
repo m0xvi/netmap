@@ -35,9 +35,11 @@ interface Props {
 
 type MatchField = 'name' | 'mac' | 'ip';
 type GroupMode = 'single' | 'subnet' | 'none';
+type PlacementMode = 'right' | 'below';
 interface ImportConfig {
   groupMode: GroupMode;
   groupName: string;
+  placement: PlacementMode;
   matchFields: MatchField[];
   conflictAction: 'skip' | 'update' | 'replace';
   linkTargets: Record<string, string>;
@@ -165,7 +167,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   const [actions, setActions] = useState<Map<string, ImportAction>>(() => new Map());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [importConfig, setImportConfig] = useState<ImportConfig>({
-    groupMode: 'single', groupName: '', matchFields: ['mac', 'ip', 'name'],
+    groupMode: 'single', groupName: '', placement: 'right', matchFields: ['mac', 'ip', 'name'],
     conflictAction: 'skip', linkTargets: {},
   });
   const subnetStats = useMemo(() => scan ? summarizeSubnets(scan) : [], [scan]);
@@ -555,7 +557,7 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       const id = `${row.suggestedKind}-${Math.random().toString(36).slice(2, 7)}`;
       const cidr = cidrOf(row.ip);
       const gid = findOrCreateGroup(config.groupMode === 'subnet' ? cidr : null);
-      const pos = gid ? nextPos(gid) : nextUnattachedPosition(doc.devices, placed);
+      const pos = gid ? nextPos(gid) : nextUnattachedPosition(doc.devices, placed, config.placement);
       const ports: Port[] = [{
         id: 'lan', label: '', type: 'RJ45',
         speed: '1G', status: row.ip ? 'up' : 'down',
@@ -1156,12 +1158,12 @@ function findConfiguredMatch(row: Row, fields: MatchField[], devices: Device[]):
   }));
 }
 
-function nextUnattachedPosition(devices: Device[], index: number): { x: number; y: number } {
+function nextUnattachedPosition(devices: Device[], index: number, placement: PlacementMode): { x: number; y: number } {
   const cols = Math.max(4, Math.ceil(Math.sqrt(Math.max(1, devices.length + 1))));
   const xs = devices.map(d => d.x).filter(Number.isFinite);
   const ys = devices.map(d => d.y).filter(Number.isFinite);
-  const baseX = (xs.length ? Math.max(...xs) : 0) + 220;
-  const baseY = ys.length ? Math.min(...ys) : 100;
+  const baseX = placement === 'right' ? (xs.length ? Math.max(...xs) : 0) + 220 : (xs.length ? Math.min(...xs) : 0);
+  const baseY = placement === 'below' ? (ys.length ? Math.max(...ys) : 0) + 220 : (ys.length ? Math.min(...ys) : 100);
   return { x: baseX + (index % cols) * 180, y: baseY + Math.floor(index / cols) * 120 };
 }
 
@@ -1171,7 +1173,17 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
   onConfirm: (next: ImportConfig) => void;
 }) {
   const anchors = doc.devices.filter(d => d.kind === 'switch' || d.kind === 'router');
+  const [bulkAnchor, setBulkAnchor] = useState('');
+  const matchedCount = rows.filter(row => !!findConfiguredMatch(row, config.matchFields, doc.devices)).length;
+  const linkedCount = Object.values(config.linkTargets).filter(Boolean).length;
   const set = (patch: Partial<ImportConfig>) => onChange({ ...config, ...patch });
+  const applyBulkAnchor = () => {
+    if (!bulkAnchor) return;
+    const targets = { ...config.linkTargets };
+    for (const row of rows) targets[row.mac] = bulkAnchor;
+    set({ linkTargets: targets });
+  };
+  const clearLinks = () => set({ linkTargets: {} });
   const toggleField = (field: MatchField) => set({ matchFields: config.matchFields.includes(field)
     ? config.matchFields.filter(x => x !== field) : [...config.matchFields, field] });
   return createPortal(<div style={reviewOverlay}>
@@ -1185,12 +1197,13 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
             </select>
           </Field>
           {config.groupMode === 'single' && <Field label="Название группы"><input value={config.groupName} onChange={e => set({ groupName: e.target.value })} style={inputStyle} /></Field>}
+          <Field label="Разместить импорт"><select value={config.placement} onChange={e => set({ placement: e.target.value as PlacementMode })} style={inputStyle}><option value="right">Справа от текущей карты</option><option value="below">Ниже текущей карты</option></select></Field>
           <Field label="Если найдено совпадение"><select value={config.conflictAction} onChange={e => set({ conflictAction: e.target.value as ImportConfig['conflictAction'] })} style={inputStyle}><option value="skip">Пропустить</option><option value="update">Обновить пустые поля</option><option value="replace">Заменить данные</option></select></Field>
         </div>
         <div style={reviewSection}><b>Поля для поиска совпадений</b><div style={reviewChecks}>{(['name','mac','ip'] as MatchField[]).map(field => <label key={field} style={checkLabel}><input type="checkbox" checked={config.matchFields.includes(field)} onChange={() => toggleField(field)} />{field === 'name' ? 'имя' : field.toUpperCase()}</label>)}</div></div>
-        <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Выберите router или switch. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 240 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select></div>)}</div></div>
+        <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Можно назначить устройство каждому хосту отдельно или применить один router/switch ко всему списку. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={bulkBar}><select value={bulkAnchor} onChange={e => setBulkAnchor(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Выберите router/switch для всех хостов</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select><button onClick={applyBulkAnchor} disabled={!bulkAnchor} style={{ ...smallBtn, opacity: bulkAnchor ? 1 : .5 }}>Применить всем</button><button onClick={clearLinks} style={smallBtn}>Очистить</button></div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 240 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select></div>)}</div></div>
       </div>
-      <div style={reviewFooter}><span style={reviewMuted}>{rows.length} хостов готовы к импорту</span><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}><button onClick={onCancel} style={smallBtn}>Назад</button><button onClick={() => onConfirm(config)} style={primaryBtn}>Применить настройки и импортировать</button></div></div>
+      <div style={reviewFooter}><span style={reviewMuted}>{rows.length} хостов · {matchedCount} совпадений · {linkedCount} подключений</span><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}><button onClick={onCancel} style={smallBtn}>Назад</button><button onClick={() => onConfirm(config)} style={primaryBtn}>Применить настройки и импортировать</button></div></div>
     </div>
   </div>, document.body);
 }
@@ -1200,9 +1213,10 @@ const reviewOverlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex
 const reviewCard: React.CSSProperties = { width: 'min(1050px, 96vw)', maxHeight: '92vh', background: '#fff', borderRadius: 12, color: '#111827', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 70px rgba(0,0,0,.35)' };
 const reviewHeader: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const reviewBody: React.CSSProperties = { padding: 18, overflowY: 'auto' };
-const reviewGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr', gap: 10 };
+const reviewGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr', gap: 10 };
 const reviewSection: React.CSSProperties = { marginTop: 16, paddingTop: 12, borderTop: '1px solid #E5E7EB', display: 'grid', gap: 8 };
 const reviewChecks: React.CSSProperties = { display: 'flex', gap: 12 };
+const bulkBar: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6 };
 const reviewRows: React.CSSProperties = { display: 'grid', gap: 4, maxHeight: 230, overflowY: 'auto' };
 const reviewRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#F8FAFC', borderRadius: 6 };
 const reviewMuted: React.CSSProperties = { color: '#64748B', fontSize: 11 };
