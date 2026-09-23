@@ -497,6 +497,22 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     };
 
     let placed = 0;
+    // Ports selected as "auto" are reserved during this import so two
+    // imported hosts cannot silently receive the same switch port.
+    const reservedImportPorts = new Map<string, Set<string>>();
+    const portForLink = (targetId: string, requested?: string): string | undefined => {
+      const target = doc.devices.find(d => d.id === targetId);
+      if (!target) return requested;
+      const reserved = reservedImportPorts.get(targetId) || new Set<string>();
+      const occupied = new Set<string>();
+      for (const link of doc.links || []) {
+        if (link.fromDeviceId === targetId && link.fromPortId) occupied.add(link.fromPortId);
+        if (link.toDeviceId === targetId && link.toPortId) occupied.add(link.toPortId);
+      }
+      const chosen = requested || target.ports.find(port => !occupied.has(port.id) && !reserved.has(port.id))?.id;
+      if (chosen) { reserved.add(chosen); reservedImportPorts.set(targetId, reserved); }
+      return chosen;
+    };
     let updated = 0;
     let replaced = 0;
     let skipped = 0;
@@ -576,7 +592,8 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       if (targetId) {
         useStore.getState().addLink({
           id: `link-mikrotik-${Math.random().toString(36).slice(2, 9)}`,
-          fromDeviceId: targetId, fromPortId: config.linkPorts[row.mac] || undefined,
+          fromDeviceId: targetId,
+          fromPortId: portForLink(targetId, config.linkPorts[row.mac]),
           toDeviceId: id, toPortId: 'lan',
           cable: 'copper', label: 'MikroTik import',
         });
@@ -1216,13 +1233,21 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
     set({ ...profile.config, linkTargets: {}, linkPorts: {} });
     setProfileName(name);
   };
+  const deleteProfile = async () => {
+    if (!profileName) return;
+    const ok = await confirmDialog('Удалить профиль?', `Профиль «${profileName}» будет удалён только из настроек этого компьютера.`, { danger: true, okText: 'Удалить' });
+    if (!ok) return;
+    const next = profiles.filter(profile => profile.name !== profileName);
+    setProfiles(next); setProfileName('');
+    try { localStorage.setItem('netmap:mikrotik:profiles', JSON.stringify(next)); } catch {}
+  };
   const toggleField = (field: MatchField) => set({ matchFields: config.matchFields.includes(field)
     ? config.matchFields.filter(x => x !== field) : [...config.matchFields, field] });
   return createPortal(<div style={reviewOverlay}>
     <div style={reviewCard}>
       <div style={reviewHeader}><div><b>Настройка импорта MikroTik</b><div style={reviewMuted}>Проверьте объединение, совпадения и подключения до добавления на карту.</div></div><button onClick={onCancel} style={closeBtn}>Закрыть</button></div>
       <div style={reviewBody}>
-        <div style={profileBar}><b>Профиль импорта</b><select value={profileName} onChange={e => loadProfile(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Текущие настройки (не сохранены)</option>{profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.name}</option>)}</select><button onClick={saveProfile} style={smallBtn}>Сохранить профиль</button></div>
+        <div style={profileBar}><b>Профиль импорта</b><select value={profileName} onChange={e => loadProfile(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Текущие настройки (не сохранены)</option>{profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.name}</option>)}</select><button onClick={saveProfile} style={smallBtn}>Сохранить профиль</button><button onClick={deleteProfile} disabled={!profileName} style={{ ...smallBtn, opacity: profileName ? 1 : .5 }}>Удалить</button></div>
         <div style={reviewGrid}>
           <Field label="Группировка">
             <select value={config.groupMode} onChange={e => set({ groupMode: e.target.value as GroupMode })} style={inputStyle}>
