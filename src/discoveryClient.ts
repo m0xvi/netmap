@@ -20,6 +20,9 @@ export interface DiscoveryConfig {
   sshTimeout?: number;
   snmpSweep?: boolean;
   snmpSeeds?: string[];
+  // v0.51.20: рекурсивный обход LLDP-соседей (волнами по management-IP)
+  snmpRecursive?: boolean;
+  snmpMaxHops?: number;
 }
 
 export interface DiscoveryDeviceProposal {

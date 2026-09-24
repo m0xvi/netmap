@@ -283,6 +283,7 @@ async function collectSnmp(host, community, opts) {
     host,
     self: { name: '', descr: '', vendor: '', kind: 'switch' },
     lldp: [],       // {localPort, chassisId, portId, sysName, sysDesc, portDesc}
+    mgmtAddrs: [],  // v0.51.20: management-IP соседей по LLDP — топливо рекурсии
     fdb: [],        // {mac, bridgePort}
     ifNames: {},    // ifIndex -> ifName/ifDescr
     warnings: [],
@@ -361,6 +362,21 @@ async function collectSnmp(host, community, opts) {
     } catch (e) {
       out.warnings.push('LLDP walk failed: ' + e.message);
     }
+
+    // v0.51.20: management-адреса соседей (LLDP-MIB lldpRemManAddr).
+    // Для IPv4 (subtype IANA) значение — ровно 4 октета; из них собираем IP.
+    // Эти адреса — кандидаты следующей волны рекурсивного обхода.
+    try {
+      const man = await snmpApi.walk(host, community, snmpApi.OID.lldpRemManAddr, scanOpts);
+      const seen = new Set(out.mgmtAddrs);
+      for (const it of man) {
+        const v = it.value;
+        if (Buffer.isBuffer(v) && v.length === 4) {
+          const ip = normIp(`${v[0]}.${v[1]}.${v[2]}.${v[3]}`);
+          if (ip && !seen.has(ip)) { seen.add(ip); out.mgmtAddrs.push(ip); }
+        }
+      }
+    } catch (e) { /* таблица management-адресов опциональна — не критично */ }
 
     // Bridge FDB (fallback for links to unmanaged endpoints)
     try {
@@ -655,14 +671,36 @@ async function scan(cfg) {
   }
 
   const community = cfg.snmpCommunity || 'public';
-  const snmpTasks = [];
-  for (const h of snmpHosts) {
-    snmpTasks.push(collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500 }).then(r => {
+  // v0.51.20: РЕКУРСИВНЫЙ обход волнами. Первая волна — seed + явные
+  // snmpSeeds; каждая следующая — management-IP LLDP-соседей, найденных
+  // предыдущей. Ограничения: число прыжков (1..3) и всего хостов (24),
+  // чтобы случайный «public» не полз по всей сети предприятия часами.
+  const recursive = cfg.snmpRecursive !== false;
+  const maxHops = Math.max(1, Math.min(3, Number(cfg.snmpMaxHops) || 2));
+  const MAX_HOSTS = 24;
+  const scannedSet = new Set();
+  let frontier = Array.from(snmpHosts);
+  let hopsUsed = 0;
+  for (let hop = 0; hop <= maxHops && frontier.length > 0; hop++) {
+    const wave = frontier.filter(h => !scannedSet.has(h));
+    frontier = [];
+    if (wave.length === 0) break;
+    if (hop > 0) hopsUsed = hop;
+    await Promise.all(wave.map(async (h) => {
+      scannedSet.add(h);
+      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500 });
       snmpResults.push(r);
       if (r.warnings && r.warnings.length) warnings.push(`[${h}] ` + r.warnings.join('; '));
+      if (recursive && hop < maxHops) {
+        for (const ip of r.mgmtAddrs || []) {
+          if (!scannedSet.has(ip) && !frontier.includes(ip)
+              && snmpResults.length + frontier.length < MAX_HOSTS) {
+            frontier.push(ip);
+          }
+        }
+      }
     }));
   }
-  await Promise.all(snmpTasks);
 
   const merged = makeProposal({ doc, rootHost, mt, snmpResults });
   const stats = {
@@ -670,7 +708,8 @@ async function scan(cfg) {
     neighborsFound: mt ? mt.neighbors.length : 0,
     fdbEntries:     mt ? mt.fdb.length : 0,
     arpEntries:     mt ? mt.arp.length : 0,
-    snmpHosts:      snmpHosts.size,
+    snmpHosts:      snmpResults.length,   // v0.51.20: реально опрошено (с учётом рекурсии)
+    hops:           hopsUsed,
     lldpEntries:    snmpResults.reduce((n, s) => n + (s.lldp ? s.lldp.length : 0), 0),
   };
 

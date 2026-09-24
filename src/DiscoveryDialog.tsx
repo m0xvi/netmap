@@ -96,6 +96,10 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   const [password, setPassword] = useState('');
   const [community, setCommunity] = useState('public');
   const [snmpSweep, setSnmpSweep] = useState(false);
+  // v0.51.20: рекурсивный обход — management-IP LLDP-соседей становятся
+  // целями следующих волн SNMP-опроса.
+  const [snmpRecursive, setSnmpRecursive] = useState(true);
+  const [snmpMaxHops, setSnmpMaxHops] = useState(2);
 
   // --- scan state --------------------------------------------------------
   const [phase, setPhase] = useState<Phase>('form');
@@ -125,6 +129,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     mode, host, port, username, password,
     snmpCommunity: community,
     snmpSweep,
+    snmpRecursive,
+    snmpMaxHops,
   };
 
   // --- helpers -----------------------------------------------------------
@@ -317,6 +323,21 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                       <input type="checkbox" checked={snmpSweep} onChange={e => setSnmpSweep(e.target.checked)} />
                       <span style={{ fontSize: 12 }}>Опросить SNMP на всех ARP-адресах (медленнее, но глубже)</span>
                     </label>
+                    {/* v0.51.20 */}
+                    <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={snmpRecursive} onChange={e => setSnmpRecursive(e.target.checked)} />
+                      <span style={{ fontSize: 12 }}>Рекурсивный обход по LLDP: опрашивать соседей найденных устройств</span>
+                    </label>
+                    {snmpRecursive && (
+                      <label style={{ ...S.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12 }}>Глубина обхода</span>
+                        <select value={snmpMaxHops} onChange={e => setSnmpMaxHops(Number(e.target.value))} style={S.input}>
+                          <option value={1}>1 прыжок</option>
+                          <option value={2}>2 прыжка</option>
+                          <option value={3}>3 прыжка</option>
+                        </select>
+                      </label>
+                    )}
                   </>
                 )}
               </div>
@@ -365,6 +386,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               <StatChip label="MikroTik-соседей" value={scan.stats?.neighborsFound ?? 0} />
               <StatChip label="FDB-записей" value={scan.stats?.fdbEntries ?? 0} />
               <StatChip label="ARP-записей" value={scan.stats?.arpEntries ?? 0} />
+              <StatChip label="SNMP-хостов" value={scan.stats?.snmpHosts ?? 0} />
               <StatChip label="Время" value={((scan.stats?.ms ?? 0) / 1000).toFixed(1) + 'с'} muted />
             </div>
 

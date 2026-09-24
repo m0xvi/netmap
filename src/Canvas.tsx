@@ -1412,6 +1412,12 @@ function CanvasInner() {
       />
     </ReactFlow>
 
+    {/* v0.51.20: если в проекте ЕСТЬ связи, но на канвасе не видно ни одной —
+        это почти наверняка сохранённый тумблер «Скрыть все связи» или
+        фильтры. Показываем заметный чип с кнопкой в один клик, чтобы
+        «пропавшие связи» больше не были загадкой. */}
+    <HiddenEdgesChip linksTotal={doc.links.length} shown={displayedEdges.length} />
+
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
         строка-вопрос с названием группы, «Да», «Отмена». */}
     {groupAsk && (
@@ -1426,6 +1432,37 @@ function CanvasInner() {
         ]}
       />
     )}
+    </div>
+  );
+}
+
+// v0.51.20: заметный индикатор «связи скрыты». Появляется ТОЛЬКО когда в
+// проекте есть связи, но на канвасе не отрисовано ни одной — типичная
+// загадка «связи пропали» после случайно нажатого «Скрыть все связи»
+// (сохраняется в localStorage) или фильтров кабелей/VLAN.
+const chipBtn: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #F59E0B', color: '#92400E',
+  borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+  cursor: 'pointer', whiteSpace: 'nowrap',
+};
+
+function HiddenEdgesChip({ linksTotal, shown }: { linksTotal: number; shown: number }) {
+  const hideEdges = useStore(s => s.hideEdges);
+  const toggleHideEdges = useStore(s => s.toggleHideEdges);
+  const resetFilters = useStore(s => s.resetFilters);
+  if (linksTotal <= 0 || shown > 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#FEF3C7', border: '1px solid #F59E0B', color: '#92400E',
+      borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
+    }}>
+      <span>{hideEdges ? 'Все связи скрыты' : 'Связи скрыты фильтрами'}</span>
+      {hideEdges
+        ? <button onClick={toggleHideEdges} style={chipBtn}>Показать связи</button>
+        : <button onClick={resetFilters} style={chipBtn}>Сбросить фильтры</button>}
     </div>
   );
 }
