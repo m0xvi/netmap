@@ -60,6 +60,10 @@ export function PortEdge(props: EdgeProps) {
 
   const isSelected = selectedEdgeId === id;
   const isHighlighted = highlightLinkId === id;
+  // v0.51.22: perf-режим на больших схемах (>150 устройств): обходной
+  // маршрутизатор отключается, рёбра считаются простыми built-in путями —
+  // иначе O(E×N) пересчёт маршрутов на каждом чихе превращает карту в слайд-шоу.
+  const perfMode = useStore(s => s.doc.devices.length > 150);
   // v0.26: on-trace = the port-hover cable-trace passes through this link.
   // Overrides normal dim/emphasise logic so the whole path lights up.
   const isOnTrace = traceLinkIds.has(id);
@@ -123,13 +127,14 @@ export function PortEdge(props: EdgeProps) {
   // cleanup avoids the register→unregister→register storm that used to
   // trigger #185 on multi-select bulk operations.
   useEffect(() => {
+    if (perfMode) return;   // v0.51.22: в perf-режиме маршрутизатор не кормим
     edgeRouter.register({
       linkId: id,
       sx, sy, ss: sourcePosition,
       tx, ty, ts: targetPosition,
       sourceDevId: source, targetDevId: target,
     });
-  }, [id, sx, sy, tx, ty, sourcePosition, targetPosition, source, target]);
+  }, [id, sx, sy, tx, ty, sourcePosition, targetPosition, source, target, perfMode]);
 
   useEffect(() => {
     return () => { edgeRouter.unregister(id); };
@@ -137,9 +142,9 @@ export function PortEdge(props: EdgeProps) {
 
   // v0.34.1: subscribe to the router's version tick via zustand so React can
   // batch and dedupe updates (was per-listener storm before → error #185).
-  const routerVersion = useStore(s => s.edgeRouterVersion);
+  const routerVersion = useStore(s => perfMode ? 0 : s.edgeRouterVersion);
   void routerVersion;
-  const routedPath = edgeRouter.getPath(id);
+  const routedPath = perfMode ? null : edgeRouter.getPath(id);
   const path = routedPath || fallbackPath;
 
   const strokeColor = (style as any)?.stroke || '#94A3B8';

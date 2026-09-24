@@ -1275,6 +1275,9 @@ function CanvasInner() {
   const pathLinkIds = useStore(s => s.pathLinkIds);
   // v0.43.6: global "hide all edges" toggle from the FAB.
   const hideEdges = useStore(s => s.hideEdges);
+  // v0.51.22: большие схемы — прячем миникарту (рендер всех нод в отдельном
+  // svg съедает кадры при каждом pan/zoom).
+  const heavyDoc = useStore(s => s.doc.devices.length > 150);
   const displayedEdges = useMemo(() => {
     if (hideEdges) return [];   // just drop them from RF entirely
     return edges.map(e => {
@@ -1386,10 +1389,14 @@ function CanvasInner() {
       minZoom={0.1}
       maxZoom={2}
       colorMode="light"
+      // v0.51.22: рендерим только ноды/рёбра в viewport — на схемах в сотни
+      // устройств это главный источник лагов без этого флага.
+      onlyRenderVisibleElements
       proOptions={{ hideAttribution: true }}
     >
       {showGrid && <Background gap={20} size={1} color="#E5E7EB" />}
       <Controls style={{ background: '#F9FAFB', border: '1px solid #D1D5DB' }} />
+      {!heavyDoc && (
       <MiniMap
         style={{ background: '#FFFFFF', border: '1px solid #D1D5DB', cursor: 'crosshair' }}
         nodeColor={(n) => {
@@ -1410,6 +1417,7 @@ function CanvasInner() {
           catch { /* rf may not be ready */ }
         }}
       />
+      )}
     </ReactFlow>
 
     {/* v0.51.20: если в проекте ЕСТЬ связи, но на канвасе не видно ни одной —

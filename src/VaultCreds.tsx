@@ -1,21 +1,21 @@
 /**
  * v0.51.21 — интеграция Vault в формы учётных данных.
+ * v0.51.22 — SVG-иконки вместо «▣» (символ рендерился квадратом на части
+ *            систем) и инлайн-окно разблокировки хранилища прямо из диалога:
+ *            нажатие «Из Vault»/«В Vault» на заблокированном хранилище сразу
+ *            спрашивает мастер-пароль и продолжает действие, без похода в
+ *            другое место.
  *
- * Рядом с полями логин/пароль/community появляются две кнопки:
- *   «▣ Из Vault»  — подбор существующей записи (отфильтрованной по назначению
- *                   и хосту) и подстановка значений в форму;
- *   «▣ В Vault»   — сохранить текущие значения формы как запись хранилища.
- *
- * Записи подразделяются тегами: для чего (`ssh` / `snmp` / `api` / `web`) и
- * какой службы (`MikroTik SSH`, `UniFi API`, …) + хост в `url` и привязка к
- * устройству схемы через `boundDeviceIds`.
+ * Записи категоризируются тегами: для чего (`ssh` / `snmp` / `api`), какой
+ * службы (`mikrotik ssh`, `snmp community`, …), хост в `url`, привязка к
+ * устройству схемы через `boundDeviceIds`, папка (`MikroTik` / `SNMP`).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { alertDialog } from './Modal';
 import {
-  vaultList, vaultGet, vaultUpsert, vaultStatus,
+  vaultList, vaultGet, vaultUpsert, vaultStatus, vaultUnlock,
   type VaultItemMeta,
 } from './vaultClient';
 
@@ -40,48 +40,162 @@ interface Props {
   folder?: string;
 }
 
+// ---------------------------------------------------------------------------
+// SVG-иконки (по конвенции проекта — без эмодзи/редких юникод-символов)
+
+const IconVault = ({ size = 11 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M12 8.5V7M12 17v-1.5M8.5 12H7M17 12h-1.5" />
+  </svg>
+);
+const IconDown = ({ size = 11 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 4v12M6 10l6 6 6-6M4 20h16" />
+  </svg>
+);
+
 const btnStyle: React.CSSProperties = {
   background: '#F5F3FF', border: '1px solid #C4B5FD', color: '#5B21B6',
   borderRadius: 6, padding: '3px 8px', fontSize: 10, fontWeight: 600,
   cursor: 'pointer', whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', gap: 5,
 };
+
+// ---------------------------------------------------------------------------
+
+async function vaultState(): Promise<'ok' | 'locked' | 'noinit'> {
+  try {
+    const st = await vaultStatus();
+    if (!st.initialized) return 'noinit';
+    return st.unlocked ? 'ok' : 'locked';
+  } catch {
+    return 'ok'; // браузерный fallback без статуса — даём шанс действию
+  }
+}
 
 export function VaultCredsButtons(props: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const pendingRef = useRef<null | (() => void)>(null);
+
+  /** Запускает действие; если хранилище заблокировано — сначала инлайн-разблокировка. */
+  const requireUnlocked = async (fn: () => void) => {
+    const st = await vaultState();
+    if (st === 'ok') { fn(); return; }
+    if (st === 'noinit') {
+      await alertDialog('Vault не создан',
+        'Хранилище ещё не инициализировано. Откройте Vault Studio (Ctrl+K) → «Настройки безопасности» и создайте его один раз.');
+      return;
+    }
+    pendingRef.current = fn;
+    setUnlockOpen(true);
+  };
+
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
       <button type="button" style={btnStyle} title="Подставить учётные данные из Vault"
-              onClick={() => setPickerOpen(true)}>▣ Из Vault</button>
+              onClick={() => requireUnlocked(() => setPickerOpen(true))}>
+        <IconVault /> Из Vault
+      </button>
       <button type="button" style={btnStyle} title="Сохранить эти учётные данные в Vault"
-              onClick={() => saveToVault(props)}>▣ В Vault</button>
+              onClick={() => requireUnlocked(() => void saveToVault(props))}>
+        <IconDown /> В Vault
+      </button>
       {pickerOpen && <VaultPicker {...props} onClose={() => setPickerOpen(false)} />}
+      {unlockOpen && (
+        <UnlockModal
+          onDone={async (ok) => {
+            setUnlockOpen(false);
+            if (ok && pendingRef.current) {
+              const fn = pendingRef.current;
+              pendingRef.current = null;
+              fn();
+            }
+          }}
+        />
+      )}
     </span>
   );
 }
 
 // ---------------------------------------------------------------------------
+// Инлайн-разблокировка: мастер-пароль → vaultUnlock → продолжить действие.
 
-async function ensureUnlocked(): Promise<boolean> {
-  try {
-    const st = await vaultStatus();
-    if (!st.initialized) {
-      await alertDialog('Vault не создан',
-        'Хранилище ещё не инициализировано. Откройте Vault Studio (Ctrl+K) → Настройки безопасности и создайте его.');
-      return false;
+function UnlockModal({ onDone }: { onDone: (ok: boolean) => void }) {
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    if (!pw || busy) return;
+    setBusy(true);
+    setErr('');
+    try {
+      const r = await vaultUnlock(pw);
+      if (r?.ok) { onDone(true); }
+      else { setErr('Неверный мастер-пароль.'); }
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось разблокировать.');
+    } finally {
+      setBusy(false);
     }
-    if (!st.unlocked) {
-      await alertDialog('Vault заблокирован',
-        'Откройте Vault Studio (Ctrl+K) и разблокируйте хранилище, затем повторите.');
-      return false;
-    }
-    return true;
-  } catch {
-    return true; // браузерный fallback не всегда отвечает статусом — дадим шанс
-  }
+  };
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9700,
+      background: 'rgba(15,23,42,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={() => onDone(false)}>
+      <div style={{
+        width: 360, background: '#fff', borderRadius: 12,
+        boxShadow: '0 24px 64px rgba(15,23,42,0.35)', overflow: 'hidden',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E7EB',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+          <span style={{ color: '#5B21B6' }}><IconVault size={14} /></span>
+          Разблокировать Vault
+        </div>
+        <div style={{ padding: 16, display: 'grid', gap: 10 }}>
+          <input
+            autoFocus
+            type="password"
+            value={pw}
+            placeholder="Мастер-пароль"
+            onChange={e => { setPw(e.target.value); setErr(''); }}
+            onKeyDown={e => { if (e.key === 'Enter') void submit(); }}
+            style={{
+              padding: '8px 10px', border: '1px solid #D1D5DB', borderRadius: 8,
+              fontSize: 13, outline: 'none',
+            }}
+          />
+          {err && <div style={{ fontSize: 11, color: '#B91C1C' }}>{err}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => onDone(false)} style={{
+              background: '#fff', border: '1px solid #D1D5DB', borderRadius: 6,
+              padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+            }}>Отмена</button>
+            <button onClick={() => void submit()} disabled={busy || !pw} style={{
+              background: '#5B21B6', color: '#fff', border: 'none', borderRadius: 6,
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              opacity: busy || !pw ? 0.6 : 1,
+            }}>{busy ? 'Секунду…' : 'Разблокировать'}</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
+// ---------------------------------------------------------------------------
+
 async function saveToVault(props: Props) {
-  if (!(await ensureUnlocked())) return;
   const filled = props.fields.filter(f => (props.values[f.key] || '').trim() !== '');
   if (filled.length === 0) {
     await alertDialog('Нечего сохранять', 'Заполните поля учётных данных перед сохранением в Vault.');
@@ -100,7 +214,7 @@ async function saveToVault(props: Props) {
   const res = await vaultUpsert({
     name,
     username,
-    password: props.values['password'] ?? extraFields[props.fields[0]?.key] ?? '',
+    password,
     fields: Object.keys(extraFields).length ? extraFields : undefined,
     tags: ['creds', props.purpose, props.serviceLabel.toLowerCase()],
     url: props.host || undefined,
@@ -110,7 +224,7 @@ async function saveToVault(props: Props) {
   if (res?.ok) {
     await alertDialog('Сохранено в Vault', `Запись «${name}» (назначение: ${props.purpose}).`);
   } else {
-    await alertDialog('Не удалось сохранить', 'Хранилище отклонило запись (возможно, заблокировано).');
+    await alertDialog('Не удалось сохранить', 'Хранилище отклонило запись (возможно, заблокировалось во время ввода).');
   }
 }
 
@@ -123,7 +237,6 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      if (!(await ensureUnlocked())) { onClose(); return; }
       const all = await vaultList().catch(() => [] as VaultItemMeta[]);
       if (!alive) return;
       const hostLc = (props.host || '').toLowerCase();
@@ -147,7 +260,8 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
     const r = await vaultGet(id).catch(() => null);
     setBusyId(null);
     if (!r || r.locked) {
-      await alertDialog('Vault заблокирован', 'Разблокируйте хранилище (Ctrl+K) и повторите.');
+      await alertDialog('Vault заблокирован', 'Хранилище автозаблокировалось — нажмите кнопку ещё раз и введите мастер-пароль.');
+      onClose();
       return;
     }
     if (!r.item) { await alertDialog('Ошибка', 'Запись не найдена.'); return; }
@@ -173,7 +287,9 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
         overflow: 'hidden',
       }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E7EB',
-                      fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+                      fontSize: 13, fontWeight: 700, color: '#0F172A',
+                      display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: '#5B21B6' }}><IconVault size={14} /></span>
           Из Vault — {props.serviceLabel}
           <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: '#64748B' }}>
             назначение: {props.purpose}{props.host ? ` · хост: ${props.host}` : ''}
@@ -187,7 +303,7 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
           )}
           {items !== null && items.length === 0 && (
             <div style={{ padding: 16, fontSize: 12, color: '#64748B', textAlign: 'center' }}>
-              В Vault пока нет записей. Заполните поля вручную и нажмите «▣ В Vault».
+              В Vault пока нет записей. Заполните поля вручную и нажмите «В Vault».
             </div>
           )}
           {(items || []).map(it => (
@@ -197,14 +313,13 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
                    padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
                    display: 'flex', alignItems: 'center', gap: 8,
                    opacity: busyId === it.id ? 0.5 : 1,
-                   border: '1px solid transparent',
                  }}
                  onMouseOver={e => { (e.currentTarget as HTMLDivElement).style.background = '#F1F5F9'; }}
                  onMouseOut={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}>
               <span style={{ width: 22, height: 22, borderRadius: 6, background: '#EDE9FE',
                              color: '#5B21B6', display: 'flex', alignItems: 'center',
-                             justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                ▣
+                             justifyContent: 'center', flexShrink: 0 }}>
+                <IconVault size={12} />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#0F172A',

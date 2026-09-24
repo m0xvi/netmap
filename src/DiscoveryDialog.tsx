@@ -224,10 +224,21 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 
     const report = applyDiscovery({ devices: devicesToCreate, links: linksToCreate });
     setApplyReport({ dev: report.addedDevices, link: report.addedLinks });
+    // v0.51.22: сразу раскладываем карту автоматически — иначе сетка из
+    // сотен новых карточек остаётся налезать на существующие группы
+    // (жалоба пользователя после автообнаружения). Умная раскладка группирует
+    // по локация/VLAN/подсеть и растаскивает всё без пересечений.
+    // Откатится тем же Ctrl+Z, что и применение (history snapshot внутри).
+    if (report.addedDevices > 0) {
+      try {
+        useStore.getState().autoLayout('TB', { groupBy: 'hybrid' });
+      } catch { /* раскладка не критична — карта останется как есть */ }
+    }
     pushAlert({
       severity: 'success', origin: 'import',
       title: 'Автообнаружение применено',
       message: `Добавлено устройств: ${report.addedDevices}, связей: ${report.addedLinks}` +
+               (report.addedDevices > 0 ? '. Карта разложена автоматически.' : '') +
                (droppedLinks ? ` (пропущено связей: ${droppedLinks}, без обеих сторон)` : ''),
     });
     setPhase('done');
@@ -531,7 +542,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#166534' }}>Готово</div>
                 <div style={{ fontSize: 12, color: '#166534' }}>
-                  Добавлено устройств: <b>{applyReport.dev}</b>, связей: <b>{applyReport.link}</b>. Ctrl+Z отменит одной операцией.
+                  Добавлено устройств: <b>{applyReport.dev}</b>, связей: <b>{applyReport.link}</b>.
+                  Карта разложена автоматически; Ctrl+Z отменит раскладку и применение (два нажатия).
                 </div>
               </div>
             </div>
