@@ -168,6 +168,9 @@ function btn(bg = '#E5E7EB', border = '#D1D5DB', color = '#111827'): React.CSSPr
   return {
     background: bg, border: `1px solid ${border}`, color,
     padding: '5px 10px', borderRadius: 5, cursor: 'pointer', fontSize: 11,
+    // v0.51.19: подписи в одну строку — раньше «В группу» и «↯ PoE»
+    // разламывались на две строки и меню выглядело рваным.
+    whiteSpace: 'nowrap',
   };
 }
 const item: React.CSSProperties = {

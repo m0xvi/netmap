@@ -25,6 +25,7 @@ import { edgeRouter, buildObstacles } from './edgeRouter';
 import { portSides, DYNAMIC_KINDS } from './portSides';
 import { openPortPicker, buildPortOptions, type PortOption } from './PortPickerDialog';
 import { alertDialog } from './Modal';
+import { ContextMenu } from './ContextMenu';
 
 const nodeTypes: any = {
   device: DeviceNode,
@@ -761,7 +762,25 @@ function CanvasInner() {
     dragOrigins.current.set(node.id, { x: dev.x, y: dev.y, groupId: dev.groupId ?? null });
   }, []);
 
-  const onNodeDragStop = useCallback(async (_e: any, node: Node) => {
+  // v0.51.19: контекстное меню «сменить группу?» в точке дропа.
+  // Вместо центрированного диалога — меню прямо там, куда отпустили
+  // карточку (строки: вопрос / Да / Отмена), как просил пользователь.
+  const groupAskOpen = useRef(false);
+  const [groupAsk, setGroupAsk] = useState<null | {
+    x: number; y: number; title: string; yes: () => void; no: () => void;
+  }>(null);
+  const openGroupAsk = useCallback((x: number, y: number, title: string, yes: () => void, no: () => void) => {
+    groupAskOpen.current = true;
+    setGroupAsk({ x, y, title, yes, no });
+  }, []);
+  const resolveGroupAsk = useCallback((fn?: () => void) => {
+    if (!groupAskOpen.current) return;   // «Да»/«Отмена» уже нажаты
+    groupAskOpen.current = false;
+    setGroupAsk(null);
+    fn?.();
+  }, []);
+
+  const onNodeDragStop = useCallback((_e: any, node: Node) => {
     // Clear any drop-target highlight regardless of what we do next.
     document.querySelectorAll('.react-flow__node-group.netmap-drop-target')
       .forEach(el => el.classList.remove('netmap-drop-target'));
@@ -818,35 +837,18 @@ function CanvasInner() {
       }
     }
 
-    // v0.51.18: ПОДТВЕРЖДЕНИЕ смены группы жестом перетаскивания.
+    // v0.51.19: ПОДТВЕРЖДЕНИЕ смены группы жестом перетаскивания —
+    // контекстным меню В ТОЧКЕ ДРОПА (строки: вопрос / Да / Отмена):
     //   • вытащили карточку за пределы её группы  → «Убрать из группы „…“?»
     //   • перетащили в ДРУГУЮ группу              → «Переместить в группу „…“?»
     // Не затрагиваем: drop на устройство (создание связи — обработан выше)
     // и добавление в группу устройства БЕЗ группы (намеренный жест).
-    // При «Отмена» карточка возвращается на исходное место.
-    if (dev.groupId && target?.id !== dev.groupId
-        && useStore.getState().multiSelectedIds.size <= 1) {
-      const origin = dragOrigins.current.get(dev.id)
-        ?? { x: dev.x, y: dev.y, groupId: dev.groupId ?? null };
-      dragOrigins.current.delete(dev.id);
-      const fromName = parent?.name ?? '';
-      const ok = target
-        ? await confirmDialog(
-            `Переместить в группу «${target.name}»?`,
-            `«${dev.name}» будет перенесено из группы «${fromName}» в «${target.name}».`,
-            { okText: 'Да', cancelText: 'Отмена' })
-        : await confirmDialog(
-            `Убрать из группы «${fromName}»?`,
-            `«${dev.name}» останется на карте без группы.`,
-            { okText: 'Да', cancelText: 'Отмена' });
-      if (!ok) {
-        // Возврат на исходную позицию в исходную группу.
-        setPosition(dev.id, origin.x, origin.y, origin.groupId);
-        return;
-      }
-    } else {
-      dragOrigins.current.delete(dev.id);
-    }
+    // При «Отмена» (или закрытии меню мимо) карточка возвращается на место.
+    const origin = dragOrigins.current.get(dev.id)
+      ?? { x: dev.x, y: dev.y, groupId: dev.groupId ?? null };
+    dragOrigins.current.delete(dev.id);
+
+    const commit = () => {
 
     // v0.35.2: SAFETY — never let a re-parent produce out-of-bounds or NaN
     // coords. Previously a card dropped across a distant group border could
@@ -906,7 +908,25 @@ function CanvasInner() {
 
     // --- 3) Auto-grow the target group if the drop pushed children past the edge ---
     growGroupToFitChildren(finalGroupId ?? null);
-  }, [setPosition, handleDropOnDevice]);
+
+    }; // commit
+
+    if (dev.groupId && target?.id !== dev.groupId
+        && useStore.getState().multiSelectedIds.size <= 1) {
+      const fromName = parent?.name ?? '';
+      openGroupAsk(
+        _e.clientX ?? 0, _e.clientY ?? 0,
+        target
+          ? `Переместить в группу «${target.name}»?`
+          : `Убрать из группы «${fromName}»?`,
+        commit,
+        // «Отмена» / клик мимо / Escape — возврат на исходное место.
+        () => setPosition(dev.id, origin.x, origin.y, origin.groupId),
+      );
+      return;
+    }
+    commit();
+  }, [setPosition, handleDropOnDevice, openGroupAsk]);
 
   // v0.24/25: no collision resolution DURING drag (avoid jitter). Only used
   // to highlight the target group the dragged card is hovering over — the actual
@@ -1391,6 +1411,21 @@ function CanvasInner() {
         }}
       />
     </ReactFlow>
+
+    {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
+        строка-вопрос с названием группы, «Да», «Отмена». */}
+    {groupAsk && (
+      <ContextMenu
+        x={groupAsk.x} y={groupAsk.y}
+        onClose={() => resolveGroupAsk(groupAsk.no)}
+        items={[
+          { label: groupAsk.title, disabled: true, icon: '▦' },
+          { separator: true, label: '' },
+          { label: 'Да', icon: '✓', action: () => resolveGroupAsk(groupAsk.yes) },
+          { label: 'Отмена', icon: '✕', action: () => resolveGroupAsk(groupAsk.no) },
+        ]}
+      />
+    )}
     </div>
   );
 }
