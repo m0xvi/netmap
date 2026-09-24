@@ -585,13 +585,53 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
   }
 
   // Filter self-links (a device shouldn't link to itself)
-  const finalLinks = uniqLinks.filter(l => {
+  // v0.51.23: если для пары устройств есть LLDP-связь (порты с обеих сторон),
+  // грубую SSH-связь «MikroTik /ip neighbor» по той же паре убираем — иначе
+  // в режиме «оба» список забит SSH-дублями и выглядит, будто SNMP не работал.
+  const lldpPairs = new Set();
+  for (const l of uniqLinks) {
+    if (!String(l.evidence || '').startsWith('LLDP')) continue;
+    const a = l.fromRef.existingId || l.fromRef.tempId;
+    const b = l.toRef.existingId   || l.toRef.tempId;
+    lldpPairs.add(a < b ? a + '|' + b : b + '|' + a);
+  }
+  const preferredLinks = uniqLinks.filter(l => {
+    if (String(l.evidence || '').startsWith('MikroTik /ip neighbor')) {
+      const a = l.fromRef.existingId || l.fromRef.tempId;
+      const b = l.toRef.existingId   || l.toRef.tempId;
+      const pk = a < b ? a + '|' + b : b + '|' + a;
+      if (lldpPairs.has(pk)) return false;
+    }
+    return true;
+  });
+
+  const finalLinks = preferredLinks.filter(l => {
     const a = l.fromRef.existingId || l.fromRef.tempId;
     const b = l.toRef.existingId   || l.toRef.tempId;
     return a !== b;
   });
 
   return { proposedDevices, proposedLinks: finalLinks, warnings };
+}
+
+// v0.51.23: сотни одинаковых «[ip] SNMP probe failed: Request timed out»
+// схлопываем в одну сводную строку со счётчиком и примерами хостов,
+// иначе предупреждения затапливают весь предпросмотр.
+function aggregateWarnings(list) {
+  const out = [];
+  const buckets = new Map();
+  for (const w of list) {
+    const m = /^\[([^\]]+)\]\s*(SNMP probe failed:.*)$/.exec(String(w));
+    if (!m) { out.push(w); continue; }
+    let e = buckets.get(m[2]);
+    if (!e) { e = { msg: m[2], ips: [], count: 0 }; buckets.set(m[2], e); }
+    e.count++;
+    if (e.ips.length < 5) e.ips.push(m[1]);
+  }
+  for (const e of buckets.values()) {
+    out.push(`${e.count} хостов: ${e.msg} (например: ${e.ips.join(', ')}${e.count > e.ips.length ? ', …' : ''})`);
+  }
+  return out;
 }
 
 // ---------- Public entry points -------------------------------------------
@@ -722,7 +762,7 @@ async function scan(cfg) {
     })),
     proposedDevices: merged.proposedDevices,
     proposedLinks:   merged.proposedLinks,
-    warnings: [...warnings, ...merged.warnings],
+    warnings: aggregateWarnings([...warnings, ...merged.warnings]),
     stats,
   };
 }
