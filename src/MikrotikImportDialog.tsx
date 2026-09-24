@@ -347,6 +347,9 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
       url: host.trim(),
       username: username.trim(),
       password: passwordRef.current,
+      // v0.51.21: категоризация записи — для чего (ssh) и какой службы
+      // (mikrotik); подборщики в других диалогах фильтруют по этим тегам.
+      tags: ['creds', 'ssh', 'mikrotik'],
       notes: `Auto-saved by DHCP importer on ${new Date().toISOString()}`,
     });
     if (res.ok) {

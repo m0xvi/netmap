@@ -20,6 +20,7 @@ import {
   type DiscoveryDeviceProposal, type DiscoveryLinkProposal,
 } from './discoveryClient';
 import { MiniSpinner, ProgressStripe, ProgressBar } from './Spinner';
+import { VaultCredsButtons } from './VaultCreds';
 
 // ============================================================================
 // SVG icons (no emoji per project convention)
@@ -312,6 +313,15 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     <label style={S.label}>Пароль
                       <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={S.input} />
                     </label>
+                    {/* v0.51.21: учётные данные из Vault / в Vault */}
+                    <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
+                      <VaultCredsButtons
+                        host={host} purpose="ssh" serviceLabel="MikroTik SSH" folder="MikroTik"
+                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }]}
+                        values={{ username, password }}
+                        onApply={v => { setUsername(v.username ?? ''); setPassword(v.password ?? ''); }}
+                      />
+                    </div>
                   </>
                 )}
                 {(mode === 'snmp' || mode === 'both') && (
@@ -319,6 +329,15 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     <label style={S.label}>SNMP community
                       <input value={community} onChange={e => setCommunity(e.target.value)} placeholder="public" style={S.input} />
                     </label>
+                    {/* v0.51.21 */}
+                    <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
+                      <VaultCredsButtons
+                        host={host} purpose="snmp" serviceLabel="SNMP community" folder="SNMP"
+                        fields={[{ key: 'community', label: 'Community' }]}
+                        values={{ community }}
+                        onApply={v => setCommunity(v.community ?? '')}
+                      />
+                    </div>
                     <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <input type="checkbox" checked={snmpSweep} onChange={e => setSnmpSweep(e.target.checked)} />
                       <span style={{ fontSize: 12 }}>Опросить SNMP на всех ARP-адресах (медленнее, но глубже)</span>

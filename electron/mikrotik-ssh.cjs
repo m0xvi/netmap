@@ -453,6 +453,7 @@ async function scan(cfg) {
 }
 
 module.exports = {
+  runCommand,   // v0.51.21: discovery.cjs собирает сырые terse-выводы через него
   testConnection,
   fetchDhcpLeases,
   fetchArp,

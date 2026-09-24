@@ -19,6 +19,7 @@ import {
   type ImportVendor, type ImportConfig, type TestResult,
 } from './importClient';
 import { MiniSpinner, ProgressStripe, btnBusy } from './Spinner';
+import { VaultCredsButtons } from './VaultCreds';
 import {
   summarizeSubnets, ipInAnyCidr,
   type ScanResult, type SubnetStat,
@@ -111,6 +112,8 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
   // Password is kept in a ref so it never persists to LS.
   const passwordRef = useRef<string>('');
   const [pwLength, setPwLength] = useState(0);
+  // v0.51.21: пересоздаёт неконтролируемый password-инпут после подстановки из Vault
+  const [pwVersion, setPwVersion] = useState(0);
 
   useEffect(() => {
     // Reset form to defaults + LS-loaded values when vendor changes.
@@ -381,8 +384,10 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                   </label>
                 ) : f.type === 'password' ? (
                   <input
+                    key={`pw-${pwVersion}`}
                     type="password"
                     placeholder={f.placeholder}
+                    defaultValue={passwordRef.current || undefined}
                     style={inputStyle}
                     onChange={(e) => { passwordRef.current = e.target.value; setPwLength(e.target.value.length); }}
                   />
@@ -420,6 +425,34 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
             {pwLength > 0 && <span style={{ fontSize: 11, color: '#64748B', alignSelf: 'center' }}>
               Пароль: {'•'.repeat(Math.min(pwLength, 10))}
             </span>}
+            {/* v0.51.21: учётки из Vault / в Vault, с тегами назначения и службы */}
+            {meta.fields.some(f => f.type === 'password') && (
+              <VaultCredsButtons
+                host={String((config as any).host ?? '')}
+                purpose={vendor === 'mikrotik' ? 'ssh'
+                         : String(vendor).includes('snmp') ? 'snmp' : 'api'}
+                serviceLabel={meta.label}
+                folder={vendor === 'mikrotik' ? 'MikroTik'
+                        : String(vendor).includes('snmp') ? 'SNMP' : undefined}
+                fields={[
+                  ...(meta.fields.some(f => f.key === 'username')
+                    ? [{ key: 'username', label: 'Логин' }] : []),
+                  { key: 'password', label: 'Пароль' },
+                ]}
+                values={{
+                  username: String((config as any).username ?? ''),
+                  password: passwordRef.current,
+                }}
+                onApply={v => {
+                  if (v.username != null) setField('username', v.username);
+                  if (v.password != null) {
+                    passwordRef.current = v.password;
+                    setPwLength(v.password.length);
+                    setPwVersion(x => x + 1);
+                  }
+                }}
+              />
+            )}
             {meta.status === 'planned' && (
               <span style={{ fontSize: 11, color: '#B45309', alignSelf: 'center', background: '#FEF3C7', padding: '4px 8px', borderRadius: 6 }}>
                 ⚠ Модуль в разработке — доступен в v0.38
