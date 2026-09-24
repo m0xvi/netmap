@@ -17,11 +17,17 @@
  *     rootHost: '192.168.11.1',
  *     source: 'mikrotik' | 'snmp' | 'both',
  *     seeds: [{ host, name, mac, model, vendor, snmp?, ssh? }],   // switches we polled
- *     proposedDevices: [{ tempId, ip, mac, name, vendor, kind, hint }],
+ *     proposedDevices: [{ tempId, ip, mac, name, nameSource, vendor, kind,
+ *                          hint, vlan?, dhcpComment?, dhcpHost? }],
  *     proposedLinks:   [{ tempId, fromRef, fromPort, toRef, toPort, cable, evidence }],
+ *     subnets: [{ cidr, interface, comment }],   // v0.52.0: router /ip/address
+ *     vlans:   [{ id, name }],                   // v0.52.0: wood for the VLAN filter
  *     warnings: [string],
- *     stats: { neighborsFound, fdbEntries, arpEntries, ms }
+ *     stats: { neighborsFound, fdbEntries, arpEntries, leases, ms }
  *   }
+ *
+ * v0.52.0 naming: nameSource ∈ dhcp|sysname|hostname|ip|mac, приоритет
+ * DHCP-comment > sysName/identity > DHCP host-name > IP > MAC.
  *
  * `fromRef` / `toRef` can be either:
  *   - `{ existingId: 'dev_xxx' }`  — matched an existing device by IP or MAC
@@ -53,6 +59,26 @@ function normIp(ip) {
   if (!m) return '';
   for (let i = 1; i <= 4; i++) if (Number(m[i]) > 255) return '';
   return s;
+}
+
+// v0.52.0: MAC из SNMP-значения physAddress. coerce() в snmp.cjs отдаёт
+// OCTET STRING либо «AA:BB:..» (есть непечатные байты), либо сырую
+// 6-символьную строку (все 6 байт случайно печатные — например MAC
+// 44:42:41:43:4B:55 приезжает как "DBACKU"). Понимаем оба формата.
+function macFromSnmpValue(v) {
+  if (v == null) return '';
+  if (Buffer.isBuffer(v)) {
+    if (v.length !== 6) return '';
+    return Array.from(v).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+  }
+  const s = String(v);
+  if (s.includes(':')) return normMac(s);
+  if (s.length === 6) {
+    const bytes = [];
+    for (let i = 0; i < 6; i++) bytes.push(s.charCodeAt(i) & 0xff);
+    return bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+  }
+  return normMac(s);
 }
 
 function guessKindFromDescr(descr) {
@@ -210,6 +236,24 @@ function parseTerseLines(out) {
   return rows;
 }
 
+// v0.52.0: «2,5,10-12» → [2,5,10,11,12]. Для vlan-ids из bridge vlan table.
+function expandVlanIds(spec) {
+  if (!spec) return [];
+  const out = [];
+  for (const part of String(spec).split(',')) {
+    const p = part.trim();
+    if (!p) continue;
+    const m = /^(\d+)\s*-\s*(\d+)$/.exec(p);
+    if (m) {
+      const a = Number(m[1]), b = Number(m[2]);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) out.push(i);
+    } else if (/^\d+$/.test(p)) {
+      out.push(Number(p));
+    }
+  }
+  return out.filter(n => n >= 1 && n <= 4094);
+}
+
 async function collectMikrotik(cfg, opts) {
   const mt = getMt();
   const out = {
@@ -219,16 +263,27 @@ async function collectMikrotik(cfg, opts) {
     arp: [],
     fdb: [],
     interfaces: [],
+    // v0.52.0: DHCP-лизы (имена!), адреса роутера (подсети), VLAN-таблицы.
+    leases: [],       // {ip, mac, host, comment, server, status}
+    addresses: [],    // {cidr, interface, comment}
+    vlanByPort: {},   // untagged port name -> vlanId (из bridge vlan table)
+    vlanIfaceByName: {}, // vlan interface name -> vlanId (из /interface vlan)
+    vlanNames: {},    // vlanId -> имя/комментарий
     warnings: [],
   };
   try {
-    const [ident, resource, neighTerse, arpTerse, ifTerse, fdb] = await Promise.all([
+    const [ident, resource, neighTerse, arpTerse, ifTerse, fdb,
+           leaseTerse, addrTerse, bridgeVlanTerse, vlanIfaceTerse] = await Promise.all([
       mt.runCommand(cfg, ':put [/system identity get name]').catch(() => ''),
       mt.runCommand(cfg, '/system resource print without-paging').catch(() => ''),
       mt.runCommand(cfg, '/ip neighbor print terse without-paging').catch(() => ''),
       mt.runCommand(cfg, '/ip arp print terse without-paging').catch(() => ''),
       mt.runCommand(cfg, '/interface print terse without-paging').catch(() => ''),
       mt.runCommand(cfg, '/interface bridge host print terse without-paging').catch(() => ''),
+      mt.runCommand(cfg, '/ip dhcp-server lease print terse without-paging').catch(() => ''),
+      mt.runCommand(cfg, '/ip address print terse without-paging').catch(() => ''),
+      mt.runCommand(cfg, '/interface bridge vlan print terse without-paging').catch(() => ''),
+      mt.runCommand(cfg, '/interface vlan print terse without-paging').catch(() => ''),
     ]);
     out.self.name = String(ident || '').trim().split(/\r?\n/)[0] || cfg.host;
     for (const l of String(resource || '').split(/\r?\n/)) {
@@ -268,6 +323,52 @@ async function collectMikrotik(cfg, opts) {
         bridge:  row['bridge'] || '',
       });
     }
+    // v0.52.0: DHCP leases — главный источник человеческих имён
+    // (comment приоритетнее host-name: комментарий правит админ).
+    for (const row of parseTerseLines(leaseTerse)) {
+      const mac = normMac(row['mac-address'] || '');
+      if (!mac) continue;
+      out.leases.push({
+        ip:  normIp(row['address'] || row['active-address'] || ''),
+        mac,
+        host:    row['host-name'] || '',
+        comment: row['comment'] || '',
+        server:  row['server'] || '',
+        status:  row['status'] || '',
+      });
+    }
+    // /ip address — эталонные подсети роутера для фильтра по сетям.
+    for (const row of parseTerseLines(addrTerse)) {
+      const cidr = String(row['address'] || '').trim();
+      if (!/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(cidr)) continue;
+      out.addresses.push({
+        cidr,
+        interface: row['interface'] || '',
+        comment: row['comment'] || '',
+      });
+    }
+    // bridge vlan table: untagged порт → VLAN. FDB-запись на access-порту
+    // тем самым привязывается к VLAN (на транках — неоднозначно, пропускаем).
+    for (const row of parseTerseLines(bridgeVlanTerse)) {
+      const ids = expandVlanIds(row['vlan-ids']);
+      if (!ids.length) continue;
+      const untagged = String(row['untagged'] || '').split(',')
+        .map(s => s.trim()).filter(Boolean);
+      for (const p of untagged) {
+        if (!(p in out.vlanByPort)) out.vlanByPort[p] = ids[0];
+      }
+      if (row['comment']) for (const id of ids) {
+        if (!out.vlanNames[id]) out.vlanNames[id] = row['comment'];
+      }
+    }
+    // vlan-интерфейсы: имя интерфейса → vlan-id (сосед на v_Office = VLAN 2).
+    for (const row of parseTerseLines(vlanIfaceTerse)) {
+      const id = Number(row['vlan-id']);
+      if (!Number.isFinite(id) || id < 1 || id > 4094) continue;
+      if (row['name']) out.vlanIfaceByName[row['name']] = id;
+      const label = row['comment'] || row['name'] || '';
+      if (label && !out.vlanNames[id]) out.vlanNames[id] = label;
+    }
     out.ok = true;
   } catch (e) {
     out.warnings.push('MikroTik SSH: ' + (e && e.message ? e.message : String(e)));
@@ -282,9 +383,10 @@ async function collectSnmp(host, community, opts) {
     ok: false,
     host,
     self: { name: '', descr: '', vendor: '', kind: 'switch' },
-    lldp: [],       // {localPort, chassisId, portId, sysName, sysDesc, portDesc}
+    lldp: [],       // {localPort, chassisId, portId, sysName, sysDesc, portDesc, mgmtIp}
     mgmtAddrs: [],  // v0.51.20: management-IP соседей по LLDP — топливо рекурсии
-    fdb: [],        // {mac, bridgePort}
+    arpByMac: {},   // v0.52.0: MAC -> IP из ipNetToMedia (даёт IP эндпоинтам из FDB)
+    fdb: [],        // {mac, bridgePort, ifName, vlan?}
     ifNames: {},    // ifIndex -> ifName/ifDescr
     warnings: [],
   };
@@ -324,6 +426,28 @@ async function collectSnmp(host, community, opts) {
       const portDsc = await snmpApi.walk(host, community, snmpApi.OID.lldpRemPortDesc,  scanOpts).catch(() => []);
       const sysNm   = await snmpApi.walk(host, community, snmpApi.OID.lldpRemSysName,   scanOpts).catch(() => []);
       const sysDsc  = await snmpApi.walk(host, community, snmpApi.OID.lldpRemSysDesc,   scanOpts).catch(() => []);
+      // v0.52.0: management-адрес КАЖДОГО соседа (lldpRemManAddr) — даёт IP
+      // LLDP-соседям, без него они все были бы «без IP». IP читаем прямо из
+      // суффикса OID (col.timeMark.localPort.remIdx.subtype.len.bytes…),
+      // т.к. coerce() превращает значение-адрес в hex-строку, а не Buffer
+      // (старая проверка Buffer.isBuffer никогда не срабатывала — рекурсия
+      // v0.51.20 фактически не получала топлива; теперь чиним заодно).
+      const manAddr = await snmpApi.walk(host, community, snmpApi.OID.lldpRemManAddr, scanOpts).catch(() => []);
+      const mgmtByNeigh = new Map(); // "timeMark.localPort.remIdx" -> IPv4
+      {
+        const rootLen = snmpApi.OID.lldpRemManAddr.split('.').length;
+        for (const it of manAddr) {
+          const parts = it.oid.split('.').slice(rootLen);
+          // [col, timeMark, localPort, remIdx, subtype, addrLen, ...addrBytes]
+          if (parts.length < 7 || parts[0] !== '2') continue; // только колонка lldpRemManAddr
+          if (parts[4] !== '1' || parts[5] !== '4') continue;  // только IPv4
+          const ip = normIp(parts.slice(6, 10).join('.'));
+          if (!ip) continue;
+          const key = parts[1] + '.' + parts[2] + '.' + parts[3];
+          if (!mgmtByNeigh.has(key)) mgmtByNeigh.set(key, ip);
+          if (!out.mgmtAddrs.includes(ip)) out.mgmtAddrs.push(ip);
+        }
+      }
 
       // Index by suffix `<timeMark>.<localPortNum>.<remoteIdx>`
       const bySuffix = new Map();
@@ -357,49 +481,85 @@ async function collectSnmp(host, community, opts) {
           portDesc:  rec.portDesc  || '',
           sysName:   rec.sysName   || '',
           sysDesc:   rec.sysDesc   || '',
+          mgmtIp:    mgmtByNeigh.get(suffix) || '',  // v0.52.0
         });
       }
     } catch (e) {
       out.warnings.push('LLDP walk failed: ' + e.message);
     }
 
-    // v0.51.20: management-адреса соседей (LLDP-MIB lldpRemManAddr).
-    // Для IPv4 (subtype IANA) значение — ровно 4 октета; из них собираем IP.
-    // Эти адреса — кандидаты следующей волны рекурсивного обхода.
+    // v0.52.0: ARP-таблица L3-устройства (IP-MIB ipNetToMedia): индекс —
+    // ifIndex + 4 октета IP, значение — MAC. Даёт IP эндпоинтам из FDB,
+    // иначе в чисто SNMP-режиме они все попадали бы в «без IP».
     try {
-      const man = await snmpApi.walk(host, community, snmpApi.OID.lldpRemManAddr, scanOpts);
-      const seen = new Set(out.mgmtAddrs);
-      for (const it of man) {
-        const v = it.value;
-        if (Buffer.isBuffer(v) && v.length === 4) {
-          const ip = normIp(`${v[0]}.${v[1]}.${v[2]}.${v[3]}`);
-          if (ip && !seen.has(ip)) { seen.add(ip); out.mgmtAddrs.push(ip); }
-        }
+      const arpItems = await snmpApi.walk(host, community, snmpApi.OID.ipNetToMediaPhysAddress, scanOpts);
+      const rootLen = snmpApi.OID.ipNetToMediaPhysAddress.split('.').length;
+      for (const it of arpItems) {
+        const parts = it.oid.split('.').slice(rootLen);
+        if (parts.length < 5) continue;
+        const ip = normIp(parts.slice(-4).join('.'));
+        const mac = macFromSnmpValue(it.value);
+        if (ip && mac && !out.arpByMac[mac]) out.arpByMac[mac] = ip;
       }
-    } catch (e) { /* таблица management-адресов опциональна — не критично */ }
+    } catch (e) { /* ARP-таблицы может не быть (L2) — не критично */ }
 
-    // Bridge FDB (fallback for links to unmanaged endpoints)
+    // Bridge FDB (fallback for links to unmanaged endpoints).
+    // v0.52.0: сначала пробуем Q-BRIDGE-MIB (тот же FDB + номер VLAN),
+    // иначе — классический BRIDGE-MIB. MAC берём из индекса OID
+    // (6 десятичных subid), а не из значения — значение coerce() может
+    // отдать «печатной» строкой вместо hex, если байты MAC случайно
+    // все печатные (тогда запись молча терялась).
     try {
-      const fdbAddr = await snmpApi.walk(host, community, snmpApi.OID.dot1dTpFdbAddress, scanOpts);
-      const fdbPort = await snmpApi.walk(host, community, snmpApi.OID.dot1dTpFdbPort,    scanOpts).catch(() => []);
-      const basePort = await snmpApi.walk(host, community, snmpApi.OID.dot1dBasePortIf,  scanOpts).catch(() => []);
+      const basePort = await snmpApi.walk(host, community, snmpApi.OID.dot1dBasePortIf, scanOpts).catch(() => []);
       const bp2if = new Map();
       for (const it of basePort) {
         const bp = it.oid.split('.').pop();
         bp2if.set(bp, String(it.value));
       }
-      const addrMap = new Map();
-      for (const it of fdbAddr) {
-        const suffix = it.oid.split('.').slice(snmpApi.OID.dot1dTpFdbAddress.split('.').length).join('.');
-        addrMap.set(suffix, it.value);
-      }
-      for (const it of fdbPort) {
-        const suffix = it.oid.split('.').slice(snmpApi.OID.dot1dTpFdbPort.split('.').length).join('.');
-        const mac = normMac(addrMap.get(suffix) || '');
-        if (!mac) continue;
-        const bp = String(it.value);
-        const ifIdx = bp2if.get(bp) || bp;
-        out.fdb.push({ mac, bridgePort: bp, ifIndex: ifIdx, ifName: out.ifNames[ifIdx] || ('port ' + ifIdx) });
+      const ifNameOf = (bp) => {
+        const ifIdx = bp2if.get(String(bp)) || String(bp);
+        return out.ifNames[ifIdx] || ('port ' + ifIdx);
+      };
+      const macFromDecSuffix = (parts) => {
+        const bytes = parts.map(x => Number(x));
+        if (bytes.some(b => !Number.isInteger(b) || b < 0 || b > 255)) return '';
+        return bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+      };
+      let usedQbridge = false;
+      try {
+        const qPort = await snmpApi.walk(host, community, snmpApi.OID.dot1qTpFdbPort, scanOpts);
+        if (qPort.length) {
+          const qStat = await snmpApi.walk(host, community, snmpApi.OID.dot1qTpFdbStatus, scanOpts).catch(() => []);
+          const rootLen = snmpApi.OID.dot1qTpFdbPort.split('.').length;
+          const sRootLen = snmpApi.OID.dot1qTpFdbStatus.split('.').length;
+          const statByIdx = new Map();
+          for (const it of qStat) statByIdx.set(it.oid.split('.').slice(sRootLen).join('.'), Number(it.value));
+          for (const it of qPort) {
+            const parts = it.oid.split('.').slice(rootLen);
+            if (parts.length < 7) continue; // VlanId + 6 байт MAC
+            const st = statByIdx.get(parts.join('.'));
+            if (st != null && st !== 3 && st !== 4 && st !== 5) continue; // learned/self/mgmt
+            const mac = macFromDecSuffix(parts.slice(1, 7));
+            if (!mac) continue;
+            const vlan = Number(parts[0]);
+            out.fdb.push({
+              mac, vlan: (vlan >= 1 && vlan <= 4094) ? vlan : undefined,
+              bridgePort: String(it.value), ifName: ifNameOf(it.value),
+            });
+          }
+          usedQbridge = out.fdb.length > 0;
+        }
+      } catch (e) { /* нет Q-BRIDGE — откатываемся на dot1d */ }
+      if (!usedQbridge) {
+        const fdbPort = await snmpApi.walk(host, community, snmpApi.OID.dot1dTpFdbPort, scanOpts);
+        const rootLen = snmpApi.OID.dot1dTpFdbPort.split('.').length;
+        for (const it of fdbPort) {
+          const parts = it.oid.split('.').slice(rootLen);
+          if (parts.length < 6) continue;
+          const mac = macFromDecSuffix(parts.slice(-6));
+          if (!mac) continue;
+          out.fdb.push({ mac, bridgePort: String(it.value), ifName: ifNameOf(it.value) });
+        }
       }
     } catch (e) {
       out.warnings.push('FDB walk failed: ' + e.message);
@@ -414,30 +574,99 @@ async function collectSnmp(host, community, opts) {
 
 // ---------- Merging into diff proposal ------------------------------------
 
+// v0.52.0: приоритет источников имени. Комментарий DHCP-лизы — самый
+// актуальный (его правит админ руками), дальше имя самого устройства
+// (LLDP sysName / MikroTik identity), затем host-name из DHCP
+// (присылает клиент — часто мусор, но лучше IP), затем IP и MAC.
+const NAME_RANK = { mac: 0, ip: 1, hostname: 2, sysname: 3, dhcp: 4 };
+function rankOf(src) { return NAME_RANK[src] != null ? NAME_RANK[src] : 0; }
+
 function makeProposal({ doc, rootHost, mt, snmpResults }) {
   const idx = indexDoc(doc);
   const proposedDevices = [];
   const proposedLinks = [];
   const warnings = [];
-  const seenTempByKey = new Map(); // key -> tempId (dedupe)
+  const seenTempByKey = new Map(); // 'm:MAC' | 'i:IP' | 's:stable' | 'n:name' -> tempId
 
-  // Helper: get-or-create proposed device (or point to existing one)
-  function refFor({ ip, mac, name, vendor, descr, hint }) {
+  // Справочники для обогащения: DHCP-лизы (имена!), ARP (IP по MAC).
+  const leaseByMac = new Map();
+  const leaseByIp = new Map();
+  if (mt && mt.ok) for (const l of (mt.leases || [])) {
+    if (l.mac && !leaseByMac.has(l.mac)) leaseByMac.set(l.mac, l);
+    if (l.ip && !leaseByIp.has(l.ip)) leaseByIp.set(l.ip, l);
+  }
+  const snmpArpByMac = new Map();
+  for (const s of (snmpResults || [])) {
+    if (!s || !s.ok || !s.arpByMac) continue;
+    for (const [mac, ip] of Object.entries(s.arpByMac)) {
+      if (!snmpArpByMac.has(mac)) snmpArpByMac.set(mac, ip);
+    }
+  }
+  function leaseFor(mac, ip) {
+    return (mac && leaseByMac.get(mac)) || (ip && leaseByIp.get(ip)) || null;
+  }
+
+  // Helper: get-or-create proposed device (or point to existing one).
+  // v0.52.0: дедуп по трём ключам (MAC → IP → stable/name), при повторной
+  // встрече устройство ОБОГАЩАЕТСЯ (доезжают IP, имя получше, VLAN).
+  function refFor({ ip, mac, name, nameSrc, vendor, descr, hint, vlan, stableKey }) {
+    mac = normMac(mac); ip = normIp(ip);
     const existing = matchDevice(idx, { ip, mac, name });
     if (existing) return existing;
-    const key = (normMac(mac) || normIp(ip) || (name || '').toLowerCase()).trim();
-    if (!key) return null;
-    if (seenTempByKey.has(key)) return { tempId: seenTempByKey.get(key) };
+    const keys = [];
+    if (mac) keys.push('m:' + mac);
+    if (ip) keys.push('i:' + ip);
+    if (stableKey) keys.push('s:' + String(stableKey));
+    // Ключ по имени — только если нет ни MAC, ни IP: иначе два устройства
+    // с дефолтным identity «MikroTik» склеились бы в одно. LLDP-строки без
+    // адресов различаем по stableKey (chassisId), имя — последний шанс.
+    if (!mac && !ip && name && rankOf(nameSrc) >= 2) keys.push('n:' + String(name).toLowerCase());
+    if (!keys.length) return null;
+
+    // DHCP-лиза по MAC или IP может дать имя лучше предложенного.
+    let effName = name || '', effSrc = nameSrc || (ip ? 'ip' : 'mac');
+    const lease = leaseFor(mac, ip);
+    const dhcpComment = (lease && lease.comment) || '';
+    const dhcpHost = (lease && lease.host) || '';
+    if (dhcpComment && rankOf('dhcp') > rankOf(effSrc)) { effName = dhcpComment; effSrc = 'dhcp'; }
+    if (!effName && dhcpHost) { effName = dhcpHost; effSrc = 'hostname'; }
+    else if (dhcpHost && rankOf('hostname') > rankOf(effSrc) && effSrc !== 'dhcp' && effSrc !== 'sysname') {
+      effName = dhcpHost; effSrc = 'hostname';
+    }
+    if (!effName) { effName = ip || mac || 'Discovered'; effSrc = ip ? 'ip' : 'mac'; }
+
+    for (const k of keys) {
+      if (!seenTempByKey.has(k)) continue;
+      // Уже видели — обогащаем: IP, имя (только в сторону улучшения),
+      // VLAN, vendor, DHCP-подсказки.
+      const tempId = seenTempByKey.get(k);
+      const pd = proposedDevices.find(p => p.tempId === tempId);
+      if (pd) {
+        if (!pd.ip && ip) { pd.ip = ip; seenTempByKey.set('i:' + ip, tempId); }
+        if (!pd.mac && mac) { pd.mac = mac; seenTempByKey.set('m:' + mac, tempId); }
+        if (rankOf(effSrc) > rankOf(pd.nameSource)) { pd.name = effName; pd.nameSource = effSrc; }
+        if (pd.vlan == null && vlan != null) pd.vlan = vlan;
+        if (!pd.vendor && vendor) pd.vendor = vendor;
+        if (!pd.dhcpComment && dhcpComment) pd.dhcpComment = dhcpComment;
+        if (!pd.dhcpHost && dhcpHost) pd.dhcpHost = dhcpHost;
+      }
+      for (const k2 of keys) if (!seenTempByKey.has(k2)) seenTempByKey.set(k2, tempId);
+      return { tempId };
+    }
     const tempId = 'new_' + RID();
-    seenTempByKey.set(key, tempId);
+    for (const k of keys) seenTempByKey.set(k, tempId);
     proposedDevices.push({
       tempId,
-      ip:  normIp(ip) || undefined,
-      mac: normMac(mac) || undefined,
-      name: name || (ip || mac || 'Discovered'),
+      ip:  ip || undefined,
+      mac: mac || undefined,
+      name: effName,
+      nameSource: effSrc,
       vendor: vendor || guessVendor(descr, null),
       kind: guessKindFromDescr(descr || ''),
       hint: hint || '',
+      vlan: vlan != null ? vlan : undefined,
+      dhcpComment: dhcpComment || undefined,
+      dhcpHost: dhcpHost || undefined,
     });
     return { tempId };
   }
@@ -449,6 +678,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     const selfDeviceRef = selfRef || refFor({
       ip: rootHost,
       name: mt.self.name || rootHost,
+      nameSrc: mt.self.name ? 'sysname' : 'ip',
       vendor: 'MikroTik',
       descr: 'RouterOS ' + (mt.self.model || ''),
       hint: 'MikroTik seed',
@@ -464,9 +694,12 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       if (!n.mac && !n.ip) continue;
       const remoteRef = refFor({
         ip: n.ip, mac: n.mac, name: n.name,
+        nameSrc: n.name ? 'sysname' : (n.ip ? 'ip' : 'mac'),
         vendor: guessVendor(n.platform || n.board, null),
         descr: (n.platform || '') + ' ' + (n.board || ''),
         hint: 'via LLDP/neighbor from ' + (mt.self.name || rootHost),
+        // v0.52.0: сосед на vlan-интерфейсе (v_Office) — знаем его VLAN.
+        vlan: (mt.vlanIfaceByName || {})[n.localIface],
       });
       if (!remoteRef) continue;
       const linkTempId = 'lnk_' + RID();
@@ -487,15 +720,22 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       if (!f.mac || !f.onIface) continue;
       const arp = arpByMac.get(f.mac);
       const ip = arp ? arp.ip : '';
-      // Skip if we already added a neighbor with same MAC (avoid dup link)
-      if (proposedLinks.some(l => (l.toRef && (l.toRef.existingId || l.toRef.tempId)) &&
-                                    normMac(seenTempByKey.get(f.mac) || '') === f.mac)) continue;
+      // Skip if we already added a neighbor with same MAC (avoid dup link).
+      // v0.52.0: ключи seenTempByKey теперь с префиксами ('m:'/'i:'/...).
+      const fdbKnownTemp = seenTempByKey.get('m:' + f.mac);
+      const fdbKnownExisting = idx.byMac.get(f.mac);
+      if ((fdbKnownTemp || fdbKnownExisting) && proposedLinks.some(l =>
+        (l.toRef.tempId && l.toRef.tempId === fdbKnownTemp) ||
+        (l.toRef.existingId && l.toRef.existingId === fdbKnownExisting))) continue;
       const remoteRef = refFor({
         ip, mac: f.mac,
         name: ip || f.mac,
+        nameSrc: ip ? 'ip' : 'mac', // refFor сам подтянет DHCP-имя, если есть
         vendor: '',
         descr: '',
         hint: 'via bridge FDB on ' + (mt.self.name || rootHost),
+        // v0.52.0: FDB на access-порту → VLAN известен из bridge vlan table.
+        vlan: (mt.vlanByPort || {})[f.onIface],
       });
       if (!remoteRef) continue;
       // Skip self-links
@@ -517,6 +757,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     if (!s || !s.ok) continue;
     const seedRef = matchDevice(idx, { ip: s.host, name: s.self.name }) || refFor({
       ip: s.host, name: s.self.name || s.host,
+      nameSrc: s.self.name ? 'sysname' : 'ip',
       vendor: s.self.vendor, descr: s.self.descr,
       hint: 'SNMP seed',
     });
@@ -526,12 +767,18 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       const macCandidate = normMac(l.chassisId) || normMac(l.portId);
       // remote sysName if present
       const name = l.sysName || l.chassisId || 'lldp neighbour';
+      // v0.52.0: IP соседа — из lldpRemManAddr; текстовый chassisId
+      // («Switch-2F») тоже считается именем, MAC — нет.
+      const lldpSrc = (l.sysName || (l.chassisId && !macCandidate)) ? 'sysname' : 'mac';
       const remoteRef = refFor({
+        ip: l.mgmtIp || '',
         mac: macCandidate,
         name,
+        nameSrc: lldpSrc,
         vendor: guessVendor(l.sysDesc, null),
         descr: l.sysDesc,
         hint: 'LLDP neighbour via ' + s.self.name,
+        stableKey: l.chassisId || l.portId || l.sysName || '',
       });
       if (!remoteRef) continue;
       proposedLinks.push({
@@ -547,15 +794,19 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     for (const f of s.fdb) {
       if (!f.mac) continue;
       // Skip if link already exists via LLDP for this pair
-      const macKey = f.mac;
-      const dupe = proposedLinks.some(l => {
-        const to = l.toRef && (l.toRef.existingId || l.toRef.tempId);
-        const tempTo = seenTempByKey.get(macKey);
-        return tempTo && (to === tempTo);
-      });
+      // v0.52.0: ключи seenTempByKey теперь с префиксами.
+      const snmpKnownTemp = seenTempByKey.get('m:' + f.mac);
+      const snmpKnownExisting = idx.byMac.get(f.mac);
+      const dupe = (snmpKnownTemp || snmpKnownExisting) && proposedLinks.some(l =>
+        (l.toRef.tempId && l.toRef.tempId === snmpKnownTemp) ||
+        (l.toRef.existingId && l.toRef.existingId === snmpKnownExisting));
       if (dupe) continue;
+      const fdbIp = snmpArpByMac.get(f.mac) || '';
       const remoteRef = refFor({
-        mac: f.mac, name: f.mac,
+        ip: fdbIp, mac: f.mac,
+        name: fdbIp || f.mac,
+        nameSrc: fdbIp ? 'ip' : 'mac',
+        vlan: f.vlan, // v0.52.0: из Q-BRIDGE-MIB, если коммутатор отдал
         hint: 'FDB on ' + s.self.name,
       });
       if (!remoteRef) continue;
@@ -611,7 +862,19 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     return a !== b;
   });
 
-  return { proposedDevices, proposedLinks: finalLinks, warnings };
+  // v0.52.0: справочники для фильтров в окне предпросмотра.
+  const subnets = (mt && mt.ok && Array.isArray(mt.addresses))
+    ? mt.addresses.map(a => ({ cidr: a.cidr, interface: a.interface || '', comment: a.comment || '' }))
+    : [];
+  const vlanIdSet = new Set();
+  for (const pd of proposedDevices) if (pd.vlan != null) vlanIdSet.add(pd.vlan);
+  if (mt && mt.ok && mt.vlanNames) for (const id of Object.keys(mt.vlanNames)) vlanIdSet.add(Number(id));
+  const vlans = Array.from(vlanIdSet).sort((a, b) => a - b).map(id => ({
+    id,
+    name: (mt && mt.ok && mt.vlanNames && mt.vlanNames[id]) || '',
+  }));
+
+  return { proposedDevices, proposedLinks: finalLinks, warnings, subnets, vlans };
 }
 
 // v0.51.23: сотни одинаковых «[ip] SNMP probe failed: Request timed out»
@@ -748,6 +1011,7 @@ async function scan(cfg) {
     neighborsFound: mt ? mt.neighbors.length : 0,
     fdbEntries:     mt ? mt.fdb.length : 0,
     arpEntries:     mt ? mt.arp.length : 0,
+    leases:         mt ? mt.leases.length : 0,   // v0.52.0: DHCP-лизы (имена)
     snmpHosts:      snmpResults.length,   // v0.51.20: реально опрошено (с учётом рекурсии)
     hops:           hopsUsed,
     lldpEntries:    snmpResults.reduce((n, s) => n + (s.lldp ? s.lldp.length : 0), 0),
@@ -762,9 +1026,12 @@ async function scan(cfg) {
     })),
     proposedDevices: merged.proposedDevices,
     proposedLinks:   merged.proposedLinks,
+    subnets: merged.subnets,   // v0.52.0: эталонные подсети роутера
+    vlans: merged.vlans,       // v0.52.0: {id, name} для фильтра по VLAN
     warnings: aggregateWarnings([...warnings, ...merged.warnings]),
     stats,
   };
 }
 
-module.exports = { scan, test };
+// makeProposal экспортирован для модульных проверок (node -e / будущие тесты).
+module.exports = { scan, test, makeProposal };
