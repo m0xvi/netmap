@@ -438,10 +438,13 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                   ...(meta.fields.some(f => f.key === 'username')
                     ? [{ key: 'username', label: 'Логин' }] : []),
                   { key: 'password', label: 'Пароль' },
+                  // v0.53.0: порт тоже сохраняем/подставляем, если он есть у вендора.
+                  ...((config as any).port != null ? [{ key: 'port', label: 'Порт' }] : []),
                 ]}
                 values={{
                   username: String((config as any).username ?? ''),
                   password: passwordRef.current,
+                  ...((config as any).port != null ? { port: String((config as any).port) } : {}),
                 }}
                 onApply={v => {
                   if (v.username != null) setField('username', v.username);
@@ -449,6 +452,10 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                     passwordRef.current = v.password;
                     setPwLength(v.password.length);
                     setPwVersion(x => x + 1);
+                  }
+                  if (v.port != null && v.port !== '' && (config as any).port != null) {
+                    const p = parseInt(v.port, 10);
+                    if (Number.isFinite(p) && p > 0 && p < 65536) setField('port', p);
                   }
                 }}
               />

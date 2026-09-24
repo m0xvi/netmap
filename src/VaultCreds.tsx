@@ -269,7 +269,16 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
     for (const f of props.fields) {
       if (f.key === 'username') vals.username = r.item.username || '';
       else if (f.key === 'password') vals.password = r.item.password || '';
-      else vals[f.key] = r.item.fields?.[f.key] ?? r.item.password ?? '';
+      else {
+        const fv = r.item.fields?.[f.key];
+        // v0.53.0: подставляем только то, что реально сохранено. Раньше
+        // отсутствующее поле молча подменялось паролем — так порт SSH
+        // затирался паролем при применении старых записей без порта.
+        if (fv != null && fv !== '') vals[f.key] = fv;
+        // Исключение: community в записях, заведённых вручную через
+        // Vault Studio, часто лежит в поле пароля — здесь фолбэк уместен.
+        else if (f.key === 'community' && r.item.password) vals[f.key] = r.item.password;
+      }
     }
     props.onApply(vals);
     onClose();

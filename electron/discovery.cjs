@@ -18,7 +18,7 @@
  *     source: 'mikrotik' | 'snmp' | 'both',
  *     seeds: [{ host, name, mac, model, vendor, snmp?, ssh? }],   // switches we polled
  *     proposedDevices: [{ tempId, ip, mac, name, nameSource, vendor, kind,
- *                          hint, vlan?, dhcpComment?, dhcpHost? }],
+ *                          kindConfident, hint, vlan?, dhcpComment?, dhcpHost? }],
  *     proposedLinks:   [{ tempId, fromRef, fromPort, toRef, toPort, cable, evidence }],
  *     subnets: [{ cidr, interface, comment }],   // v0.52.0: router /ip/address
  *     vlans:   [{ id, name }],                   // v0.52.0: wood for the VLAN filter
@@ -81,17 +81,133 @@ function macFromSnmpValue(v) {
   return normMac(s);
 }
 
-function guessKindFromDescr(descr) {
-  if (!descr) return 'switch';
-  const s = descr.toLowerCase();
-  if (/routeros|mikrotik/.test(s) && /router|hex|ccr|rb/.test(s)) return 'router';
-  if (/mikrotik|routeros/.test(s)) return 'switch';
-  if (/unifi|ubnt|ap-ac|nanostation|uap/.test(s)) return 'ap';
+// v0.53.0: OUI-подсказки — порт таблицы из mikrotikClient.ts (проверена
+// обычным импортом). Формат префикса — «AA:BB:CC», сравнение в верхнем регистре.
+const OUI_HINTS = [
+  { prefix: 'B8:27:EB', vendor: 'Raspberry Pi',     kind: 'pc' },
+  { prefix: 'DC:A6:32', vendor: 'Raspberry Pi',     kind: 'pc' },
+  { prefix: '00:0C:29', vendor: 'VMware',           kind: 'server' },
+  { prefix: '00:50:56', vendor: 'VMware',           kind: 'server' },
+  { prefix: '00:15:5D', vendor: 'Microsoft HyperV', kind: 'server' },
+  { prefix: '00:1B:0D', vendor: 'Cisco',            kind: 'switch' },
+  { prefix: '00:1B:63', vendor: 'Apple',            kind: 'pc' },
+  { prefix: 'AC:BC:32', vendor: 'Apple',            kind: 'pc' },
+  { prefix: 'B4:FB:E4', vendor: 'Ubiquiti',         kind: 'ap' },
+  { prefix: '24:5A:4C', vendor: 'Ubiquiti',         kind: 'ap' },
+  { prefix: 'F0:9F:C2', vendor: 'Ubiquiti',         kind: 'ap' },
+  { prefix: '48:8F:5A', vendor: 'Ubiquiti',         kind: 'ap' },
+  { prefix: 'CC:2D:E0', vendor: 'MikroTik',         kind: 'switch' },
+  { prefix: '4C:5E:0C', vendor: 'MikroTik',         kind: 'switch' },
+  { prefix: '00:0C:42', vendor: 'MikroTik',         kind: 'switch' },
+  { prefix: 'D4:CA:6D', vendor: 'MikroTik',         kind: 'switch' },
+  { prefix: '00:11:32', vendor: 'Synology',         kind: 'server' },
+  { prefix: '00:40:8C', vendor: 'Axis Camera',      kind: 'camera' },
+  { prefix: 'AC:CC:8E', vendor: 'Axis Camera',      kind: 'camera' },
+  { prefix: 'BC:AD:28', vendor: 'Hikvision',        kind: 'camera' },
+  { prefix: '44:19:B6', vendor: 'Hikvision',        kind: 'camera' },
+  { prefix: '4C:BD:8F', vendor: 'Hikvision',        kind: 'camera' },
+  { prefix: '3C:1B:F8', vendor: 'Dahua',            kind: 'camera' },
+  { prefix: '00:80:F0', vendor: 'Kyocera',          kind: 'printer' },
+  { prefix: '00:00:74', vendor: 'Ricoh',            kind: 'printer' },
+  { prefix: '00:26:73', vendor: 'HP Printer',       kind: 'printer' },
+];
+function ouiHint(mac) {
+  const m = (mac || '').toUpperCase();
+  if (!m) return null;
+  for (const h of OUI_HINTS) if (m.startsWith(h.prefix)) return h;
+  return null;
+}
+
+// Токены имени: «AP_baket» → [ap, baket], «Камера-склад» → [камера, склад].
+function tokensOf(s) {
+  return String(s || '').toLowerCase().split(/[^a-zа-яё0-9]+/).filter(Boolean);
+}
+
+// Правила «токены имени → тип», порядок — от специфичных к общим.
+// Дефолтные identity («MikroTik») и IP/MAC-заглушки токенов не дают —
+// такие устройства честно уходят в «тип не определён».
+const NAME_KIND_RULES = [
+  { kind: 'ap',      words: ['ap', 'unifi', 'ubnt', 'uap', 'wifi', 'wlan', 'nanostation', 'hap', 'cap', 'wap', 'eap'], stems: [] },
+  { kind: 'camera',  words: ['cam', 'camera', 'ipcam', 'cctv', 'hik', 'hikvision', 'dahua', 'axis', 'камера', 'видео'], stems: ['камер', 'видеонаблюд'] },
+  { kind: 'printer', words: ['print', 'printer', 'prt', 'mfp', 'laserjet', 'kyocera', 'ricoh', 'мфу', 'принтер'], stems: ['принтер'] },
+  { kind: 'pos',     words: ['pos', 'kassa', 'rk7', 'atol', 'paytor', 'evotor', 'касса', 'эвотор'], stems: ['касс'] },
+  { kind: 'lock',    words: ['salto', 'lock', 'door', 'скуд', 'skud', 'дверь', 'замок', 'домофон'], stems: ['двер', 'замк'] },
+  { kind: 'switch',  words: ['sw', 'switch', 'коммутатор', 'crs', 'css', 'dgs', 'des'], stems: [] },
+  { kind: 'router',  words: ['gw', 'gateway', 'router', 'роутер', 'маршрутизатор', 'edge', 'core', 'ccr', 'hex', 'chr', 'rb4011', 'rb5009', 'vyos', 'pfsense', 'keenetic'], stems: [] },
+  { kind: 'server',  words: ['srv', 'server', 'сервер', 'nas', 'synology', 'qnap', 'esxi', 'esx', 'hyperv', 'proxmox', 'pve', 'dvr', 'nvr', 'регистратор', 'trassir', 'xeoma', '1c', '1с'], stems: [] },
+  { kind: 'patchpanel', words: ['patch', 'patchpanel', 'кросс'], stems: [] },
+  { kind: 'pc',      words: ['pc', 'desktop', 'notebook', 'laptop', 'ноутбук', 'пк', 'ws', 'workstation', 'macbook', 'imac', 'iphone', 'android', 'galaxy'], stems: ['комп'] },
+];
+const PREFIX_KIND = { sw: 'switch', swt: 'switch', ap: 'ap', cam: 'camera', gw: 'router', srv: 'server', pc: 'pc', prt: 'printer', pos: 'pos', dvr: 'server', nvr: 'server' };
+function kindByNameTokens(name) {
+  const toks = tokensOf(name);
+  if (!toks.length) return null;
+  // «sw1», «ap2», «cam3» — буквы+цифры без разделителя.
+  for (const t of toks) {
+    const m = /^(sw|swt|ap|cam|gw|srv|pc|prt|pos|dvr|nvr)(\d+)$/.exec(t);
+    if (m) return PREFIX_KIND[m[1]];
+  }
+  for (const rule of NAME_KIND_RULES) {
+    for (const t of toks) {
+      if (rule.words.includes(t)) return rule.kind;
+      for (const st of rule.stems) if (t.startsWith(st) && t.length <= st.length + 4) return rule.kind;
+    }
+  }
+  return null;
+}
+
+// Тип по sysDescr / платформе. Важно: голый «RouterBOARD» роутером НЕ
+// считаем (это платформа и свитчей, и точек) — смотрим конкретную модель.
+function kindByDescr(descr, vendor) {
+  const s = String(descr || '').toLowerCase();
+  if (!s) return null;
+  if (/hap|cap|wap|lhg|sxt|nray|disc|omnitik|groove|metal|sextant|dynadish|audios|hap ax|cap ax/i.test(s)) return 'ap';
+  if (/unifi|ubnt|uap[^a-z]|nanostation/.test(s)) return 'ap';
   if (/access ?point|wireless/.test(s)) return 'ap';
-  if (/switch|catalyst|procurve|dgs-|dgs |edgeswitch|s5|s6|s3/.test(s)) return 'switch';
-  if (/camera|ipcam|hikvision|dahua|axis/.test(s)) return 'camera';
-  if (/printer|laserjet|kyocera/.test(s)) return 'printer';
-  return 'switch';
+  if (/ccr\d|cloud core|hex( |$)|rb750|rb95|rb2011|rb3011|rb4011|rb5009|chr |isr\d|asr\d|edgerouter|vyos|pfsense|keenetic/.test(s)) return 'router';
+  if (/crs\d|css\d|netpower|switch|catalyst|nexus|procurve|edgeswitch|\bdes-|\bdgs|sg\d{2,}|sf\d{2,}|cbs\d/.test(s)) return 'switch';
+  if (/camera|ipcam|hikvision|dahua|axis|video recorder(?<!dvr)/.test(s)) return 'camera';
+  if (/printer|laserjet|kyocera|ricoh/.test(s)) return 'printer';
+  if (/synology|qnap|truenas|esxi|proxmox|poweredge|proliant/.test(s)) return 'server';
+  if (/raspberry/.test(s)) return 'pc';
+  const v = String(vendor || '').toLowerCase();
+  if (/hikvision|dahua|axis/.test(v)) return 'camera';
+  if (/kyocera|ricoh/.test(v)) return 'printer';
+  if (/ubiquiti|unifi/.test(v)) return 'ap';
+  if (/synology|qnap|vmware/.test(v)) return 'server';
+  return null;
+}
+
+// Слабый сигнал: имя VLAN. Только специфичные (CCTV/печать/гости) —
+// mgmt/hardware может содержать что угодно, их не трогаем.
+function kindByVlanName(vlanName) {
+  const s = String(vlanName || '').toLowerCase();
+  if (!s) return null;
+  if (/cctv|видео|камер|cam\b|video/.test(s)) return 'camera';
+  if (/print|печати|принт/.test(s)) return 'printer';
+  if (/guest|гост/.test(s)) return 'pc';
+  return null;
+}
+
+/**
+ * v0.53.0 — определение типа устройства по отпечаткам.
+ * Возвращает { kind, confident, vendor? }. Неуверенный результат —
+ * kind 'pc' + confident false: такие устройства уходят в отдельную
+ * группу «Тип не определён», где тип выбирает пользователь.
+ */
+function fingerprintKind({ names, vendor, descr, mac, vlanName }) {
+  for (const n of (names || [])) {
+    if (!n) continue;
+    const k = kindByNameTokens(n);
+    if (k) return { kind: k, confident: true };
+  }
+  const oui = ouiHint(mac);
+  if (oui) return { kind: oui.kind, confident: true, vendor: oui.vendor };
+  const dk = kindByDescr(descr, vendor);
+  if (dk) return { kind: dk, confident: true };
+  const vk = kindByVlanName(vlanName);
+  if (vk) return { kind: vk, confident: true };
+  return { kind: 'pc', confident: false };
 }
 
 function guessVendor(descr, oid) {
@@ -269,11 +385,13 @@ async function collectMikrotik(cfg, opts) {
     vlanByPort: {},   // untagged port name -> vlanId (из bridge vlan table)
     vlanIfaceByName: {}, // vlan interface name -> vlanId (из /interface vlan)
     vlanNames: {},    // vlanId -> имя/комментарий
+    switchVlanIds: [], // v0.53.0: VLAN с switch-chip (перечисление)
     warnings: [],
   };
   try {
     const [ident, resource, neighTerse, arpTerse, ifTerse, fdb,
-           leaseTerse, addrTerse, bridgeVlanTerse, vlanIfaceTerse] = await Promise.all([
+           leaseTerse, addrTerse, bridgeVlanTerse, vlanIfaceTerse,
+           swVlanTerse, swPortTerse] = await Promise.all([
       mt.runCommand(cfg, ':put [/system identity get name]').catch(() => ''),
       mt.runCommand(cfg, '/system resource print without-paging').catch(() => ''),
       mt.runCommand(cfg, '/ip neighbor print terse without-paging').catch(() => ''),
@@ -284,6 +402,8 @@ async function collectMikrotik(cfg, opts) {
       mt.runCommand(cfg, '/ip address print terse without-paging').catch(() => ''),
       mt.runCommand(cfg, '/interface bridge vlan print terse without-paging').catch(() => ''),
       mt.runCommand(cfg, '/interface vlan print terse without-paging').catch(() => ''),
+      mt.runCommand(cfg, '/interface ethernet switch vlan print terse without-paging').catch(() => ''),
+      mt.runCommand(cfg, '/interface ethernet switch port print terse without-paging').catch(() => ''),
     ]);
     out.self.name = String(ident || '').trim().split(/\r?\n/)[0] || cfg.host;
     for (const l of String(resource || '').split(/\r?\n/)) {
@@ -369,6 +489,30 @@ async function collectMikrotik(cfg, opts) {
       const label = row['comment'] || row['name'] || '';
       if (label && !out.vlanNames[id]) out.vlanNames[id] = label;
     }
+    // v0.53.0: VLAN на switch-chip (CRS1xx/2xx и др., где bridge vlan table
+    // пуста). Таблица switch vlan — только для ПЕРЕЧИСЛЕНИЯ id: колонка
+    // ports включает и транки, маппить порт→VLAN по ней нельзя.
+    for (const row of parseTerseLines(swVlanTerse)) {
+      const id = Number(row['vlan-id']);
+      if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
+      if (!out.switchVlanIds.includes(id)) out.switchVlanIds.push(id);
+    }
+    // switch port: default-vlan-id маппим, только если это точно access-порт
+    // (vlan-header=always-strip — тег всегда срезается) и VLAN на порту
+    // вообще включены. Транки и disabled пропускаем: неверный VLAN хуже,
+    // чем неизвестный (устройство уедет не в тот фильтр).
+    for (const row of parseTerseLines(swPortTerse)) {
+      const name = row['name'] || row['port'] || '';
+      if (!name || (name in out.vlanByPort)) continue;
+      const mode = String(row['vlan-mode'] || '').toLowerCase();
+      const header = String(row['vlan-header'] || '').toLowerCase();
+      if (!mode || mode === 'disabled') continue;
+      if (header !== 'always-strip') continue;
+      const id = Number(row['default-vlan-id']);
+      if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
+      out.vlanByPort[name] = id;
+      if (!out.switchVlanIds.includes(id)) out.switchVlanIds.push(id);
+    }
     out.ok = true;
   } catch (e) {
     out.warnings.push('MikroTik SSH: ' + (e && e.message ? e.message : String(e)));
@@ -386,6 +530,7 @@ async function collectSnmp(host, community, opts) {
     lldp: [],       // {localPort, chassisId, portId, sysName, sysDesc, portDesc, mgmtIp}
     mgmtAddrs: [],  // v0.51.20: management-IP соседей по LLDP — топливо рекурсии
     arpByMac: {},   // v0.52.0: MAC -> IP из ipNetToMedia (даёт IP эндпоинтам из FDB)
+    vlanList: [],   // v0.53.0: [{id, name}] все VLAN железки (dot1qVlanStatic)
     fdb: [],        // {mac, bridgePort, ifName, vlan?}
     ifNames: {},    // ifIndex -> ifName/ifDescr
     warnings: [],
@@ -400,7 +545,15 @@ async function collectSnmp(host, community, opts) {
     out.self.descr = probe.sysDescr || '';
     out.self.name  = probe.sysName  || '';
     out.self.vendor = guessVendor(probe.sysDescr, probe.sysObjectID);
-    out.self.kind = guessKindFromDescr(probe.sysDescr);
+    // v0.53.0: тип опрошенного хоста — по отпечаткам; SNMP опрашивают
+    // обычно коммутаторы, поэтому неуверенный результат → 'switch'.
+    {
+      const fpSelf = fingerprintKind({
+        names: [probe.sysName], vendor: out.self.vendor,
+        descr: probe.sysDescr, mac: '', vlanName: '',
+      });
+      out.self.kind = fpSelf.confident ? fpSelf.kind : 'switch';
+    }
 
     // Interface names
     try {
@@ -426,6 +579,19 @@ async function collectSnmp(host, community, opts) {
       const portDsc = await snmpApi.walk(host, community, snmpApi.OID.lldpRemPortDesc,  scanOpts).catch(() => []);
       const sysNm   = await snmpApi.walk(host, community, snmpApi.OID.lldpRemSysName,   scanOpts).catch(() => []);
       const sysDsc  = await snmpApi.walk(host, community, snmpApi.OID.lldpRemSysDesc,   scanOpts).catch(() => []);
+      // v0.53.0: имена локальных портов из LLDP-MIB — фолбэк, когда IF-MIB
+      // пуст или врёт (иначе в связях мелькает «port 0»).
+      const locDesc = await snmpApi.walk(host, community, snmpApi.OID.lldpLocPortDesc, scanOpts).catch(() => []);
+      const locDescByNum = new Map();
+      {
+        const rootLen = snmpApi.OID.lldpLocPortDesc.split('.').length;
+        for (const it of locDesc) {
+          const num = it.oid.split('.').slice(rootLen).join('.');
+          if (num && typeof it.value === 'string' && it.value && !locDescByNum.has(num)) {
+            locDescByNum.set(num, it.value);
+          }
+        }
+      }
       // v0.52.0: management-адрес КАЖДОГО соседа (lldpRemManAddr) — даёт IP
       // LLDP-соседям, без него они все были бы «без IP». IP читаем прямо из
       // суффикса OID (col.timeMark.localPort.remIdx.subtype.len.bytes…),
@@ -472,7 +638,9 @@ async function collectSnmp(host, community, opts) {
       for (const [suffix, rec] of bySuffix.entries()) {
         const parts = suffix.split('.');
         const localPortIdx = parts[1];               // ifIndex-ish
-        const localPortName = out.ifNames[localPortIdx] || ('port ' + localPortIdx);
+        const localPortName = out.ifNames[localPortIdx]
+          || locDescByNum.get(localPortIdx)
+          || ('port ' + localPortIdx);
         out.lldp.push({
           localPortIdx,
           localPortName,
@@ -502,6 +670,19 @@ async function collectSnmp(host, community, opts) {
         if (ip && mac && !out.arpByMac[mac]) out.arpByMac[mac] = ip;
       }
     } catch (e) { /* ARP-таблицы может не быть (L2) — не критично */ }
+
+    // v0.53.0: статическая VLAN-таблица (Q-BRIDGE-MIB dot1qVlanStaticName) —
+    // перечисляет ВСЕ VLAN коммутатора, даже пустые (без найденных устройств).
+    try {
+      const vv = await snmpApi.walk(host, community, snmpApi.OID.dot1qVlanStaticName, scanOpts);
+      const rootLen = snmpApi.OID.dot1qVlanStaticName.split('.').length;
+      for (const it of vv) {
+        const id = Number(it.oid.split('.').slice(rootLen)[0]);
+        if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
+        if (out.vlanList.some(v => v.id === id)) continue;
+        out.vlanList.push({ id, name: typeof it.value === 'string' ? it.value : '' });
+      }
+    } catch (e) { /* нет Q-BRIDGE VLAN MIB — не критично */ }
 
     // Bridge FDB (fallback for links to unmanaged endpoints).
     // v0.52.0: сначала пробуем Q-BRIDGE-MIB (тот же FDB + номер VLAN),
@@ -605,6 +786,17 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
   function leaseFor(mac, ip) {
     return (mac && leaseByMac.get(mac)) || (ip && leaseByIp.get(ip)) || null;
   }
+  // v0.53.0: имена VLAN (id → имя) — слабый сигнал для определения типа.
+  const vlanNameById = new Map();
+  if (mt && mt.ok && mt.vlanNames) for (const [id, nm] of Object.entries(mt.vlanNames)) {
+    if (nm) vlanNameById.set(Number(id), nm);
+  }
+  for (const s of (snmpResults || [])) {
+    if (!s || !s.ok || !s.vlanList) continue;
+    for (const v of s.vlanList) {
+      if (v && v.name && !vlanNameById.has(v.id)) vlanNameById.set(v.id, v.name);
+    }
+  }
 
   // Helper: get-or-create proposed device (or point to existing one).
   // v0.52.0: дедуп по трём ключам (MAC → IP → stable/name), при повторной
@@ -649,20 +841,40 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         if (!pd.vendor && vendor) pd.vendor = vendor;
         if (!pd.dhcpComment && dhcpComment) pd.dhcpComment = dhcpComment;
         if (!pd.dhcpHost && dhcpHost) pd.dhcpHost = dhcpHost;
+        // v0.53.0: тип пересчитываем, пока он неуверенный: имя получше
+        // (например, доехавший DHCP-комментарий «Камера склад») может его дать.
+        if (!pd.kindConfident) {
+          const fpUp = fingerprintKind({
+            names: [pd.name, pd.dhcpComment, pd.dhcpHost],
+            vendor: pd.vendor, descr: descr || '', mac: pd.mac,
+            vlanName: pd.vlan != null ? vlanNameById.get(pd.vlan) : '',
+          });
+          if (fpUp.confident) { pd.kind = fpUp.kind; pd.kindConfident = true; }
+          if (!pd.vendor && fpUp.vendor) pd.vendor = fpUp.vendor;
+        }
       }
       for (const k2 of keys) if (!seenTempByKey.has(k2)) seenTempByKey.set(k2, tempId);
       return { tempId };
     }
     const tempId = 'new_' + RID();
     for (const k of keys) seenTempByKey.set(k, tempId);
+    // v0.53.0: тип — по отпечаткам (имя, OUI, descr, имя VLAN).
+    const fp = fingerprintKind({
+      names: [effName, dhcpHost, dhcpComment],
+      vendor: vendor || guessVendor(descr, null),
+      descr: descr || '',
+      mac,
+      vlanName: vlan != null ? vlanNameById.get(vlan) : '',
+    });
     proposedDevices.push({
       tempId,
       ip:  ip || undefined,
       mac: mac || undefined,
       name: effName,
       nameSource: effSrc,
-      vendor: vendor || guessVendor(descr, null),
-      kind: guessKindFromDescr(descr || ''),
+      vendor: vendor || fp.vendor || guessVendor(descr, null),
+      kind: fp.kind,
+      kindConfident: fp.confident,
       hint: hint || '',
       vlan: vlan != null ? vlan : undefined,
       dhcpComment: dhcpComment || undefined,
@@ -687,7 +899,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     if (!selfMatched) {
       // Update the just-created proposed device to be a router
       const pd = proposedDevices.find(p => selfDeviceRef.tempId && p.tempId === selfDeviceRef.tempId);
-      if (pd) { pd.kind = 'router'; pd.vendor = 'MikroTik'; }
+      if (pd) { pd.kind = 'router'; pd.kindConfident = true; pd.vendor = 'MikroTik'; }
     }
 
     for (const n of mt.neighbors) {
@@ -699,7 +911,9 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         descr: (n.platform || '') + ' ' + (n.board || ''),
         hint: 'via LLDP/neighbor from ' + (mt.self.name || rootHost),
         // v0.52.0: сосед на vlan-интерфейсе (v_Office) — знаем его VLAN.
-        vlan: (mt.vlanIfaceByName || {})[n.localIface],
+        // v0.53.0: фолбэк — сосед на access-порту из bridge/switch vlan table.
+        vlan: (mt.vlanIfaceByName || {})[n.localIface]
+           ?? (mt.vlanByPort || {})[n.localIface],
       });
       if (!remoteRef) continue;
       const linkTempId = 'lnk_' + RID();
@@ -869,9 +1083,16 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
   const vlanIdSet = new Set();
   for (const pd of proposedDevices) if (pd.vlan != null) vlanIdSet.add(pd.vlan);
   if (mt && mt.ok && mt.vlanNames) for (const id of Object.keys(mt.vlanNames)) vlanIdSet.add(Number(id));
+  // v0.53.0: + VLAN с switch-chip роутера и статические VLAN-таблицы
+  // опрошенных коммутаторов (находятся даже пустые VLAN).
+  if (mt && mt.ok && Array.isArray(mt.switchVlanIds)) for (const id of mt.switchVlanIds) vlanIdSet.add(id);
+  for (const s of (snmpResults || [])) {
+    if (!s || !s.ok || !s.vlanList) continue;
+    for (const v of s.vlanList) if (v && v.id != null) vlanIdSet.add(v.id);
+  }
   const vlans = Array.from(vlanIdSet).sort((a, b) => a - b).map(id => ({
     id,
-    name: (mt && mt.ok && mt.vlanNames && mt.vlanNames[id]) || '',
+    name: vlanNameById.get(id) || '',
   }));
 
   return { proposedDevices, proposedLinks: finalLinks, warnings, subnets, vlans };

@@ -10,9 +10,11 @@
  * Nothing here writes to the doc until user clicks «Применить выбранное».
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from './store';
+import type { DeviceKind } from './types';
+import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
 import {
   discoveryScan, discoveryTest,
@@ -123,19 +125,40 @@ function togglePickAll(
   });
 }
 
+const IconPencil = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
+  </svg>
+);
+
+const ALL_KINDS: DeviceKind[] = [
+  'router','switch','patchpanel','ap','camera','server','vm','vps',
+  'pc','pos','printer','lock','cloud',
+];
+
 /**
  * Строка устройства в предпросмотре. Модульный компонент (НЕ внутри render),
  * иначе поле ввода пересоздавалось бы при каждом нажатии клавиши и теряло фокус.
+ * v0.53.0: карандаш делает переименование очевидным; тип меняется селектором.
  */
-function DiscoveryDeviceRow({ d, effName, renamed, checked, disabled, onToggle, onRename }: {
+function DiscoveryDeviceRow({ d, effName, effKind, renamed, kindEdited, checked, disabled, onToggle, onRename, onKind }: {
   d: DiscoveryDeviceProposal;
   effName: string;
+  effKind: string;
   renamed: boolean;
+  kindEdited: boolean;
   checked: boolean;
   disabled: boolean;
   onToggle: (tempId: string, v: boolean) => void;
   onRename: (tempId: string, v: string) => void;
+  onKind: (tempId: string, v: DeviceKind) => void;
 }) {
+  const [hover, setHover] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const km = KIND_META[effKind as DeviceKind] || KIND_META.pc;
+  const showEdit = !disabled && (hover || focused || renamed);
   const sub: string[] = [];
   if (d.ip) sub.push(d.ip);
   if (d.mac) sub.push(d.mac);
@@ -150,25 +173,57 @@ function DiscoveryDeviceRow({ d, effName, renamed, checked, disabled, onToggle, 
       ...(checked && !disabled ? S.rowChecked : {}),
       ...(disabled ? { opacity: 0.6 } : {}),
     }}
-      title={disabled ? 'Только MAC, без IP — добавить нельзя' : undefined}>
+      title={disabled ? 'Только MAC, без IP — добавить нельзя' : undefined}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}>
       <input type="checkbox" checked={checked} disabled={disabled}
         onChange={e => onToggle(d.tempId, e.target.checked)} />
-      <KindChip kind={d.kind} />
+      {disabled
+        ? <KindChip kind={d.kind} />
+        : (
+          <select value={effKind}
+            onClick={e => e.stopPropagation()}
+            onChange={e => onKind(d.tempId, e.target.value as DeviceKind)}
+            title={d.kindConfident === false
+              ? 'Тип не распознан — выберите вручную'
+              : 'Тип устройства — можно изменить'}
+            style={{
+              ...S.kindSelect, background: km.bg, color: km.color,
+              borderColor: kindEdited ? km.color : 'transparent',
+            }}>
+            {ALL_KINDS.map(k => <option key={k} value={k}>{KIND_META[k].label}</option>)}
+          </select>
+        )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <input
+            ref={inputRef}
             value={effName} disabled={disabled}
             onClick={e => e.stopPropagation()}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             onChange={e => onRename(d.tempId, e.target.value)}
-            title={disabled ? undefined : 'Имя устройства — можно править прямо здесь'}
-            style={{ ...S.nameInput, ...(renamed ? S.nameInputEdited : {}) }}
+            title={disabled ? undefined : 'Имя устройства — нажмите на карандаш или кликните и правьте'}
+            style={{
+              ...S.nameInput,
+              ...(showEdit ? S.nameInputActive : {}),
+              ...(renamed ? S.nameInputEdited : {}),
+            }}
           />
+          {showEdit && (
+            <button type="button" title="Переименовать"
+              onClick={e => { e.stopPropagation(); e.preventDefault(); inputRef.current?.focus(); inputRef.current?.select(); }}
+              style={S.pencilBtn}>
+              <IconPencil />
+            </button>
+          )}
           <NameSrcBadge src={d.nameSource} />
         </div>
         <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {sub.join(' · ')}
           {dhcpAlt ? <span style={{ color: '#166534' }}> · DHCP: {dhcpAlt}</span> : null}
           {renamed ? <span style={{ color: '#2563eb' }}> · переименовано</span> : null}
+          {kindEdited ? <span style={{ color: '#7c3aed' }}> · тип вручную</span> : null}
         </div>
       </div>
       <div style={{ fontSize: 10, color: '#94a3b8', maxWidth: 150, textAlign: 'right' }}>{d.hint}</div>
@@ -211,6 +266,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   const [excludedVlans, setExcludedVlans] = useState<Set<number>>(new Set());
   const [showNoIp, setShowNoIp] = useState(false);
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
+  // v0.53.0: ручной выбор типа устройства прямо в предпросмотре.
+  const [kindEdits, setKindEdits] = useState<Record<string, DeviceKind>>({});
 
   // Reset when re-opened
   useEffect(() => {
@@ -226,6 +283,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       setExcludedVlans(new Set());
       setShowNoIp(false);
       setNameEdits({});
+      setKindEdits({});
     }
   }, [open]);
 
@@ -275,6 +333,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       setExcludedVlans(new Set());
       setShowNoIp(false);
       setNameEdits({});
+      setKindEdits({});
       setPhase('review');
     } catch (e: any) {
       setPhase('form');
@@ -302,7 +361,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       devicesToCreate.push({
         id: finalId,
         name: finalName,
-        kind: d.kind,
+        kind: effKindOf(d),
         ip: d.ip,
         mac: d.mac,
         vendor: d.vendor,
@@ -363,6 +422,11 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   // секциями при каждом нажатии клавиши и не теряла фокус ввода.
   function effNameOf(d: DiscoveryDeviceProposal): string {
     return nameEdits[d.tempId] ?? d.name;
+  }
+  // v0.53.0: тип с учётом ручного выбора. Секция «неизвестных» строится по
+  // ИСХОДНОМУ kindConfident, чтобы строка не прыгала при выборе типа.
+  function effKindOf(d: DiscoveryDeviceProposal): string {
+    return kindEdits[d.tempId] ?? d.kind;
   }
   function hasRealName(d: DiscoveryDeviceProposal): boolean {
     // Настоящее имя — из DHCP-комментария, имени устройства или host-name.
@@ -435,11 +499,17 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   }
 
   const namedDevs = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => d.ip && hasRealName(d) && isVisibleDevice(d)),
+    () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident !== false && hasRealName(d) && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
   const unnamedDevs = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => d.ip && !hasRealName(d) && isVisibleDevice(d)),
+    () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident !== false && !hasRealName(d) && isVisibleDevice(d)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
+  // v0.53.0: тип не выдавили из отпечатков — отдельная группа, тип выбирает
+  // пользователь селектором в строке (имеет приоритет над именем).
+  const unknownDevs = useMemo(
+    () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident === false && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
   const noIpDevs = useMemo(
@@ -454,8 +524,9 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     const s = new Set<string>();
     for (const d of namedDevs) if (devPick[d.tempId]) s.add(d.tempId);
     for (const d of unnamedDevs) if (devPick[d.tempId]) s.add(d.tempId);
+    for (const d of unknownDevs) if (devPick[d.tempId]) s.add(d.tempId);
     return s;
-  }, [namedDevs, unnamedDevs, devPick]);
+  }, [namedDevs, unnamedDevs, unknownDevs, devPick]);
   const hiddenPicked = useMemo(
     () => (scan?.proposedDevices || []).filter(d => d.ip && devPick[d.tempId] && !isVisibleDevice(d)).length,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -558,9 +629,17 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
                       <VaultCredsButtons
                         host={host} purpose="ssh" serviceLabel="MikroTik SSH" folder="MikroTik"
-                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }]}
-                        values={{ username, password }}
-                        onApply={v => { setUsername(v.username ?? ''); setPassword(v.password ?? ''); }}
+                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }]}
+                        values={{ username, password, port: String(port) }}
+                        onApply={v => {
+                          setUsername(v.username ?? '');
+                          setPassword(v.password ?? '');
+                          // v0.53.0: порт тоже храним в записи (раньше терялся).
+                          if (v.port != null && v.port !== '') {
+                            const p = parseInt(v.port, 10);
+                            if (Number.isFinite(p) && p > 0 && p < 65536) setPort(p);
+                          }
+                        }}
                       />
                     </div>
                   </>
@@ -576,7 +655,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                         host={host} purpose="snmp" serviceLabel="SNMP community" folder="SNMP"
                         fields={[{ key: 'community', label: 'Community' }]}
                         values={{ community }}
-                        onApply={v => setCommunity(v.community ?? '')}
+                        onApply={v => { if (v.community != null) setCommunity(v.community); }}
                       />
                     </div>
                     <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -677,10 +756,11 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                   </span>
                 </label>
               </div>
-              {subnetStats.length >= 2 && (
+              {subnetStats.some(s => s.count > 0) && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Подсети:</span>
-                  {subnetStats.map(s => {
+                  {/* v0.53.0: пустые подсети (/32 PPPoE-хвосты и т.п.) скрываем — исключать там нечего */}
+                  {subnetStats.filter(s => s.count > 0).map(s => {
                     const excluded = excludedCidrs.has(s.cidr);
                     return (
                       <button key={s.cidr}
@@ -696,6 +776,11 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                       </button>
                     );
                   })}
+                  {subnetStats.some(s => s.count === 0) && (
+                    <span style={{ fontSize: 10, color: '#94a3b8' }} title="Подсети роутера, в которых не найдено ни одного устройства.">
+                      +{subnetStats.filter(s => s.count === 0).length} пустых скрыто
+                    </span>
+                  )}
                   <button style={S.linkBtn} onClick={() => setExcludedCidrs(new Set())}>Все</button>
                   <button style={S.linkBtn} onClick={() => setExcludedCidrs(new Set(subnetStats.map(s => s.cidr)))}>Ни одной</button>
                 </div>
@@ -725,12 +810,39 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               )}
             </div>
 
-            {/* Devices — v0.52.0: три секции (с именем / без имени / без IP) */}
+              {/* Devices — v0.52.0: секции; v0.53.0: + «тип не определён» */}
             <div style={S.section}>
               <div style={S.sectionTitle}>
-                <IconDevice /> <span>Новые устройства ({namedDevs.length + unnamedDevs.length}{showNoIp ? ` + ${noIpDevs.length} без IP` : ''})</span>
+                <IconDevice /> <span>Новые устройства ({namedDevs.length + unnamedDevs.length + unknownDevs.length}{showNoIp ? ` + ${noIpDevs.length} без IP` : ''})</span>
               </div>
               {scan.proposedDevices.length === 0 && <EmptyRow text="Всё, что нашли — уже есть в текущей карте." />}
+
+              {unknownDevs.length > 0 && (
+                <>
+                  <div style={S.subTitle}>
+                    <span title="Отпечатки (имя, MAC, описание, VLAN) тип не выдали. Выберите тип селектором в строке.">
+                      Тип не определён ({unknownDevs.length}) — выберите тип
+                    </span>
+                    <div style={{ flex: 1 }} />
+                    <button style={S.linkBtn} onClick={() => togglePickAll(unknownDevs, devPick, setDevPick)}>
+                      {unknownDevs.every(d => devPick[d.tempId]) ? 'Снять все' : 'Выбрать все'}
+                    </button>
+                  </div>
+                  <div style={S.rows}>
+                    {unknownDevs.map(d => (
+                      <DiscoveryDeviceRow key={d.tempId} d={d}
+                        effName={effNameOf(d)}
+                        effKind={effKindOf(d)}
+                        renamed={nameEdits[d.tempId] != null && nameEdits[d.tempId] !== d.name}
+                        kindEdited={kindEdits[d.tempId] != null && kindEdits[d.tempId] !== d.kind}
+                        checked={!!devPick[d.tempId]} disabled={false}
+                        onToggle={(id, v) => setDevPick(p => ({ ...p, [id]: v }))}
+                        onRename={(id, v) => setNameEdits(p => ({ ...p, [id]: v }))}
+                        onKind={(id, v) => setKindEdits(p => ({ ...p, [id]: v }))} />
+                    ))}
+                  </div>
+                </>
+              )}
 
               {namedDevs.length > 0 && (
                 <>
@@ -745,10 +857,13 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     {namedDevs.map(d => (
                       <DiscoveryDeviceRow key={d.tempId} d={d}
                         effName={effNameOf(d)}
+                        effKind={effKindOf(d)}
                         renamed={nameEdits[d.tempId] != null && nameEdits[d.tempId] !== d.name}
+                        kindEdited={kindEdits[d.tempId] != null && kindEdits[d.tempId] !== d.kind}
                         checked={!!devPick[d.tempId]} disabled={false}
                         onToggle={(id, v) => setDevPick(p => ({ ...p, [id]: v }))}
-                        onRename={(id, v) => setNameEdits(p => ({ ...p, [id]: v }))} />
+                        onRename={(id, v) => setNameEdits(p => ({ ...p, [id]: v }))}
+                        onKind={(id, v) => setKindEdits(p => ({ ...p, [id]: v }))} />
                     ))}
                   </div>
                 </>
@@ -769,10 +884,13 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     {unnamedDevs.map(d => (
                       <DiscoveryDeviceRow key={d.tempId} d={d}
                         effName={effNameOf(d)}
+                        effKind={effKindOf(d)}
                         renamed={nameEdits[d.tempId] != null && nameEdits[d.tempId] !== d.name}
+                        kindEdited={kindEdits[d.tempId] != null && kindEdits[d.tempId] !== d.kind}
                         checked={!!devPick[d.tempId]} disabled={false}
                         onToggle={(id, v) => setDevPick(p => ({ ...p, [id]: v }))}
-                        onRename={(id, v) => setNameEdits(p => ({ ...p, [id]: v }))} />
+                        onRename={(id, v) => setNameEdits(p => ({ ...p, [id]: v }))}
+                        onKind={(id, v) => setKindEdits(p => ({ ...p, [id]: v }))} />
                     ))}
                   </div>
                 </>
@@ -788,9 +906,9 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                   <div style={S.rows}>
                     {noIpDevs.map(d => (
                       <DiscoveryDeviceRow key={d.tempId} d={d}
-                        effName={d.name} renamed={false}
+                        effName={d.name} effKind={d.kind} renamed={false} kindEdited={false}
                         checked={false} disabled={true}
-                        onToggle={() => {}} onRename={() => {}} />
+                        onToggle={() => {}} onRename={() => {}} onKind={() => {}} />
                     ))}
                   </div>
                 </>
@@ -798,7 +916,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               {showNoIp && noIpDevs.length === 0 && noIpTotal > 0 && (
                 <EmptyRow text={`Все ${noIpTotal} без IP скрыты фильтрами.`} />
               )}
-              {namedDevs.length === 0 && unnamedDevs.length === 0 && scan.proposedDevices.length > 0 && (
+              {namedDevs.length === 0 && unnamedDevs.length === 0 && unknownDevs.length === 0 && scan.proposedDevices.length > 0 && (
                 <EmptyRow text="Все устройства скрыты фильтрами — ослабьте поиск или включите подсети/VLAN." />
               )}
             </div>
@@ -1111,8 +1229,23 @@ const S: Record<string, React.CSSProperties> = {
     border: '1px solid transparent', borderRadius: 5, background: 'transparent',
     padding: '1px 5px', outline: 'none',
   },
+  // v0.53.0: рамка при наведении/фокусе (переименование стало очевидным).
+  nameInputActive: {
+    border: '1px solid #cbd5e1', background: '#fff',
+  },
   nameInputEdited: {
-    border: '1px solid #93c5fd', background: '#fff',
+    border: '1px solid #2563eb', background: '#eff6ff',
+  },
+  // v0.53.0: кнопка-карандаш и селектор типа в строке.
+  pencilBtn: {
+    background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb',
+    borderRadius: 5, width: 20, height: 20, padding: 0, flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+  },
+  kindSelect: {
+    fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '2px 4px',
+    border: '1px solid transparent', cursor: 'pointer', outline: 'none',
+    maxWidth: 96, flexShrink: 0,
   },
   spinner: {
     width: 36, height: 36, borderRadius: '50%',

@@ -38,6 +38,9 @@ export interface DiscoveryDeviceProposal {
   nameSource?: DiscoveryNameSource;
   vendor?: string;
   kind: string;
+  /** v0.53.0: тип определён уверенно (по имени/OUI/descr/VLAN). Иначе —
+      устройство уходит в группу «Тип не определён», тип выбирает пользователь. */
+  kindConfident?: boolean;
   hint?: string;
   vlan?: number;
   dhcpComment?: string;
@@ -109,10 +112,10 @@ export async function discoveryScan(cfg: DiscoveryConfig & { doc?: any }): Promi
       source: cfg.mode,
       seeds: [{ host: cfg.host || '192.168.1.1', name: 'mock-router', vendor: 'MikroTik', ok: true }],
       proposedDevices: [
-        { tempId: 'new_ap1', ip: '192.168.1.10', mac: 'AA:BB:CC:00:00:10', name: 'AP-Lobby (mock)', nameSource: 'sysname', vendor: 'Ubiquiti', kind: 'ap', hint: 'via LLDP', vlan: 20, dhcpComment: 'Точка холл (mock)' },
-        { tempId: 'new_sw2', ip: '192.168.1.20', mac: 'AA:BB:CC:00:00:20', name: 'Access-Switch (mock)', nameSource: 'dhcp', dhcpComment: 'Access-Switch (mock)', vendor: 'MikroTik', kind: 'switch', hint: 'via /ip neighbor', vlan: 10 },
-        { tempId: 'new_pc1', ip: '192.168.2.33', mac: 'AA:BB:CC:00:00:33', name: '192.168.2.33', nameSource: 'ip', kind: 'pc', hint: 'bridge FDB', dhcpHost: 'DESKTOP-MOCK' },
-        { tempId: 'new_cam1', mac: 'AA:BB:CC:00:00:99', name: 'AA:BB:CC:00:00:99', nameSource: 'mac', kind: 'camera', hint: 'bridge FDB' },
+        { tempId: 'new_ap1', ip: '192.168.1.10', mac: 'AA:BB:CC:00:00:10', name: 'AP-Lobby (mock)', nameSource: 'sysname', vendor: 'Ubiquiti', kind: 'ap', kindConfident: true, hint: 'via LLDP', vlan: 20, dhcpComment: 'Точка холл (mock)' },
+        { tempId: 'new_sw2', ip: '192.168.1.20', mac: 'AA:BB:CC:00:00:20', name: 'Access-Switch (mock)', nameSource: 'dhcp', dhcpComment: 'Access-Switch (mock)', vendor: 'MikroTik', kind: 'switch', kindConfident: true, hint: 'via /ip neighbor', vlan: 10 },
+        { tempId: 'new_pc1', ip: '192.168.2.33', mac: 'AA:BB:CC:00:00:33', name: '192.168.2.33', nameSource: 'ip', kind: 'pc', kindConfident: false, hint: 'bridge FDB', dhcpHost: 'DESKTOP-MOCK' },
+        { tempId: 'new_cam1', mac: 'AA:BB:CC:00:00:99', name: 'AA:BB:CC:00:00:99', nameSource: 'mac', kind: 'camera', kindConfident: true, hint: 'bridge FDB' },
       ],
       proposedLinks: [
         { tempId: 'lnk_1', fromRef: { tempId: 'new_ap1' }, toRef: { tempId: 'new_sw2' }, fromPort: 'eth0', toPort: 'ether3', cable: 'copper', evidence: 'LLDP mock' },

@@ -50,6 +50,9 @@ const OID = {
   // Индекс: VlanId(1 subid) + MAC(6 subids). Status: 3=learned, 4=self, 5=mgmt.
   dot1qTpFdbPort:    '1.3.6.1.2.1.17.7.1.2.2.1.2',   // bridge port
   dot1qTpFdbStatus:  '1.3.6.1.2.1.17.7.1.2.2.1.3',
+  // v0.53.0: статическая VLAN-таблица коммутатора — перечисляет ВСЕ VLAN,
+  // известные железке, даже без единого найденного устройства в них.
+  dot1qVlanStaticName: '1.3.6.1.2.1.17.7.1.4.3.1.1', // index = VlanId
 
   // IP-MIB — ARP
   ipNetToPhysicalPhysAddress: '1.3.6.1.2.1.4.35.1.4', // ipNetToPhysicalPhysAddress
