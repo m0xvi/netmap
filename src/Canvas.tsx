@@ -750,7 +750,18 @@ function CanvasInner() {
   //      so cards never end up stacked as in v0.17.
   //
   // Works for ALL device node types (device / switchNode / patchNode / serverNode).
-  const onNodeDragStop = useCallback((_e: any, node: Node) => {
+  //
+  // v0.51.18: исходные координаты на начало перетаскивания — нужны для
+  // возврата карточки на место при «Отмена» в подтверждении смены группы.
+  const dragOrigins = useRef<Map<string, { x: number; y: number; groupId: string | null }>>(new Map());
+  const onNodeDragStart = useCallback((_e: any, node: Node) => {
+    if (node.type === 'group') return;
+    const dev = useStore.getState().doc.devices.find(d => d.id === node.id);
+    if (!dev) return;
+    dragOrigins.current.set(node.id, { x: dev.x, y: dev.y, groupId: dev.groupId ?? null });
+  }, []);
+
+  const onNodeDragStop = useCallback(async (_e: any, node: Node) => {
     // Clear any drop-target highlight regardless of what we do next.
     document.querySelectorAll('.react-flow__node-group.netmap-drop-target')
       .forEach(el => el.classList.remove('netmap-drop-target'));
@@ -805,6 +816,36 @@ function CanvasInner() {
       if (absX >= g.x && absX <= g.x + g.width && absY >= g.y && absY <= g.y + g.height) {
         target = g;
       }
+    }
+
+    // v0.51.18: ПОДТВЕРЖДЕНИЕ смены группы жестом перетаскивания.
+    //   • вытащили карточку за пределы её группы  → «Убрать из группы „…“?»
+    //   • перетащили в ДРУГУЮ группу              → «Переместить в группу „…“?»
+    // Не затрагиваем: drop на устройство (создание связи — обработан выше)
+    // и добавление в группу устройства БЕЗ группы (намеренный жест).
+    // При «Отмена» карточка возвращается на исходное место.
+    if (dev.groupId && target?.id !== dev.groupId
+        && useStore.getState().multiSelectedIds.size <= 1) {
+      const origin = dragOrigins.current.get(dev.id)
+        ?? { x: dev.x, y: dev.y, groupId: dev.groupId ?? null };
+      dragOrigins.current.delete(dev.id);
+      const fromName = parent?.name ?? '';
+      const ok = target
+        ? await confirmDialog(
+            `Переместить в группу «${target.name}»?`,
+            `«${dev.name}» будет перенесено из группы «${fromName}» в «${target.name}».`,
+            { okText: 'Да', cancelText: 'Отмена' })
+        : await confirmDialog(
+            `Убрать из группы «${fromName}»?`,
+            `«${dev.name}» останется на карте без группы.`,
+            { okText: 'Да', cancelText: 'Отмена' });
+      if (!ok) {
+        // Возврат на исходную позицию в исходную группу.
+        setPosition(dev.id, origin.x, origin.y, origin.groupId);
+        return;
+      }
+    } else {
+      dragOrigins.current.delete(dev.id);
     }
 
     // v0.35.2: SAFETY — never let a re-parent produce out-of-bounds or NaN
@@ -1293,6 +1334,7 @@ function CanvasInner() {
           openContextMenu({ x: e.clientX, y: e.clientY, target: { type: 'device', id: n.id } });
         }
       }}
+      onNodeDragStart={onNodeDragStart}
       onNodeDrag={onNodeDrag}
       onNodeDragStop={onNodeDragStop}
       onSelectionChange={({ nodes: selNodes }) => {
