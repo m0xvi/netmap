@@ -39,6 +39,7 @@ const SECTIONS: Section[] = [
       { kind: 'camera',  label: 'IP-камера',   hint: 'CCTV с PoE' },
       { kind: 'printer', label: 'Принтер',     hint: 'Сетевой принтер' },
       { kind: 'lock',    label: 'Замок',       hint: 'SALTO / контроллер СКУД' },
+      { kind: 'other',   label: 'Другое',     hint: 'Прочее сетевое устройство' },
     ]
   },
   {
@@ -50,6 +51,8 @@ const SECTIONS: Section[] = [
       { kind: 'server', label: 'Сервер',  hint: 'Физический хост (Hyper-V/ESXi)' },
       { kind: 'vm',     label: 'VM',      hint: 'Виртуальная машина (нужен хост)' },
       { kind: 'vps',    label: 'VPS',     hint: 'Арендованный VDS/VPS' },
+      { kind: 'pbx',    label: 'АТС',     hint: 'IP-АТС / телефония' },
+      { kind: 'dvr',    label: 'Регистратор', hint: 'DVR / NVR видеонаблюдения' },
     ]
   },
   {

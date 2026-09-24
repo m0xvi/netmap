@@ -78,6 +78,7 @@ export interface DiscoveryScanResult {
     arpEntries?: number;
     leases?: number;
     snmpHosts?: number;
+    snmpProbed?: number;   // v0.54.0: всего попыток SNMP-опроса (snmpHosts — только ответившие)
     lldpEntries?: number;
   };
 }

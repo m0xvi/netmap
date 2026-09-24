@@ -73,6 +73,9 @@ const KIND_COLOR: Record<string, { bg: string; fg: string }> = {
   lock:       { bg: '#f5f5f4', fg: '#57534e' },
   patchpanel: { bg: '#f0fdf4', fg: '#15803d' },
   cloud:      { bg: '#e0e7ff', fg: '#3730a3' },
+  pbx:        { bg: '#ccfbf1', fg: '#0f766e' },
+  dvr:        { bg: '#c7d2fe', fg: '#4338ca' },
+  other:      { bg: '#f1f5f9', fg: '#334155' },
 };
 function KindChip({ kind }: { kind: string }) {
   const c = KIND_COLOR[kind] || { bg: '#f1f5f9', fg: '#334155' };
@@ -89,6 +92,8 @@ function KindChip({ kind }: { kind: string }) {
 // ============================================================================
 interface DiscSubnet {
   cidr: string; count: number; iface?: string; comment?: string; fromRouter: boolean;
+  // v0.54.0: разбивка широкой подсети роутера по /24 (только если внутри ≥2 разных /24 с устройствами)
+  parts?: Array<{ cidr: string; count: number }>;
 }
 interface DiscVlan { id: number; count: number; name?: string; }
 
@@ -134,7 +139,7 @@ const IconPencil = () => (
 
 const ALL_KINDS: DeviceKind[] = [
   'router','switch','patchpanel','ap','camera','server','vm','vps',
-  'pc','pos','printer','lock','cloud',
+  'pc','pos','printer','lock','cloud','pbx','dvr','other',
 ];
 
 /**
@@ -159,11 +164,6 @@ function DiscoveryDeviceRow({ d, effName, effKind, renamed, kindEdited, checked,
   const inputRef = useRef<HTMLInputElement>(null);
   const km = KIND_META[effKind as DeviceKind] || KIND_META.pc;
   const showEdit = !disabled && (hover || focused || renamed);
-  const sub: string[] = [];
-  if (d.ip) sub.push(d.ip);
-  if (d.mac) sub.push(d.mac);
-  if (d.vendor) sub.push(d.vendor);
-  if (d.vlan != null) sub.push(`VLAN ${d.vlan}`);
   // DHCP-подсказка, если она не стала именем — видно, откуда можно взять имя.
   const dhcpAlt = d.dhcpComment && d.dhcpComment !== effName ? d.dhcpComment
     : (d.dhcpHost && d.dhcpHost !== effName ? d.dhcpHost : '');
@@ -220,7 +220,10 @@ function DiscoveryDeviceRow({ d, effName, effKind, renamed, kindEdited, checked,
           <NameSrcBadge src={d.nameSource} />
         </div>
         <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {sub.join(' · ')}
+          {d.ip && <span style={S.mono}>{d.ip}</span>}
+          {d.mac && <span> · <span style={S.mono}>{d.mac}</span></span>}
+          {d.vlan != null && <span style={S.vlanMini} title={`VLAN ${d.vlan}`}>V{d.vlan}</span>}
+          {d.vendor && <span> · {d.vendor}</span>}
           {dhcpAlt ? <span style={{ color: '#166534' }}> · DHCP: {dhcpAlt}</span> : null}
           {renamed ? <span style={{ color: '#2563eb' }}> · переименовано</span> : null}
           {kindEdited ? <span style={{ color: '#7c3aed' }}> · тип вручную</span> : null}
@@ -463,6 +466,35 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       if (ex) ex.count++;
       else stats.set(c, { cidr: c, count: 1, fromRouter: false });
     }
+    // v0.54.0: широкие подсети роутера (/16 и крупнее) раскрываем по /24,
+    // иначе внутренние сети не видны и их нельзя исключать точечно.
+    const byParent = new Map<string, Map<string, number>>();
+    for (const s of stats.values()) {
+      const bits = Number(/^.*\/(\d{1,2})$/.exec(s.cidr)?.[1]);
+      if (!s.fromRouter || !Number.isFinite(bits) || bits >= 24) continue;
+      byParent.set(s.cidr, new Map());
+    }
+    if (byParent.size > 0) {
+      for (const d of scan.proposedDevices) {
+        if (!d.ip) continue;
+        const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(d.ip);
+        if (!m) continue;
+        for (const [pcidr, buckets] of byParent) {
+          if (!ipInAnyCidr(d.ip, [pcidr])) continue;
+          const c = `${m[1]}.${m[2]}.${m[3]}.0/24`;
+          buckets.set(c, (buckets.get(c) || 0) + 1);
+          break; // как и в основном подсчёте — первое совпадение
+        }
+      }
+      for (const s of stats.values()) {
+        const buckets = byParent.get(s.cidr);
+        if (buckets && buckets.size >= 2) {
+          s.parts = Array.from(buckets.entries())
+            .map(([cidr, count]) => ({ cidr, count }))
+            .sort((a, b) => b.count - a.count || (a.cidr < b.cidr ? -1 : 1));
+        }
+      }
+    }
     return Array.from(stats.values())
       .sort((a, b) => b.count - a.count || (a.cidr < b.cidr ? -1 : 1));
   }, [scan]);
@@ -512,6 +544,19 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident === false && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
+  // v0.54.0: все видимые (под фильтрами) устройства с IP — для глобального тумблера.
+  const visibleDevs = useMemo(
+    () => [...namedDevs, ...unnamedDevs, ...unknownDevs],
+    [namedDevs, unnamedDevs, unknownDevs]);
+  const allVisiblePicked = visibleDevs.length > 0 && visibleDevs.every(d => devPick[d.tempId]);
+  function toggleAllVisible() {
+    const target = !allVisiblePicked;
+    setDevPick(p => {
+      const next = { ...p };
+      for (const d of visibleDevs) next[d.tempId] = target;
+      return next;
+    });
+  }
   const noIpDevs = useMemo(
     () => (scan?.proposedDevices || []).filter(d => !d.ip && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -575,7 +620,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 
   return createPortal(
     <div style={S.backdrop} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={S.dialog}>
+      <div style={{ ...S.dialog, ...(phase === 'review' ? { width: 880 } : {}) }}>
         <div style={S.header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={S.iconWrap}><IconSearch /></div>
@@ -718,7 +763,9 @@ export function DiscoveryDialog({ open, onClose }: Props) {
         )}
 
         {/* ============ REVIEW ============ */}
+        {/* v0.54.0: футер — sibling скроллящегося body, всегда виден */}
         {phase === 'review' && scan && (
+          <>
           <div style={S.body}>
             <div style={S.statsRow}>
               <StatChip label="LLDP-соседей" value={scan.stats?.lldpEntries ?? 0} />
@@ -726,7 +773,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               <StatChip label="FDB-записей" value={scan.stats?.fdbEntries ?? 0} />
               <StatChip label="ARP-записей" value={scan.stats?.arpEntries ?? 0} />
               <StatChip label="DHCP-лиз" value={scan.stats?.leases ?? 0} />
-              <StatChip label="SNMP-хостов" value={scan.stats?.snmpHosts ?? 0} />
+              <StatChip label="SNMP ответили" value={`${scan.stats?.snmpHosts ?? 0} из ${scan.stats?.snmpProbed ?? scan.stats?.snmpHosts ?? 0}`} />
               <StatChip label="Время" value={((scan.stats?.ms ?? 0) / 1000).toFixed(1) + 'с'} muted />
             </div>
 
@@ -742,7 +789,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
             )}
 
             {/* v0.52.0: фильтры — как в обычном импорте: поиск, подсети, VLAN */}
-            <div style={S.section}>
+            {/* v0.54.0: липкая панель — поиск и фильтры всегда под рукой при прокрутке */}
+            <div style={S.filterBar}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   placeholder="Поиск по имени / IP / MAC / DHCP"
@@ -755,34 +803,69 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     Показывать без IP ({noIpTotal})
                   </span>
                 </label>
+                <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6,
+                                 fontSize: 11, fontWeight: 600, color: '#1d4ed8', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                       title="Выбрать/снять все устройства, видимые под текущими фильтрами">
+                  <input type="checkbox" checked={allVisiblePicked} onChange={toggleAllVisible} />
+                  Все видимые ({visibleDevs.length})
+                </label>
               </div>
               {subnetStats.some(s => s.count > 0) && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Подсети:</span>
-                  {/* v0.53.0: пустые подсети (/32 PPPoE-хвосты и т.п.) скрываем — исключать там нечего */}
-                  {subnetStats.filter(s => s.count > 0).map(s => {
-                    const excluded = excludedCidrs.has(s.cidr);
-                    return (
-                      <button key={s.cidr}
-                        title={(excluded ? 'Включить обратно: ' : 'Исключить из добавления: ') + s.cidr + (s.iface ? ` (${s.iface})` : '') + (s.comment ? ` — ${s.comment}` : '')}
-                        onClick={() => setExcludedCidrs(prev => {
-                          const next = new Set(prev);
-                          if (next.has(s.cidr)) next.delete(s.cidr); else next.add(s.cidr);
-                          return next;
-                        })}
-                        style={{ ...S.chip, ...(excluded ? S.chipOff : {}) }}>
-                        {s.cidr} · {s.count}
-                        {s.iface ? ` · ${s.iface}` : ''}
-                      </button>
-                    );
-                  })}
-                  {subnetStats.some(s => s.count === 0) && (
-                    <span style={{ fontSize: 10, color: '#94a3b8' }} title="Подсети роутера, в которых не найдено ни одного устройства.">
-                      +{subnetStats.filter(s => s.count === 0).length} пустых скрыто
-                    </span>
-                  )}
-                  <button style={S.linkBtn} onClick={() => setExcludedCidrs(new Set())}>Все</button>
-                  <button style={S.linkBtn} onClick={() => setExcludedCidrs(new Set(subnetStats.map(s => s.cidr)))}>Ни одной</button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Подсети:</span>
+                    {/* v0.53.0: пустые подсети (/32 PPPoE-хвосты и т.п.) скрываем — исключать там нечего */}
+                    {subnetStats.filter(s => s.count > 0).map(s => {
+                      const excluded = excludedCidrs.has(s.cidr);
+                      return (
+                        <button key={s.cidr}
+                          title={(excluded ? 'Включить обратно: ' : 'Исключить из добавления: ') + s.cidr + (s.iface ? ` (${s.iface})` : '') + (s.comment ? ` — ${s.comment}` : '') + (s.parts ? ` — раскрыта по /24 ниже (${s.parts.length})` : '')}
+                          onClick={() => setExcludedCidrs(prev => {
+                            const next = new Set(prev);
+                            if (next.has(s.cidr)) next.delete(s.cidr); else next.add(s.cidr);
+                            return next;
+                          })}
+                          style={{ ...S.chip, ...(excluded ? S.chipOff : {}) }}>
+                          {s.cidr} · {s.count}
+                          {s.iface ? ` · ${s.iface}` : ''}
+                        </button>
+                      );
+                    })}
+                    {subnetStats.some(s => s.count === 0) && (
+                      <span style={{ fontSize: 10, color: '#94a3b8' }} title="Подсети роутера, в которых не найдено ни одного устройства.">
+                        +{subnetStats.filter(s => s.count === 0).length} пустых скрыто
+                      </span>
+                    )}
+                    <button style={S.linkBtn} onClick={() => setExcludedCidrs(new Set())}>Все</button>
+                    <button style={S.linkBtn} onClick={() => setExcludedCidrs(new Set(subnetStats.map(s => s.cidr)))}>Ни одной</button>
+                  </div>
+                  {/* v0.54.0: дочерние /24 внутри широких подсетей — точечное исключение */}
+                  {subnetStats.filter(s => s.count > 0 && s.parts).map(s => (
+                    <div key={s.cidr + '/parts'}
+                         style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
+                                  marginLeft: 52, borderLeft: '2px solid #E2E8F0', paddingLeft: 8 }}>
+                      {(s.parts || []).map(p => {
+                        const parentOff = excludedCidrs.has(s.cidr);
+                        const excluded = parentOff || excludedCidrs.has(p.cidr);
+                        return (
+                          <button key={p.cidr} disabled={parentOff}
+                            title={(parentOff
+                              ? 'Родительская подсеть уже исключена: '
+                              : (excluded ? 'Включить обратно: ' : 'Исключить из добавления: ')) + p.cidr + ` (внутри ${s.cidr})`}
+                            onClick={() => setExcludedCidrs(prev => {
+                              const next = new Set(prev);
+                              if (next.has(p.cidr)) next.delete(p.cidr); else next.add(p.cidr);
+                              return next;
+                            })}
+                            style={{ ...S.chip, ...(excluded ? S.chipOff : {}),
+                                     fontSize: 10, padding: '3px 8px',
+                                     ...(parentOff ? { cursor: 'not-allowed', opacity: 0.6 } : {}) }}>
+                            {p.cidr} · {p.count}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
               {vlanStats.length >= 1 && (
@@ -964,27 +1047,28 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               </div>
             </div>
 
-            <div style={S.footer}>
-              <button style={S.btnSecondary} onClick={() => setPhase('form')}>Назад</button>
-              <div style={{ flex: 1 }} />
-              <div style={{ fontSize: 12, color: '#64748b', alignSelf: 'center', marginRight: 12 }}>
-                Выбрано: {selDev} устройств · {selLink} связей
-                {willDropLinks.length > 0 && (
-                  <span style={{ color: '#b45309' }} title="Связи, у которых нет обеих сторон: устройство снято, скрыто фильтром или без IP.">
-                    {' '}· пропустится связей: {willDropLinks.length}
-                  </span>
-                )}
-                {hiddenPicked > 0 && (
-                  <span title="Выбраны галочкой, но скрыты поиском или фильтрами подсетей/VLAN — применены не будут.">
-                    {' '}· {hiddenPicked} вне фильтра
-                  </span>
-                )}
-              </div>
-              <button style={S.btnPrimary} disabled={selDev + selLink === 0} onClick={onApply}>
-                <IconCheck /> Применить выбранное
-              </button>
-            </div>
           </div>
+          <div style={S.reviewFooter}>
+            <button style={S.btnSecondary} onClick={() => setPhase('form')}>Назад</button>
+            <div style={{ flex: 1 }} />
+            <div style={{ fontSize: 12, color: '#64748b', alignSelf: 'center', marginRight: 12 }}>
+              Выбрано: {selDev} устройств · {selLink} связей
+              {willDropLinks.length > 0 && (
+                <span style={{ color: '#b45309' }} title="Связи, у которых нет обеих сторон: устройство снято, скрыто фильтром или без IP.">
+                  {' '}· пропустится связей: {willDropLinks.length}
+                </span>
+              )}
+              {hiddenPicked > 0 && (
+                <span title="Выбраны галочкой, но скрыты поиском или фильтрами подсетей/VLAN — применены не будут.">
+                  {' '}· {hiddenPicked} вне фильтра
+                </span>
+              )}
+            </div>
+            <button style={S.btnPrimary} disabled={selDev + selLink === 0} onClick={onApply}>
+              <IconCheck /> Применить выбранное
+            </button>
+          </div>
+          </>
         )}
 
         {/* ============ APPLYING / DONE ============ */}
@@ -1036,15 +1120,16 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 // ============================================================================
 // Sub-components
 // ============================================================================
+// v0.54.0: компактная однострочная пилюля — вся статистика в один ряд.
 function StatChip({ label, value, muted }: { label: string; value: string | number; muted?: boolean }) {
   return (
     <div style={{
       background: muted ? '#f8fafc' : '#eff6ff',
       color: muted ? '#64748b' : '#1d4ed8',
-      padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-      display: 'flex', flexDirection: 'column', minWidth: 82,
+      padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+      display: 'flex', gap: 6, alignItems: 'baseline', whiteSpace: 'nowrap',
     }}>
-      <span style={{ fontSize: 16, fontWeight: 700 }}>{value}</span>
+      <span style={{ fontSize: 13, fontWeight: 700 }}>{value}</span>
       <span style={{ opacity: 0.8 }}>{label}</span>
     </div>
   );
@@ -1246,6 +1331,25 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '2px 4px',
     border: '1px solid transparent', cursor: 'pointer', outline: 'none',
     maxWidth: 96, flexShrink: 0,
+  },
+  // v0.54.0: липкая панель фильтров (во всю ширину body, поверх прокрутки).
+  filterBar: {
+    display: 'flex', flexDirection: 'column', gap: 8,
+    position: 'sticky', top: 0, zIndex: 5, background: '#fff',
+    margin: '0 -18px', padding: '10px 18px',
+    borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #e2e8f0',
+  },
+  // v0.54.0: футер review — вне скролла, «Применить» всегда видно.
+  reviewFooter: {
+    display: 'flex', gap: 8, alignItems: 'center',
+    padding: '10px 18px', borderTop: '1px solid #e2e8f0', background: '#fff',
+  },
+  // v0.54.0: моноширинный IP/MAC и мини-чип VLAN в строке устройства.
+  mono: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+  vlanMini: {
+    fontSize: 10, fontWeight: 700, background: '#eef2ff', color: '#4338ca',
+    border: '1px solid #c7d2fe', borderRadius: 4, padding: '0 5px', marginLeft: 6,
+    whiteSpace: 'nowrap',
   },
   spinner: {
     width: 36, height: 36, borderRadius: '50%',

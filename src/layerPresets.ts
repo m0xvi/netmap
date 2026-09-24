@@ -26,7 +26,7 @@ const empty = (): FilterState => ({
 function keepOnly(kinds: DeviceKind[]): FilterState {
   const ALL: DeviceKind[] = [
     'router','switch','patchpanel','ap','camera','server','vm','vps',
-    'pc','pos','printer','lock','cloud'
+    'pc','pos','printer','lock','cloud','pbx','dvr','other'
   ];
   const keep = new Set(kinds);
   return { ...empty(), hiddenKinds: new Set(ALL.filter(k => !keep.has(k))) };
@@ -40,13 +40,13 @@ export const LAYER_PRESETS: LayerPreset[] = [
   },
   {
     id: 'data', label: 'Data', emoji: '▦',
-    hint: 'Только сеть передачи данных: роутеры, свитчи, ПК, серверы, VM, VPS, POS, принтеры',
-    build: () => keepOnly(['router','switch','patchpanel','pc','server','vm','vps','pos','printer','cloud']),
+    hint: 'Только сеть передачи данных: роутеры, свитчи, ПК, серверы, VM, VPS, POS, принтеры, АТС, регистраторы',
+    build: () => keepOnly(['router','switch','patchpanel','pc','server','vm','vps','pos','printer','pbx','dvr','other','cloud']),
   },
   {
     id: 'cctv', label: 'CCTV', emoji: '◉',
-    hint: 'Только видеонаблюдение: камеры + магистраль до них',
-    build: () => keepOnly(['router','switch','patchpanel','camera']),
+    hint: 'Только видеонаблюдение: камеры + регистраторы + магистраль до них',
+    build: () => keepOnly(['router','switch','patchpanel','camera','dvr']),
   },
   {
     id: 'wifi', label: 'Wi-Fi', emoji: '⌁',

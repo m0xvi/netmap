@@ -29,6 +29,8 @@ export function inferLayer(d: Device): NetworkLayer {
     }
     case 'server':
     case 'vps':
+    case 'pbx':     // v0.54 — АТС: инфраструктурный appliance, как сервер
+    case 'dvr':     // v0.54 — видеорегистратор: как сервер
       return 'distribution';
     case 'patchpanel':
     case 'ap':
@@ -38,6 +40,7 @@ export function inferLayer(d: Device): NetworkLayer {
     case 'pos':
     case 'lock':
     case 'vm':
+    case 'other':   // v0.54 — неизвестное устройство: край сети
       return 'access';
   }
 }

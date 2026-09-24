@@ -23,6 +23,7 @@ const SECTIONS: Section[] = [
       { kind: 'camera',  label: 'CCTV',  hint: 'IP-камера с PoE' },
       { kind: 'printer', label: 'Принтер', hint: 'Сетевой принтер' },
       { kind: 'lock',    label: 'Замок',   hint: 'SALTO / контроллер СКУД' },
+      { kind: 'other',   label: 'Другое', hint: 'Прочее сетевое устройство' },
     ]
   },
   {
@@ -33,6 +34,8 @@ const SECTIONS: Section[] = [
       { kind: 'server', label: 'Сервер', hint: 'Физический хост (Hyper-V/ESXi/bare-metal)' },
       { kind: 'vm',     label: 'VM',     hint: 'Виртуальная машина — привяжите к серверу' },
       { kind: 'vps',    label: 'VPS',    hint: 'Арендованный VDS/VPS у провайдера' },
+      { kind: 'pbx',    label: 'АТС',    hint: 'IP-АТС / телефония' },
+      { kind: 'dvr',    label: 'Регистратор', hint: 'DVR / NVR видеонаблюдения' },
     ]
   },
   {
@@ -56,6 +59,8 @@ export function defaultPortsFor(kind: DeviceKind) {
     case 'ap':         return [{ id: 'poe',  label: '', type: 'RJ45', speed: '1G',   poe: true, poeActive: true, status: 'down' }];
     case 'camera':     return [{ id: 'poe',  label: '', type: 'RJ45', speed: '100M', poe: true, poeActive: true, status: 'down' }];
     case 'printer':    return [rj45('lan')];
+    case 'pbx':        return [rj45('lan'), rj45('wan')];
+    case 'dvr':        return [rj45('lan')];
     case 'lock':       return [{ id: 'ctrl', label: '', type: 'RJ45', speed: '100M', status: 'down' }];
     case 'cloud':      return [{ id: 'wan',  label: 'WAN', type: 'RJ45', status: 'up' }];
     case 'vm':         return [{ id: 'vnic1', label: 'vSwitch', type: 'RJ45', speed: '1G', status: 'up' }];

@@ -16,7 +16,7 @@ import { LAYER_META, countByLayer } from './layers';
 
 const KINDS: DeviceKind[] = [
   'router','switch','patchpanel','ap','camera','server','vm','vps',
-  'pc','pos','printer','lock','cloud'
+  'pc','pos','printer','lock','cloud','pbx','dvr','other'
 ];
 
 // ---------------------------------------------------------------------------

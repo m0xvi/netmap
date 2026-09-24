@@ -108,7 +108,7 @@ export default function App() {
   const [uiScale, setUiScale] = useState(() => {
     try {
       const v = Number(localStorage.getItem('netmap:uiScale'));
-      if (!Number.isFinite(v) || v < 0.8 || v > 1.25) return 1;
+      if (!Number.isFinite(v) || v < 0.8 || v > 2) return 1;
       return v;
     } catch { return 1; }
   });
@@ -116,7 +116,7 @@ export default function App() {
   useEffect(() => {
     const onScale = (e: Event) => {
       const value = Number((e as CustomEvent<{ value: number }>).detail?.value);
-      if (Number.isFinite(value)) setUiScale(Math.max(0.8, Math.min(1.25, value)));
+      if (Number.isFinite(value)) setUiScale(Math.max(0.8, Math.min(2, value)));
     };
     window.addEventListener('netmap:ui-scale', onScale);
     return () => window.removeEventListener('netmap:ui-scale', onScale);

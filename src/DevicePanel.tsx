@@ -12,7 +12,7 @@ import { ICONS, KIND_META } from './icons';
 import { VLAN_COLORS, vlanColorForIndex } from './vlanDefaults';
 import { MiniSpinner } from './Spinner';
 
-const KINDS: DeviceKind[] = ['router','switch','patchpanel','ap','camera','server','vm','vps','pc','pos','printer','lock','cloud'];
+const KINDS: DeviceKind[] = ['router','switch','patchpanel','ap','camera','server','vm','vps','pc','pos','printer','lock','cloud','pbx','dvr','other'];
 
 // Stable empty references shared by all selectors so components don't re-render
 // forever when the underlying field is undefined. `useStore(s => s.x || [])`
@@ -1627,7 +1627,7 @@ function HardwareTab({ device, update }: {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       {device.kind === 'ap' && <SsidEditor device={device} update={update} />}
-      {device.kind === 'server' && (
+      {(device.kind === 'server' || device.kind === 'dvr') && (
         <>
           <HostSpecEditor device={device} update={update} />
           <DvrEditor device={device} update={update} />
@@ -1641,7 +1641,7 @@ function HardwareTab({ device, update }: {
           Параметры VM (vCPU / RAM / OS / storage) редактируются в <b>Overview → Редактирование</b>.
         </div>
       )}
-      {!['ap', 'server', 'vm', 'camera'].includes(device.kind) && (
+      {!['ap', 'server', 'vm', 'camera', 'dvr'].includes(device.kind) && (
         <div style={{ padding: 10, background: '#F9FAFB', border: '1px solid #E5E7EB',
                       borderRadius: 8, fontSize: 12, color: '#6B7280' }}>
           Для этого типа устройства пока нет отдельного редактора железа. Используйте <b>Overview → Редактирование</b> для базовых полей (модель, вендор, IP…).
@@ -1664,7 +1664,8 @@ function CameraRegistrarEditor({ device }: { device: Device }) {
   // to fill the DVR block first.
   const registrars = doc.devices.filter(d =>
     d.id !== device.id && (
-      !!d.dvr || (d.kind === 'server' && /dvr|nvr|reg[_-]?cctv|trassir|hikvision|dahua/i.test(`${d.name} ${d.model || ''}`))
+      !!d.dvr || d.kind === 'dvr' ||
+      (d.kind === 'server' && /dvr|nvr|reg[_-]?cctv|trassir|hikvision|dahua/i.test(`${d.name} ${d.model || ''}`))
     )
   );
   const currentId = device.attachedToRegistrarId || '';

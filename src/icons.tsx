@@ -135,6 +135,27 @@ export function DvrIcon({ size, color }: IconProps) {
   );
 }
 
+/** v0.54 — PBX (АТС). Classic telephone handset (feather-style path). */
+export function PbxIcon({ size, color }: IconProps) {
+  return (
+    <svg {...S(size, color)}>
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+/** v0.54 — «other»: generic / unidentified network device.
+ *  Dashed box + question mark reads as \"неопознанное\". */
+export function OtherIcon({ size, color }: IconProps) {
+  return (
+    <svg {...S(size, color)}>
+      <rect x="4" y="4" width="16" height="16" rx="2" strokeDasharray="3 2" />
+      <path d="M9.6 9.2a2.4 2.4 0 0 1 4.7.6c0 1.6-2.3 2-2.3 3.2" />
+      <circle cx="12" cy="16" r="0.8" fill={color || 'currentColor'} />
+    </svg>
+  );
+}
+
 export function PCIcon({ size, color }: IconProps) {
   return (
     <svg {...S(size, color)}>
@@ -217,12 +238,9 @@ export function VPSIcon({ size, color }: IconProps) {
   );
 }
 
-// v0.35.4: `dvr` is not a DeviceKind (recorders are `kind: 'server'` with a
-// `dvr` payload), but ServerNode picks the DVR icon when appropriate. We
-// keep it in the same ICONS map for consistent lookups.
-export const ICONS: Record<DeviceKind, (p: IconProps) => JSX.Element> & {
-  dvr: (p: IconProps) => JSX.Element;
-} = {
+// v0.54: `dvr` promoted to a full DeviceKind (was `kind: 'server'` + `dvr`
+// payload); ServerNode keeps its legacy payload check for old maps.
+export const ICONS: Record<DeviceKind, (p: IconProps) => JSX.Element> = {
   router: RouterIcon,
   switch: SwitchIcon,
   patchpanel: PatchPanelIcon,
@@ -236,7 +254,9 @@ export const ICONS: Record<DeviceKind, (p: IconProps) => JSX.Element> & {
   printer: PrinterIcon,
   lock: LockIcon,
   cloud: CloudIcon,
+  pbx: PbxIcon,
   dvr: DvrIcon,
+  other: OtherIcon,
 };
 
 // Light-theme device palette (v0.14): fresh pastel-tinted backgrounds + saturated icon colors.
@@ -255,4 +275,7 @@ export const KIND_META: Record<DeviceKind, { label: string; color: string; bg: s
   printer:    { label: 'PRINTER',  color: '#404040', bg: '#F5F5F4' },
   lock:       { label: 'LOCK',     color: '#D97706', bg: '#FFFBEB' },
   cloud:      { label: 'ISP',      color: '#0284C7', bg: '#F0F9FF' },
+  pbx:        { label: 'PBX',      color: '#16A34A', bg: '#F0FDF4' },
+  dvr:        { label: 'DVR',      color: '#4F46E5', bg: '#EEF2FF' },
+  other:      { label: 'OTHER',    color: '#71717A', bg: '#F4F4F5' },
 };

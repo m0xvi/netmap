@@ -310,8 +310,8 @@ function SavedViews() {
   };
   const preset = (name: string) => {
     const f = defaultViewFilters();
-    if (name === 'infrastructure') ['camera','pc','pos','printer','lock'].forEach(k => f.hiddenKinds.add(k));
-    if (name === 'cameras') ['router','switch','patchpanel','ap','server','vm','vps','pc','pos','printer','lock','cloud'].forEach(k => f.hiddenKinds.add(k));
+    if (name === 'infrastructure') ['camera','pc','pos','printer','lock','other'].forEach(k => f.hiddenKinds.add(k));
+    if (name === 'cameras') ['router','switch','patchpanel','ap','server','vm','vps','pc','pos','printer','lock','cloud','pbx','other'].forEach(k => f.hiddenKinds.add(k));
     if (name === 'new') f.tag = 'imported';
     apply(f);
   };

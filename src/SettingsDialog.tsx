@@ -88,12 +88,12 @@ function GeneralTab() {
   const [uiScale, setUiScale] = useState(() => {
     try {
       const v = Number(localStorage.getItem('netmap:uiScale'));
-      if (!Number.isFinite(v) || v < 0.8 || v > 1.25) return 1;
+      if (!Number.isFinite(v) || v < 0.8 || v > 2) return 1;
       return v;
     } catch { return 1; }
   });
   const changeUiScale = (value: number) => {
-    const next = Math.max(0.8, Math.min(1.25, value));
+    const next = Math.max(0.8, Math.min(2, value));
     setUiScale(next);
     try { localStorage.setItem('netmap:uiScale', String(next)); } catch {}
     window.dispatchEvent(new CustomEvent('netmap:ui-scale', { detail: { value: next } }));
@@ -146,7 +146,7 @@ function GeneralTab() {
       <Section title="Интерфейс">
         <Field label="Масштаб всего интерфейса" hint="Настройка применяется ко всем панелям, меню и кнопкам программы.">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="range" min="0.8" max="1.25" step="0.05"
+            <input type="range" min="0.8" max="2" step="0.05"
                    value={uiScale} onChange={e => changeUiScale(Number(e.target.value))}
                    style={{ flex: 1 }} />
             <span style={{ minWidth: 48, textAlign: 'right', fontSize: 12, color: '#111827' }}>
@@ -154,7 +154,7 @@ function GeneralTab() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-            {[0.8, 1, 1.15, 1.25].map(value => (
+            {[0.8, 1, 1.25, 1.5, 2].map(value => (
               <button key={value} onClick={() => changeUiScale(value)} style={{
                 ...smallScaleBtn, borderColor: uiScale === value ? '#2563EB' : '#D1D5DB',
                 color: uiScale === value ? '#1D4ED8' : '#374151',

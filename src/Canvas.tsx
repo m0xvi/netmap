@@ -148,7 +148,7 @@ function CanvasInner() {
 
     // v0.41: which endpoint kinds get hidden from the canvas when
     // collapseEndpoints is on (their info lives in the parent hub's chip list).
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock'];
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     const hideAsEndpoint = (d: Device): boolean => {
       if (viewMode !== 'modern' || !collapseEndpoints) return false;
       if (!ENDPOINT_KINDS.includes(d.kind)) return false;
@@ -211,7 +211,7 @@ function CanvasInner() {
     };
 
     // v0.41: same "hide endpoints" heuristic as in initialNodes.
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock'];
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     const hideAsEndpoint = (d: Device | undefined): boolean => {
       if (!d) return false;
       if (viewMode !== 'modern' || !collapseEndpoints) return false;

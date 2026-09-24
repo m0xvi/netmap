@@ -29,7 +29,7 @@ export function NetworkOverviewPanel() {
     const total = devs.length;
     // "Clients" heuristic — anything that isn't infrastructure.
     const clients = devs.filter(d =>
-      ['pc', 'pos', 'printer', 'camera', 'lock'].includes(d.kind)
+      ['pc', 'pos', 'printer', 'camera', 'lock', 'other'].includes(d.kind)
     ).length;
     const links = doc.links.length;
     const uptimePct = total > 0 ? (online / total) * 100 : 100;

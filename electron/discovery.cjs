@@ -134,17 +134,19 @@ const NAME_KIND_RULES = [
   { kind: 'lock',    words: ['salto', 'lock', 'door', 'скуд', 'skud', 'дверь', 'замок', 'домофон'], stems: ['двер', 'замк'] },
   { kind: 'switch',  words: ['sw', 'switch', 'коммутатор', 'crs', 'css', 'dgs', 'des'], stems: [] },
   { kind: 'router',  words: ['gw', 'gateway', 'router', 'роутер', 'маршрутизатор', 'edge', 'core', 'ccr', 'hex', 'chr', 'rb4011', 'rb5009', 'vyos', 'pfsense', 'keenetic'], stems: [] },
-  { kind: 'server',  words: ['srv', 'server', 'сервер', 'nas', 'synology', 'qnap', 'esxi', 'esx', 'hyperv', 'proxmox', 'pve', 'dvr', 'nvr', 'регистратор', 'trassir', 'xeoma', '1c', '1с'], stems: [] },
+  { kind: 'server',  words: ['srv', 'server', 'сервер', 'nas', 'synology', 'qnap', 'esxi', 'esx', 'hyperv', 'proxmox', 'pve', '1c', '1с'], stems: [] },
+  { kind: 'dvr',     words: ['dvr', 'nvr', 'регистратор', 'регик', 'trassir', 'xeoma', 'видеосервер'], stems: ['регистрат'] },
+  { kind: 'pbx',     words: ['pbx', 'ats', 'атс', 'миниатс', 'voip', 'sip', 'asterisk', 'freepbx', 'ipbx', '3cx'], stems: ['атс'] },
   { kind: 'patchpanel', words: ['patch', 'patchpanel', 'кросс'], stems: [] },
   { kind: 'pc',      words: ['pc', 'desktop', 'notebook', 'laptop', 'ноутбук', 'пк', 'ws', 'workstation', 'macbook', 'imac', 'iphone', 'android', 'galaxy'], stems: ['комп'] },
 ];
-const PREFIX_KIND = { sw: 'switch', swt: 'switch', ap: 'ap', cam: 'camera', gw: 'router', srv: 'server', pc: 'pc', prt: 'printer', pos: 'pos', dvr: 'server', nvr: 'server' };
+const PREFIX_KIND = { sw: 'switch', swt: 'switch', ap: 'ap', cam: 'camera', gw: 'router', srv: 'server', pc: 'pc', prt: 'printer', pos: 'pos', dvr: 'dvr', nvr: 'dvr', pbx: 'pbx', ats: 'pbx' };
 function kindByNameTokens(name) {
   const toks = tokensOf(name);
   if (!toks.length) return null;
   // «sw1», «ap2», «cam3» — буквы+цифры без разделителя.
   for (const t of toks) {
-    const m = /^(sw|swt|ap|cam|gw|srv|pc|prt|pos|dvr|nvr)(\d+)$/.exec(t);
+    const m = /^(sw|swt|ap|cam|gw|srv|pc|prt|pos|dvr|nvr|pbx|ats)(\d+)$/.exec(t);
     if (m) return PREFIX_KIND[m[1]];
   }
   for (const rule of NAME_KIND_RULES) {
@@ -166,7 +168,9 @@ function kindByDescr(descr, vendor) {
   if (/access ?point|wireless/.test(s)) return 'ap';
   if (/ccr\d|cloud core|hex( |$)|rb750|rb95|rb2011|rb3011|rb4011|rb5009|chr |isr\d|asr\d|edgerouter|vyos|pfsense|keenetic/.test(s)) return 'router';
   if (/crs\d|css\d|netpower|switch|catalyst|nexus|procurve|edgeswitch|\bdes-|\bdgs|sg\d{2,}|sf\d{2,}|cbs\d/.test(s)) return 'switch';
-  if (/camera|ipcam|hikvision|dahua|axis|video recorder(?<!dvr)/.test(s)) return 'camera';
+  if (/dvr|nvr|video recorder|trassir|xeoma/.test(s)) return 'dvr';
+  if (/pbx|asterisk|freepbx|voip gateway|yeastar|grandstream ucm|\b3cx\b/.test(s)) return 'pbx';
+  if (/camera|ipcam|hikvision|dahua|axis/.test(s)) return 'camera';
   if (/printer|laserjet|kyocera|ricoh/.test(s)) return 'printer';
   if (/synology|qnap|truenas|esxi|proxmox|poweredge|proliant/.test(s)) return 'server';
   if (/raspberry/.test(s)) return 'pc';
@@ -191,9 +195,10 @@ function kindByVlanName(vlanName) {
 
 /**
  * v0.53.0 — определение типа устройства по отпечаткам.
- * Возвращает { kind, confident, vendor? }. Неуверенный результат —
- * kind 'pc' + confident false: такие устройства уходят в отдельную
- * группу «Тип не определён», где тип выбирает пользователь.
+ * v0.54.0 — новые типы 'pbx' (АТС) и 'dvr' (регистратор); неуверенный
+ * результат теперь kind 'other' + confident false: такие устройства
+ * уходят в отдельную группу «Тип не определён», где тип выбирает
+ * пользователь.
  */
 function fingerprintKind({ names, vendor, descr, mac, vlanName }) {
   for (const n of (names || [])) {
@@ -207,7 +212,7 @@ function fingerprintKind({ names, vendor, descr, mac, vlanName }) {
   if (dk) return { kind: dk, confident: true };
   const vk = kindByVlanName(vlanName);
   if (vk) return { kind: vk, confident: true };
-  return { kind: 'pc', confident: false };
+  return { kind: 'other', confident: false };
 }
 
 function guessVendor(descr, oid) {
@@ -1113,7 +1118,14 @@ function aggregateWarnings(list) {
     if (e.ips.length < 5) e.ips.push(m[1]);
   }
   for (const e of buckets.values()) {
-    out.push(`${e.count} хостов: ${e.msg} (например: ${e.ips.join(', ')}${e.count > e.ips.length ? ', …' : ''})`);
+    let line = `${e.count} хостов: ${e.msg} (например: ${e.ips.join(', ')}${e.count > e.ips.length ? ', …' : ''})`;
+    // v0.54.0: таймауты — не ошибка сканирования, а молчание хостов.
+    // Подсказываем прямо в строке, иначе «205 хостов: …timed out» пугает.
+    if (/timed?\s*out/i.test(e.msg)) {
+      line += ' — обычно это норма: у хоста нет SNMP-агента, другой community или закрыт firewall. ' +
+              'Скан намеренно опрашивает каждый IP из ARP-таблицы, молчуны просто пропускаются.';
+    }
+    out.push(line);
   }
   return out;
 }
@@ -1233,7 +1245,8 @@ async function scan(cfg) {
     fdbEntries:     mt ? mt.fdb.length : 0,
     arpEntries:     mt ? mt.arp.length : 0,
     leases:         mt ? mt.leases.length : 0,   // v0.52.0: DHCP-лизы (имена)
-    snmpHosts:      snmpResults.length,   // v0.51.20: реально опрошено (с учётом рекурсии)
+    snmpHosts:      snmpResults.filter(s => s.ok).length, // v0.54.0: только ответившие (было: все попытки)
+    snmpProbed:     snmpResults.length,   // v0.54.0: всего попыток опроса (с учётом рекурсии)
     hops:           hopsUsed,
     lldpEntries:    snmpResults.reduce((n, s) => n + (s.lldp ? s.lldp.length : 0), 0),
   };

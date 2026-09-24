@@ -28,12 +28,16 @@ const PORT_SIDE: Record<DeviceKind, Position> = {
   printer:    Position.Bottom,
   lock:       Position.Right,
   cloud:      Position.Bottom,
+  pbx:        Position.Right,
+  dvr:        Position.Right,
+  other:      Position.Right,
 };
 
 const POE_APPLICABLE: Record<DeviceKind, boolean> = {
   router: false, switch: true, patchpanel: false,
   ap: true, camera: true, printer: true, lock: true,
   server: false, vm: false, vps: false, pc: false, pos: false, cloud: false,
+  pbx: false, dvr: false, other: false,
 };
 
 /**
@@ -68,6 +72,9 @@ const CARD_STYLE: Record<DeviceKind, CardStyle> = {
   vm:         'box',
   vps:        'box',
   cloud:      'rack1u',
+  pbx:        'box',
+  dvr:        'box',
+  other:      'box',
 };
 
 export function DeviceNode({ id, data, selected }: NodeProps<any>) {

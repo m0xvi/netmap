@@ -33,7 +33,7 @@ interface Props {
 
 /** Kinds that qualify as "endpoints" — get folded into their upstream hub
  *  when store.collapseEndpoints is true. */
-const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock'];
+const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
 
 /** Kinds that render as "hub cards" (bigger, with optional endpoint list) */
 const HUB_KINDS: DeviceKind[] = ['router', 'switch', 'patchpanel', 'server', 'cloud', 'vps', 'vm'];
@@ -61,7 +61,7 @@ function groupEndpoints(devices: Device[], hubId: string, links: any[]): Array<{
   }
   // Also include cameras that are linked to this hub via camera-registrar
   // (dvr.cameraIds) — but as a proxy, look at the DVR device attached to us.
-  const order: DeviceKind[] = ['ap', 'camera', 'lock', 'pc', 'pos', 'printer'];
+  const order: DeviceKind[] = ['ap', 'camera', 'lock', 'pc', 'pos', 'printer', 'other'];
   return order
     .filter(k => byKind.has(k))
     .map(k => ({ kind: k, count: byKind.get(k)!.length, ids: byKind.get(k)! }));
