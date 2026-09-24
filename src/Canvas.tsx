@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, addEdge, useReactFlow, ReactFlowProvider,
@@ -27,14 +27,34 @@ import { openPortPicker, buildPortOptions, type PortOption } from './PortPickerD
 import { alertDialog } from './Modal';
 import { ContextMenu } from './ContextMenu';
 
+// v0.55.0 — perf: Canvas пересоздаёт data-объекты узлов при каждом hover
+// (highlighted) и тике мониторинга. Без memo это перерисовывало ВСЕ 200+
+// карточек по любому чиху. Компаратор смотрит на ссылки device/group и
+// примитивы — совпало, значит перерисовывать нечего.
+const sameNodeProps = (p: any, n: any) =>
+  p.id === n.id &&
+  p.type === n.type &&
+  p.selected === n.selected &&
+  p.dragging === n.dragging &&
+  p.data?.device === n.data?.device &&
+  p.data?.highlighted === n.data?.highlighted &&
+  p.data?.label === n.data?.label &&
+  p.data?.subtitle === n.data?.subtitle &&
+  p.data?.color === n.data?.color &&
+  p.data?.collapsed === n.data?.collapsed &&
+  p.data?.childCount === n.data?.childCount &&
+  p.data?.width === n.data?.width &&
+  p.data?.height === n.data?.height;
+const memoNode = (C: any) => memo(C, sameNodeProps);
+
 const nodeTypes: any = {
-  device: DeviceNode,
-  switchNode: SwitchNode,
-  patchNode: PatchPanelNode,
-  serverNode: ServerNode,
-  group: GroupNode,
+  device: memoNode(DeviceNode),
+  switchNode: memoNode(SwitchNode),
+  patchNode: memoNode(PatchPanelNode),
+  serverNode: memoNode(ServerNode),
+  group: memoNode(GroupNode),
   // v0.41: reference-style redesign
-  modernNode: ModernDeviceNode,
+  modernNode: memoNode(ModernDeviceNode),
 };
 
 const edgeTypes: any = {

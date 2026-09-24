@@ -291,9 +291,9 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { toggleRightPanel(); onClose(); }} />
       <Separator />
       <Section>Канвас</Section>
-      <Item checked={false} label="Восстановить вид (fit)" shortcut="F"
+      <Item label="Восстановить вид (fit)" shortcut="F"
             onClick={() => { window.dispatchEvent(new CustomEvent('netmap:fit-view')); onClose(); }} />
-      <Item checked={false} label="Умная раскладка (по локациям / VLAN)" shortcut=""
+      <Item label="Умная раскладка (по локациям / VLAN)" shortcut=""
             onClick={async () => {
               onClose();
               try {
@@ -301,7 +301,7 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
                 setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
               } catch (e: any) { await alertDialog('Ошибка', e?.message || 'smart-layout failed'); }
             }} />
-      <Item checked={false} label="Разложить заново (без группировки)" shortcut=""
+      <Item label="Разложить заново (без группировки)" shortcut=""
             onClick={async () => {
               onClose();
               try { useStore.getState().autoLayout('TB'); setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400); }
@@ -360,11 +360,11 @@ function MonitorMenu({ onClose }: { onClose: () => void }) {
       <Item checked={monitorEnabled} label={`Фоновый ping (${interval}с)`}
             shortcut=""
             onClick={() => { setMonitor(!monitorEnabled); onClose(); }} />
-      <Item checked={false} label="Настройки мониторинга…" shortcut=""
+      <Item label="Настройки мониторинга…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings' } })); }} />
       <Separator />
       <Section>Уведомления</Section>
-      <Item checked={false} label="Центр уведомлений…" shortcut=""
+      <Item label="Центр уведомлений…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-alerts')); }} />
     </>
   );
@@ -491,9 +491,9 @@ function Item({ checked, label, shortcut, onClick, disabled, danger }: {
       onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = '#F1F5F9'; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
     >
-      {checked !== undefined && (
-        <span style={{ width: 14, display: 'flex', justifyContent: 'center', color: '#2563EB' }}>
-          {checked ? <IconCheck /> : null}
+      {checked === true && (
+        <span style={{ display: 'flex', color: '#2563EB', flexShrink: 0 }}>
+          <IconCheck />
         </span>
       )}
       <span style={{ flex: 1 }}>{label}</span>

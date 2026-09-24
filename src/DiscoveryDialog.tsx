@@ -368,6 +368,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
         ip: d.ip,
         mac: d.mac,
         vendor: d.vendor,
+        vlan: d.vlan ?? undefined,   // v0.55.0: VLAN едет в порт — smart-раскладка группирует по VLAN
         tags,
       });
       finalIdByTemp.set(d.tempId, finalId);
@@ -416,6 +417,9 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                (report.addedDevices > 0 ? '. Карта разложена автоматически.' : '') +
                (droppedLinks ? ` (пропущено связей: ${droppedLinks}, без обеих сторон)` : ''),
     });
+    // v0.55.0: вписываем разложенную карту в экран за диалогом — иначе после
+    // большого импорта пользователь видит пустое место и жмёт F сам.
+    setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 350);
     setPhase('done');
   }
 
@@ -767,6 +771,18 @@ export function DiscoveryDialog({ open, onClose }: Props) {
         {phase === 'review' && scan && (
           <>
           <div style={S.body}>
+            {/* v0.55.0: заголовок итога + шаги — сразу видно результат и что делать */}
+            <div style={S.resultBanner}>
+              <div style={S.resultTitle}>
+                Найдено новых: {scan.proposedDevices.filter(d => d.ip).length} устройств · {scan.proposedLinks.length} связей
+                {noIpTotal > 0 && <span style={{ fontWeight: 400, color: '#64748b' }}> · {noIpTotal} без IP не добавятся</span>}
+              </div>
+              <div style={S.resultSteps}>
+                <StepPill n={1} text="Исключите лишние подсети и VLAN" />
+                <StepPill n={2} text="Проверьте имена и типы" />
+                <StepPill n={3} text="«Применить выбранное» внизу" />
+              </div>
+            </div>
             <div style={S.statsRow}>
               <StatChip label="LLDP-соседей" value={scan.stats?.lldpEntries ?? 0} />
               <StatChip label="MikroTik-соседей" value={scan.stats?.neighborsFound ?? 0} />
@@ -777,16 +793,45 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               <StatChip label="Время" value={((scan.stats?.ms ?? 0) / 1000).toFixed(1) + 'с'} muted />
             </div>
 
-            {scan.warnings && scan.warnings.length > 0 && (
-              <details style={S.warnBox}>
-                <summary style={{ cursor: 'pointer', color: '#92400e', fontWeight: 600, fontSize: 12 }}>
-                  Предупреждения ({scan.warnings.length})
-                </summary>
-                <ul style={{ margin: '8px 0 0 20px', padding: 0, fontSize: 11, color: '#78350f' }}>
-                  {scan.warnings.map((w, i) => <li key={i}>{w}</li>)}
-                </ul>
-              </details>
-            )}
+            {(() => {
+              // v0.55.0: молчание хостов по SNMP — не ошибка, а штатная
+              // ситуация. Показываем спокойным синим блоком отдельно от
+              // настоящих предупреждений, чтобы не пугать жёлтым.
+              const all = scan.warnings || [];
+              const silent = all.filter(w => /хостов:.*timed?\s*out/i.test(w));
+              const real = all.filter(w => !/хостов:.*timed?\s*out/i.test(w));
+              const silentCount = silent.reduce((n, w) => {
+                const m = /(\d+)\s+хостов:/.exec(w);
+                return n + (m ? Number(m[1]) : 0);
+              }, 0);
+              return (
+                <>
+                  {real.length > 0 && (
+                    <details style={S.warnBox}>
+                      <summary style={{ cursor: 'pointer', color: '#92400e', fontWeight: 600, fontSize: 12 }}>
+                        Предупреждения ({real.length})
+                      </summary>
+                      <ul style={{ margin: '8px 0 0 20px', padding: 0, fontSize: 11, color: '#78350f' }}>
+                        {real.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                    </details>
+                  )}
+                  {silent.length > 0 && (
+                    <details style={S.infoBox}>
+                      <summary style={{ cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, fontSize: 12 }}>
+                        SNMP: {silentCount > 0 ? `${silentCount} хостов молчат` : `тишина (${silent.length})`} — это норма
+                      </summary>
+                      <ul style={{ margin: '8px 0 0 20px', padding: 0, fontSize: 11, color: '#1e40af' }}>
+                        {silent.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                      <div style={{ marginTop: 6, fontSize: 11, color: '#475569' }}>
+                        Если SNMP-опрос не нужен вовсе — снимите галку «SNMP на всех ARP-адресах» в форме сканирования.
+                      </div>
+                    </details>
+                  )}
+                </>
+              );
+            })()}
 
             {/* v0.52.0: фильтры — как в обычном импорте: поиск, подсети, VLAN */}
             {/* v0.54.0: липкая панель — поиск и фильтры всегда под рукой при прокрутке */}
@@ -1104,6 +1149,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                 </div>
               </div>
             </div>
+            {/* v0.55.0: большая карта — предлагаем компактный вид прямо здесь */}
+            {applyReport.dev >= 60 && <BigMapTip />}
             <div style={S.footer}>
               <div style={{ flex: 1 }} />
               <button style={S.btnSecondary} onClick={() => setPhase('form')}>Ещё скан</button>
@@ -1131,6 +1178,45 @@ function StatChip({ label, value, muted }: { label: string; value: string | numb
     }}>
       <span style={{ fontSize: 13, fontWeight: 700 }}>{value}</span>
       <span style={{ opacity: 0.8 }}>{label}</span>
+    </div>
+  );
+}
+
+// v0.55.0: нумерованный шаг в баннере итога («что делать дальше»).
+function StepPill({ n, text }: { n: number; text: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#334155' }}>
+      <span style={{
+        width: 18, height: 18, borderRadius: '50%', background: '#2563eb', color: '#fff',
+        fontSize: 10, fontWeight: 700, display: 'inline-flex',
+        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>{n}</span>
+      {text}
+    </span>
+  );
+}
+
+// v0.55.0: после большого импорта предлагаем свернуть оконечные устройства.
+function BigMapTip() {
+  const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const viewMode = useStore(s => s.viewMode);
+  const setViewMode = useStore(s => s.setViewMode);
+  if (collapseEndpoints && viewMode === 'modern') return null;
+  return (
+    <div style={{ background: '#eff6ff', padding: '10px 14px', borderRadius: 10, border: '1px solid #bfdbfe' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#1d4ed8' }}>Карта большая — включите компактный вид</div>
+      <div style={{ fontSize: 11, color: '#334155', margin: '4px 0 8px' }}>
+        Оконечные устройства свернутся внутрь своих свитчей: карта станет читаемой и перестанет тормозить.
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {viewMode !== 'modern' && (
+          <button style={S.btnSecondary} onClick={() => setViewMode('modern')}>Вид Modern</button>
+        )}
+        {!collapseEndpoints && (
+          <button style={S.btnPrimary} onClick={() => toggleCollapseEndpoints()}>Свернуть endpoint'ы в свитчи</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1288,6 +1374,21 @@ const S: Record<string, React.CSSProperties> = {
   warnBox: {
     background: '#fef3c7', padding: '8px 10px', borderRadius: 8,
     border: '1px solid #fde68a',
+  },
+  // v0.55.0: спокойный синий блок SNMP-тишины + баннер итога сканирования.
+  infoBox: {
+    background: '#eff6ff', padding: '8px 10px', borderRadius: 8,
+    border: '1px solid #bfdbfe',
+  },
+  resultBanner: {
+    background: '#f8fafc', padding: '10px 14px', borderRadius: 10,
+    border: '1px solid #e2e8f0',
+  },
+  resultTitle: {
+    fontSize: 14, fontWeight: 700, color: '#0f172a',
+  },
+  resultSteps: {
+    display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 6,
   },
   rows: { display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' },
   row: {

@@ -61,9 +61,9 @@ function MenuItem({ checked, label, onClick, disabled, active, danger, sub }: {
       onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = active ? '#DBEAFE' : '#F3F4F6'; }}
       onMouseLeave={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = active ? '#EFF6FF' : 'transparent'; }}
     >
-      {checked !== undefined && (
-        <span style={{ width: 18, display: 'flex', justifyContent: 'center', color: '#2563EB' }}>
-          {checked ? <IconCheck /> : null}
+      {checked === true && (
+        <span style={{ display: 'flex', color: '#2563EB', flexShrink: 0 }}>
+          <IconCheck />
         </span>
       )}
       <span style={{ flex: 1, minWidth: 0,

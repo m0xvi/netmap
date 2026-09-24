@@ -15,11 +15,19 @@
  *
  * Registered in Canvas.tsx as node type `modernNode`. Canvas decides which
  * type to use based on store.viewMode.
+ *
+ * v0.55.0 — perf: раньше КАЖДЫЙ узел подписывался на ВЕСЬ doc.devices и
+ * doc.links, поэтому любое изменение (перетаскивание, hover-подсветка, тик
+ * мониторинга) перерисовывало все 200+ карточек — слайд-шоу. Теперь узел
+ * подписан только на своё: «Connected Devices» вынесены в HubEndpoints с
+ * узкими селекторами (ссылки хаба + соседи, сравнение через shallow),
+ * строки EndpointRow берут по одному устройству по id.
  */
 
 import { useMemo, useState, useEffect } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
 import { useStore } from './store';
+import { useShallow } from 'zustand/shallow';
 import { ICONS, KIND_META } from './icons';
 import type { Device, DeviceKind } from './types';
 import { getFavicon } from './faviconClient';
@@ -38,31 +46,20 @@ const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'l
 /** Kinds that render as "hub cards" (bigger, with optional endpoint list) */
 const HUB_KINDS: DeviceKind[] = ['router', 'switch', 'patchpanel', 'server', 'cloud', 'vps', 'vm'];
 
-/** Group endpoints by kind, returning [{kind, count, ids}] sorted by preferred order. */
-function groupEndpoints(devices: Device[], hubId: string, links: any[]): Array<{
+const ENDPOINT_ORDER: DeviceKind[] = ['ap', 'camera', 'lock', 'pc', 'pos', 'printer', 'other'];
+
+/** Group already-connected peer devices by endpoint kind. */
+function groupPeerEndpoints(peers: Device[]): Array<{
   kind: DeviceKind; count: number; ids: string[];
 }> {
-  // Find all devices connected to this hub whose kind is an endpoint.
-  // v0.42.1 fix: was using wrong field names (aDeviceId/bDeviceId) — that's
-  // why the "Connected Devices" section never showed. Correct names are
-  // fromDeviceId/toDeviceId (see types.ts::Link).
-  const connectedIds = new Set<string>();
-  for (const link of links) {
-    if (link.fromDeviceId === hubId) connectedIds.add(link.toDeviceId);
-    if (link.toDeviceId === hubId)   connectedIds.add(link.fromDeviceId);
-  }
   const byKind = new Map<DeviceKind, string[]>();
-  for (const d of devices) {
-    if (!connectedIds.has(d.id)) continue;
+  for (const d of peers) {
     if (!ENDPOINT_KINDS.includes(d.kind)) continue;
     const arr = byKind.get(d.kind) || [];
     arr.push(d.id);
     byKind.set(d.kind, arr);
   }
-  // Also include cameras that are linked to this hub via camera-registrar
-  // (dvr.cameraIds) — but as a proxy, look at the DVR device attached to us.
-  const order: DeviceKind[] = ['ap', 'camera', 'lock', 'pc', 'pos', 'printer', 'other'];
-  return order
+  return ENDPOINT_ORDER
     .filter(k => byKind.has(k))
     .map(k => ({ kind: k, count: byKind.get(k)!.length, ids: byKind.get(k)! }));
 }
@@ -75,21 +72,13 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
   const isEndpoint = ENDPOINT_KINDS.includes(device.kind);
 
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
-  const links = useStore(s => s.doc.links);
-  const devices = useStore(s => s.doc.devices);
   const setFocus = useStore(s => s.focusDevice);
   const rf = useReactFlow();
 
-  const [expanded, setExpanded] = useState(true);
   const [favicon, setFavicon] = useState<string | null>(null);
   useEffect(() => {
     if (device.mgmtUrl) getFavicon(device.mgmtUrl).then(setFavicon);
   }, [device.mgmtUrl]);
-
-  const endpointGroups = useMemo(
-    () => (isHub && collapseEndpoints) ? groupEndpoints(devices, id, links) : [],
-    [devices, links, id, isHub, collapseEndpoints]
-  );
 
   const isOnline = device.liveStatus !== 'down';
   const statusColor = isOnline ? '#22C55E' : '#EF4444';
@@ -227,33 +216,57 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
       </div>
 
       {/* Endpoint groups (Connected Devices section) */}
-      {endpointGroups.length > 0 && (
-        <div style={{ borderTop: '1px solid #F1F5F9' }}>
-          <button
-            onClick={() => setExpanded(v => !v)}
-            style={{
-              width: '100%', padding: '10px 14px', border: 'none', background: 'transparent',
-              display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-              fontSize: 11, color: '#64748B', fontWeight: 600, textAlign: 'left',
-            }}
-          >
-            <span style={{ fontSize: 9 }}>{expanded ? '▼' : '▶'}</span>
-            <span>Connected Devices</span>
-            <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.7 }}>
-              {endpointGroups.reduce((a, g) => a + g.count, 0)}
-            </span>
-          </button>
-          {expanded && (
-            <div style={{ padding: '0 8px 8px' }}>
-              {endpointGroups.map(g => (
-                <EndpointChip key={g.kind} kind={g.kind} count={g.count} ids={g.ids} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {isHub && collapseEndpoints && <HubEndpoints hubId={id} />}
 
       <PortHandles device={device} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v0.55.0: «Connected Devices» — отдельный компонент с узкими подписками.
+// Раньше весь узел слушал doc.devices + doc.links целиком.
+
+function HubEndpoints({ hubId }: { hubId: string }) {
+  const [expanded, setExpanded] = useState(true);
+  // Только ссылки этого хаба (useShallow: новые массивы с теми же
+  // ссылками ре-рендера не вызывают).
+  const links = useStore(useShallow(
+    (s) => s.doc.links.filter(l => l.fromDeviceId === hubId || l.toDeviceId === hubId),
+  ));
+  const peerIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of links) set.add(l.fromDeviceId === hubId ? l.toDeviceId : l.fromDeviceId);
+    return set;
+  }, [links, hubId]);
+  const peers = useStore(useShallow(
+    (s) => s.doc.devices.filter(d => peerIds.has(d.id)),
+  ));
+  const endpointGroups = useMemo(() => groupPeerEndpoints(peers), [peers]);
+  if (endpointGroups.length === 0) return null;
+  return (
+    <div style={{ borderTop: '1px solid #F1F5F9' }}>
+      <button
+        onClick={() => setExpanded(v => !v)}
+        style={{
+          width: '100%', padding: '10px 14px', border: 'none', background: 'transparent',
+          display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+          fontSize: 11, color: '#64748B', fontWeight: 600, textAlign: 'left',
+        }}
+      >
+        <span style={{ fontSize: 9 }}>{expanded ? '▼' : '▶'}</span>
+        <span>Connected Devices</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.7 }}>
+          {endpointGroups.reduce((a, g) => a + g.count, 0)}
+        </span>
+      </button>
+      {expanded && (
+        <div style={{ padding: '0 8px 8px' }}>
+          {endpointGroups.map(g => (
+            <EndpointChip key={g.kind} kind={g.kind} count={g.count} ids={g.ids} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -316,11 +329,6 @@ function PortHandles({ device }: { device: Device }) {
 function EndpointChip({ kind, count, ids }: { kind: DeviceKind; count: number; ids: string[] }) {
   const meta = KIND_META[kind];
   const Icon = ICONS[kind];
-  // v0.47 — expanded endpoint list uses select (single click) + double click
-  // for focus, matching the main-card behaviour.
-  const setFocus  = useStore(s => s.focusDevice);
-  const selectDev = useStore(s => s.select);
-  const devices = useStore(s => s.doc.devices);
   const [open, setOpen] = useState(false);
 
   const label = ENDPOINT_LABEL[kind] || meta.label;
@@ -362,39 +370,45 @@ function EndpointChip({ kind, count, ids }: { kind: DeviceKind; count: number; i
       </button>
       {open && (
         <div style={{ margin: '4px 0 6px 30px', display: 'grid', gap: 2 }}>
-          {ids.map(devId => {
-            const d = devices.find(x => x.id === devId);
-            if (!d) return null;
-            const online = d.liveStatus !== 'down';
-            return (
-              <button
-                key={devId}
-                onClick={(e) => { e.stopPropagation(); selectDev(devId); }}
-                onDoubleClick={(e) => { e.stopPropagation(); setFocus(devId); }}
-                title="Клик — выбрать в правой панели · Двойной клик — крупный вид"
-                style={{
-                  padding: '3px 6px', border: 'none', background: 'transparent',
-                  borderRadius: 4, cursor: 'pointer', textAlign: 'left',
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  fontSize: 10, color: '#475569',
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#F1F5F9'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-              >
-                <span style={{
-                  width: 5, height: 5, borderRadius: '50%',
-                  background: online ? '#22C55E' : '#EF4444',
-                }} />
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {d.name}
-                </span>
-                {d.ip && <span style={{ fontFamily: 'ui-monospace, monospace', opacity: 0.7 }}>{d.ip}</span>}
-              </button>
-            );
-          })}
+          {ids.map(devId => <EndpointRow key={devId} devId={devId} />)}
         </div>
       )}
     </div>
+  );
+}
+
+// v0.55.0: строка endpoint'а подписана только на СВОЁ устройство по id.
+function EndpointRow({ devId }: { devId: string }) {
+  // v0.47 — expanded endpoint list uses select (single click) + double click
+  // for focus, matching the main-card behaviour.
+  const setFocus  = useStore(s => s.focusDevice);
+  const selectDev = useStore(s => s.select);
+  const d = useStore(s => s.doc.devices.find(x => x.id === devId));
+  if (!d) return null;
+  const online = d.liveStatus !== 'down';
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); selectDev(devId); }}
+      onDoubleClick={(e) => { e.stopPropagation(); setFocus(devId); }}
+      title="Клик — выбрать в правой панели · Двойной клик — крупный вид"
+      style={{
+        padding: '3px 6px', border: 'none', background: 'transparent',
+        borderRadius: 4, cursor: 'pointer', textAlign: 'left',
+        display: 'flex', alignItems: 'center', gap: 5,
+        fontSize: 10, color: '#475569',
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#F1F5F9'; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+    >
+      <span style={{
+        width: 5, height: 5, borderRadius: '50%',
+        background: online ? '#22C55E' : '#EF4444',
+      }} />
+      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {d.name}
+      </span>
+      {d.ip && <span style={{ fontFamily: 'ui-monospace, monospace', opacity: 0.7 }}>{d.ip}</span>}
+    </button>
   );
 }
 
@@ -406,5 +420,3 @@ const ENDPOINT_LABEL: Partial<Record<DeviceKind, string>> = {
   pos: 'POS Terminals',
   printer: 'Printers',
 };
-
-

@@ -5,6 +5,10 @@
  *            нажатие «Из Vault»/«В Vault» на заблокированном хранилище сразу
  *            спрашивает мастер-пароль и продолжает действие, без похода в
  *            другое место.
+ * v0.55.0 — пикер показывает порт и логин (иначе две записи «MikroTik SSH ·
+ *            192.168.11.1» с портом и без неразличимы); удаление записи
+ *            прямо из пикера; кнопка «Открыть Vault Studio» для полного
+ *            управления; порт попадает в имя новых записей.
  *
  * Записи категоризируются тегами: для чего (`ssh` / `snmp` / `api`), какой
  * службы (`mikrotik ssh`, `snmp community`, …), хост в `url`, привязка к
@@ -13,9 +17,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { alertDialog } from './Modal';
+import { alertDialog, confirmDialog } from './Modal';
 import {
-  vaultList, vaultGet, vaultUpsert, vaultStatus, vaultUnlock,
+  vaultList, vaultGet, vaultUpsert, vaultStatus, vaultUnlock, vaultDelete,
   type VaultItemMeta,
 } from './vaultClient';
 
@@ -57,12 +61,30 @@ const IconDown = ({ size = 11 }: { size?: number }) => (
     <path d="M12 4v12M6 10l6 6 6-6M4 20h16" />
   </svg>
 );
+const IconTrash = ({ size = 12 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l1 13h9l1-13" />
+    <path d="M10 11v6M14 11v6" />
+  </svg>
+);
 
 const btnStyle: React.CSSProperties = {
   background: '#F5F3FF', border: '1px solid #C4B5FD', color: '#5B21B6',
   borderRadius: 6, padding: '3px 8px', fontSize: 10, fontWeight: 600,
   cursor: 'pointer', whiteSpace: 'nowrap',
   display: 'inline-flex', alignItems: 'center', gap: 5,
+};
+
+const trashBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: 'none', borderRadius: 6,
+  color: '#CBD5E1', cursor: 'pointer', padding: 6, flexShrink: 0,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+
+const studioLinkStyle: React.CSSProperties = {
+  background: 'transparent', border: 'none', color: '#5B21B6',
+  fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -210,7 +232,11 @@ async function saveToVault(props: Props) {
       extraFields[f.key] = props.values[f.key];
     }
   }
-  const name = `${props.serviceLabel} · ${props.host || '(хост не указан)'}`;
+  // v0.55.0: порт — в имя записи, иначе «с портом» и «без порта» неразличимы.
+  const hostPart = props.host || '(хост не указан)';
+  const portVal = (props.values['port'] || '').trim();
+  const portPart = props.host && portVal ? `:${portVal}` : '';
+  const name = `${props.serviceLabel} · ${hostPart}${portPart}`;
   const res = await vaultUpsert({
     name,
     username,
@@ -233,6 +259,10 @@ async function saveToVault(props: Props) {
 function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
   const [items, setItems] = useState<VaultItemMeta[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // v0.55.0: порт/логин из расшифрованных записей — мета их не содержит,
+  // а без них одинаковые записи неразличимы. Хранилище уже разблокировано
+  // (requireUnlocked), так что догружаем первые 30 релевантных записей.
+  const [extra, setExtra] = useState<Record<string, { port?: string; username?: string }>>({});
 
   useEffect(() => {
     let alive = true;
@@ -249,7 +279,25 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
                        || it.name.toLowerCase().includes(hostLc)))
         || (props.deviceId && (it.boundDeviceIds || []).includes(props.deviceId))
       );
-      setItems(relevant.length > 0 ? relevant : all);
+      const shown = relevant.length > 0 ? relevant : all;
+      setItems(shown);
+      const toEnrich = shown.slice(0, 30);
+      if (toEnrich.length === 0) return;
+      const pairs = await Promise.all(toEnrich.map(async (it) => {
+        try {
+          const full = await vaultGet(it.id);
+          const f = full?.item;
+          if (!f) return null;
+          const port = f.fields?.['port'] || '';
+          const username = f.username || '';
+          if (!port && !username) return null;
+          return [it.id, { port, username }] as const;
+        } catch { return null; }
+      }));
+      if (!alive) return;
+      const m: Record<string, { port?: string; username?: string }> = {};
+      for (const p of pairs) if (p) m[p[0]] = p[1];
+      setExtra(m);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -284,6 +332,18 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
     onClose();
   };
 
+  const removeItem = async (id: string, name: string) => {
+    if (!await confirmDialog('Удалить запись Vault?',
+        `«${name}» будет удалена безвозвратно.`, { danger: true, okText: 'Удалить' })) return;
+    const r = await vaultDelete(id).catch(() => null);
+    if (r?.ok) {
+      setItems(prev => (prev || []).filter(x => x.id !== id));
+      setExtra(prev => { const n = { ...prev }; delete n[id]; return n; });
+    } else {
+      await alertDialog('Не удалось удалить', 'Хранилище отклонило удаление (возможно, заблокировалось).');
+    }
+  };
+
   return createPortal(
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9600,
@@ -291,7 +351,7 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onClick={onClose}>
       <div style={{
-        width: 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+        width: 460, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
         background: '#fff', borderRadius: 12, boxShadow: '0 24px 64px rgba(15,23,42,0.35)',
         overflow: 'hidden',
       }} onClick={e => e.stopPropagation()}>
@@ -315,35 +375,54 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
               В Vault пока нет записей. Заполните поля вручную и нажмите «В Vault».
             </div>
           )}
-          {(items || []).map(it => (
-            <div key={it.id}
-                 onClick={() => busyId == null && pick(it.id)}
-                 style={{
-                   padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
-                   display: 'flex', alignItems: 'center', gap: 8,
-                   opacity: busyId === it.id ? 0.5 : 1,
-                 }}
-                 onMouseOver={e => { (e.currentTarget as HTMLDivElement).style.background = '#F1F5F9'; }}
-                 onMouseOut={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}>
-              <span style={{ width: 22, height: 22, borderRadius: 6, background: '#EDE9FE',
-                             color: '#5B21B6', display: 'flex', alignItems: 'center',
-                             justifyContent: 'center', flexShrink: 0 }}>
-                <IconVault size={12} />
-              </span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#0F172A',
-                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {it.name}
+          {(items || []).map(it => {
+            const ex = extra[it.id];
+            const subParts = [...(it.tags || [])];
+            if (it.url) subParts.push(it.url + (ex?.port ? `:${ex.port}` : ''));
+            else if (ex?.port) subParts.push(`:${ex.port}`);
+            if (ex?.username) subParts.push(ex.username);
+            return (
+              <div key={it.id}
+                   onClick={() => busyId == null && pick(it.id)}
+                   style={{
+                     padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                     display: 'flex', alignItems: 'center', gap: 8,
+                     opacity: busyId === it.id ? 0.5 : 1,
+                   }}
+                   onMouseOver={e => { (e.currentTarget as HTMLDivElement).style.background = '#F1F5F9'; }}
+                   onMouseOut={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, background: '#EDE9FE',
+                               color: '#5B21B6', display: 'flex', alignItems: 'center',
+                               justifyContent: 'center', flexShrink: 0 }}>
+                  <IconVault size={12} />
                 </span>
-                <span style={{ display: 'block', fontSize: 10, color: '#64748B',
-                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {(it.tags || []).join(' · ')}{it.url ? ` · ${it.url}` : ''}
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#0F172A',
+                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {it.name}
+                  </span>
+                  <span style={{ display: 'block', fontSize: 10, color: '#64748B',
+                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {subParts.join(' · ')}
+                  </span>
                 </span>
-              </span>
-            </div>
-          ))}
+                <button type="button" title="Удалить запись из Vault"
+                        onClick={e => { e.stopPropagation(); void removeItem(it.id, it.name); }}
+                        style={trashBtnStyle}
+                        onMouseOver={e => { (e.currentTarget as HTMLButtonElement).style.color = '#DC2626'; (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2'; }}
+                        onMouseOut={e => { (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1'; (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                  <IconTrash />
+                </button>
+              </div>
+            );
+          })}
         </div>
-        <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB', textAlign: 'right' }}>
+        <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <button type="button" style={studioLinkStyle}
+                  onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-vault-studio')); }}>
+            Открыть Vault Studio — изменить записи…
+          </button>
           <button onClick={onClose} style={{
             background: '#fff', border: '1px solid #D1D5DB', borderRadius: 6,
             padding: '5px 14px', fontSize: 12, cursor: 'pointer',

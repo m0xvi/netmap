@@ -61,11 +61,11 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
 
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div style={sidebar}>
-            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="•" label="Общие" />
-            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="◌" label="Мониторинг" />
-            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="!" label="Уведомления" />
-            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="□" label="Безопасность" />
-            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="i" label="О программе" />
+            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  label="Общие" />
+            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  label="Мониторинг" />
+            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   label="Уведомления" />
+            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} label="Безопасность" />
+            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    label="О программе" />
           </div>
           <div style={content}>
             {tab === 'general' && <GeneralTab />}
@@ -560,8 +560,8 @@ function AboutTab() {
 // ------------------------------------------------------------------------
 // Reusable UI atoms
 // ------------------------------------------------------------------------
-function TabBtn({ active, onClick, icon, label }: {
-  active: boolean; onClick: () => void; icon: string; label: string;
+function TabBtn({ active, onClick, label }: {
+  active: boolean; onClick: () => void; label: string;
 }) {
   return (
     <button onClick={onClick} style={{
@@ -574,7 +574,6 @@ function TabBtn({ active, onClick, icon, label }: {
       cursor: 'pointer', textAlign: 'left',
       width: '100%',
     }}>
-      <span style={{ width: 18, textAlign: 'center' }}>{icon}</span>
       {label}
     </button>
   );

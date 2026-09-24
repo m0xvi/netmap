@@ -6,11 +6,24 @@ import { useStore } from './store';
 
 export type LayoutDirection = 'TB' | 'LR';
 
+// v0.55.0: раскладка знала только legacy-размеры карточек. В modern-виде
+// хабы (300px + секция endpoint'ов) и листья (180×~50) другие — под них
+// отдельные размеры, иначе налезания. Кэш добавочной высоты хабов
+// (секция Connected Devices) пересчитывается в computeAutoLayout.
+let modernViewActive = false;
+const modernHubExtra = new Map<string, number>();
+const MODERN_ENDPOINT_KINDS = new Set(['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other']);
+
 /**
  * Approximate rendered size of a node depending on its kind and display mode.
  * The autolayout needs correct sizes so nodes don't overlap.
  */
 function nodeSize(d: Device): { width: number; height: number } {
+  if (modernViewActive) {
+    if (MODERN_ENDPOINT_KINDS.has(d.kind)) return { width: 190, height: 60 };
+    // Хаб: шапка ~150 + секция endpoint'ов (если есть).
+    return { width: 300, height: 150 + (modernHubExtra.get(d.id) || 0) };
+  }
   const expanded = d.display === 'rack';
   // v0.28: sizes bumped to match new bigger port slots (22×20) and richer cards.
   if (d.kind === 'switch') {
@@ -78,9 +91,55 @@ export function computeAutoLayout(doc: NetMapDoc, opts: LayoutOptions = {}): Lay
     doc.devices.filter(d => d.kind === 'server' && d.display === 'rack').map(d => d.id)
   );
 
+  // v0.55.0: modern-вид — свои размеры (см. nodeSize) + свёрнутые endpoint'ы
+  // не участвуют в раскладке (на канвасе их нет, они внутри хабов).
+  // Зеркалит hideAsEndpoint из Canvas.tsx: modern + collapse + висит на
+  // свитче/роутере. Legacy-путь не тронут.
+  let collapseActive = false;
+  try {
+    const st = useStore.getState() as any;
+    modernViewActive = st.viewMode === 'modern';
+    collapseActive = modernViewActive && !!st.collapseEndpoints;
+  } catch { modernViewActive = false; }
+  modernHubExtra.clear();
+  const hubIds = new Set(
+    doc.devices.filter(d => d.kind === 'switch' || d.kind === 'router').map(d => d.id)
+  );
+  if (modernViewActive && collapseActive) {
+    const peers = new Map<string, Map<string, string[]>>();
+    const byId = new Map(doc.devices.map(d => [d.id, d]));
+    for (const l of doc.links || []) {
+      const a = byId.get(l.fromDeviceId), b = byId.get(l.toDeviceId);
+      if (!a || !b) continue;
+      const addPeer = (hub: Device, ep: Device) => {
+        if (MODERN_ENDPOINT_KINDS.has(hub.kind) || !MODERN_ENDPOINT_KINDS.has(ep.kind)) return;
+        let m = peers.get(hub.id);
+        if (!m) { m = new Map(); peers.set(hub.id, m); }
+        const arr = m.get(ep.kind) || [];
+        arr.push(ep.id);
+        m.set(ep.kind, arr);
+      };
+      addPeer(a, b);
+      addPeer(b, a);
+    }
+    // Шапка секции 44 + чип вида 32 + строки (до 10 видимых) по 20.
+    for (const [hubId, m] of peers) {
+      let total = 0;
+      for (const arr of m.values()) total += arr.length;
+      if (total > 0) modernHubExtra.set(hubId, 44 + m.size * 32 + Math.min(total, 10) * 20);
+    }
+  }
+
   const relevantDevices = doc.devices.filter(d => {
     // Hide VMs of expanded servers
     if (d.kind === 'vm' && d.hostDeviceId && expandedServerIds.has(d.hostDeviceId)) return false;
+    if (collapseActive && MODERN_ENDPOINT_KINDS.has(d.kind)) {
+      const onHub = (doc.links || []).some(l =>
+        (l.fromDeviceId === d.id && hubIds.has(l.toDeviceId)) ||
+        (l.toDeviceId === d.id && hubIds.has(l.fromDeviceId))
+      );
+      if (onHub) return false;
+    }
     return true;
   });
 
@@ -361,14 +420,34 @@ function layoutFlat(
       }
     }
 
+    // v0.55.0: пачки endpoint'ов центрировались под якорями без учёта
+    // соседей — на больших картах налезали друг на друга по горизонтали.
+    // Раскладываем ВСЕ якоря (и с пачками, и без) последовательно слева
+    // направо: слот = max(ширина якоря, ширина пачки) + зазор. Порядок —
+    // по dagre-X, чтобы не плодить пересечения связей.
+    const devById = new Map(devices.map(x => [x.id, x]));
+    const ordered = Array.from(anchorX.keys())
+      .map(upId => {
+        const endpoints = byUpstream.get(upId) || [];
+        const cols = Math.max(1, Math.ceil(endpoints.length / MAX_PER_COLUMN));
+        let leafW = 0;
+        for (const d of endpoints) leafW = Math.max(leafW, nodeSize(d).width);
+        const anchorDev = devById.get(upId);
+        const anchorW = anchorDev ? nodeSize(anchorDev).width : 260;
+        const slotW = Math.max(anchorW, endpoints.length > 0 ? (cols - 1) * ENDPOINT_COL_W + leafW : 0);
+        return { upId, endpoints, cols, slotW, dagX: anchorX.get(upId) ?? 0 };
+      })
+      .sort((a, b) => a.dagX - b.dagX);
+    let packCursor = ordered.length > 0
+      ? Math.max(0, Math.min(...ordered.map(o => o.dagX)) - ordered[0].slotW / 2)
+      : 0;
     // For each upstream switch, position its endpoints starting under it
-    for (const [upId, endpoints] of byUpstream.entries()) {
-      const centreX = anchorX.get(upId)!;
-      const cols = Math.ceil(endpoints.length / MAX_PER_COLUMN);
+    for (const o of ordered) {
+      const centreX = packCursor + o.slotW / 2;
+      anchorX.set(o.upId, centreX);
       // Center the sub-column bundle horizontally under the switch
-      const totalW = (cols - 1) * ENDPOINT_COL_W;
-      const startX = centreX - totalW / 2;
-      endpoints.forEach((d, i) => {
+      const startX = centreX - ((o.cols - 1) * ENDPOINT_COL_W) / 2;
+      o.endpoints.forEach((d, i) => {
         const col = Math.floor(i / MAX_PER_COLUMN);
         const row = i % MAX_PER_COLUMN;
         const s = nodeSize(d);
@@ -376,6 +455,7 @@ function layoutFlat(
         const y = LEAVES_START_Y + row * ENDPOINT_ROW_H;
         accessPositions.set(d.id, { x, y });
       });
+      packCursor += o.slotW + nodeSep;
     }
     // v0.43.5: orphans (no known upstream) — used to be a single 4-row
     // vertical strip that stretched to 10 000 px+ for 200 devices from a
@@ -385,9 +465,9 @@ function layoutFlat(
     //   - The bundle starts either to the right of the last anchor OR at
     //     x=0 if there are none, so it doesn't shift the whole scene.
     if (orphans.length > 0) {
-      const anchorXs = Array.from(anchorX.values());
-      const rightmost = anchorXs.length > 0 ? Math.max(...anchorXs) : 0;
-      const startX = anchorXs.length > 0 ? rightmost + ENDPOINT_COL_W : 0;
+      // v0.55.0: сироты — после последнего слота якорей (packCursor),
+      // иначе залезали бы внутрь широких пачек.
+      const startX = packCursor;
 
       // Grid columns: user setting from store, or auto ~sqrt(N) capped at 20.
       let cols: number;
@@ -428,7 +508,9 @@ function layoutFlat(
       y = starPos.y;
     } else if (useStar && isAnchor(d) && axis === 'y') {
       // Anchors always sit on the TOP band regardless of their inferred layer.
-      x = n.x - s.width / 2;
+      // v0.55.0: перепакованный X из слотов (без налезания пачек).
+      const ax = anchorX.get(d.id);
+      x = (ax ?? n.x) - s.width / 2;
       y = 0;
     } else if (axis === 'y') {
       x = n.x - s.width / 2;

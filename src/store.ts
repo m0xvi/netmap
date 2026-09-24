@@ -1376,7 +1376,9 @@ export const useStore = create<State>((set, get) => ({
           mac: dev.mac,
           location: dev.location,
           ports: Array.isArray(dev.ports) && dev.ports.length ? (dev.ports as any) : [
-            { id: 'eth1', label: 'eth1', type: 'RJ45' as any },
+            // v0.55.0: VLAN из discovery — в порт, иначе smart-раскладка не видит VLAN.
+            { id: 'eth1', label: 'eth1', type: 'RJ45' as any,
+              ...((dev as any).vlan != null ? { vlan: (dev as any).vlan } : {}) },
           ],
           tags: Array.isArray(dev.tags) ? [...dev.tags, 'discovered'] : ['discovered'],
           x: 40 + col * 220,
