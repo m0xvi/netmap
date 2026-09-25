@@ -193,6 +193,8 @@ export function AppMenu() {
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
   const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
+  const toggleColorLinksBySubnet = useStore(s => s.toggleColorLinksBySubnet);
 
   const [open, setOpen] = useState(false);
   const [mikrotikOpen, setMikrotikOpen] = useState(false);
@@ -408,6 +410,12 @@ export function AppMenu() {
               onClick={() => { toggleCollapseEndpoints(); }}
             />
           )}
+          <MenuItem
+            checked={colorLinksBySubnet}
+            label="Красить связи по подсетям"
+            sub={colorLinksBySubnet ? 'вкл' : 'выкл'}
+            onClick={() => { toggleColorLinksBySubnet(); }}
+          />
           <MenuItem checked={focusRelated}
                     label="Фокус связанных при hover"
                     sub={focusRelated ? 'вкл' : 'выкл'}

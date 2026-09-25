@@ -261,6 +261,8 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
   const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
+  const toggleColorLinksBySubnet = useStore(s => s.toggleColorLinksBySubnet);
   const sidebarOpen = useStore(s => s.sidebarOpen);
   const toggleSidebar = useStore(s => s.toggleSidebar);
   const rightPanelOpen = useStore(s => s.rightPanelOpen);
@@ -283,6 +285,8 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
         <Item checked={collapseEndpoints} label="Сворачивать endpoint'ы" shortcut=""
               onClick={() => { toggleCollapseEndpoints(); onClose(); }} />
       )}
+      <Item checked={colorLinksBySubnet} label="Красить связи по подсетям" shortcut=""
+            onClick={() => { toggleColorLinksBySubnet(); onClose(); }} />
       <Separator />
       <Section>Панели</Section>
       <Item checked={sidebarOpen} label="Боковая панель" shortcut=""

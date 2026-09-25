@@ -10,6 +10,7 @@ import { BUILT_IN_TEMPLATES, loadCustomTemplates, makeDeviceFromTemplate } from 
 import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
 import { KIND_META } from './icons';
+import { ENDPOINT_KINDS } from './ModernDeviceNode';
 
 import '@xyflow/react/dist/style.css';
 import { useStore } from './store';
@@ -77,6 +78,8 @@ function CanvasInner() {
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
   // v0.57: ступень семантического зума — влияет на видимость оконечных и рёбра.
   const zoomBand = useStore(s => s.zoomBand);
+  // v0.60: раскраска связей по подсетям.
+  const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
   const select = useStore(s => s.select);
   const selectGroup = useStore(s => s.selectGroup);
   const setPosition = useStore(s => s.setPosition);
@@ -140,10 +143,12 @@ function CanvasInner() {
   // v0.58: ориентиры дальней ступени — пилюли в ЭКРАННЫХ координатах
   // (читаются при любом зуме): ядро, группы, серверы. Список стабилен
   // между ре-рендерами; позиции пилюль двигает onMove императивно.
+  // v0.60: пилюли для ВСЕХ хабов (не только ядра/серверов) + tip
+  // с раскладкой оконечных по типам.
   const farMarks = useMemo(() => {
     type Mark = {
       id: string; ax: number; ay: number; name: string;
-      color: string; core: boolean; group: boolean; count: number;
+      color: string; core: boolean; group: boolean; count: number; tip: string;
     };
     if (zoomBand !== 'far') return [] as Mark[];
     const groups = doc.groups || [];
@@ -186,19 +191,42 @@ function CanvasInner() {
           epCount.set(b.id, (epCount.get(b.id) || 0) + 1);
       }
     }
+    // v0.60: та же агрегация по видам — для тултипа «PC 20 · CCTV 5».
+    const epKinds = new Map<string, Map<DeviceKind, number>>();
+    for (const l of doc.links) {
+      const bump = (hubId: string, peerId: string) => {
+        const peer = devById.get(peerId);
+        if (!peer || (!ENDPOINT_KINDS.includes(peer.kind) && peer.kind !== 'vm')) return;
+        let m = epKinds.get(hubId);
+        if (!m) { m = new Map(); epKinds.set(hubId, m); }
+        m.set(peer.kind, (m.get(peer.kind) || 0) + 1);
+      };
+      bump(l.fromDeviceId, l.toDeviceId);
+      bump(l.toDeviceId, l.fromDeviceId);
+    }
+    const breakdownOf = (hubId: string): string => {
+      const m = epKinds.get(hubId);
+      if (!m || m.size === 0) return '';
+      return [...m.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([k, n]) => `${KIND_META[k]?.label || k} ${n}`)
+        .join(' · ');
+    };
     const cores: Mark[] = [];
-    const srvs: Mark[] = [];
+    const hubs: Mark[] = [];
     for (const d of doc.devices) {
       if (d.groupId && underCollapsed(d.groupId)) continue;
       if (!isDeviceVisible(d)) continue;
+      // v0.60: ориентир — любой хаб (оконечные в far всё равно скрыты).
+      if (ENDPOINT_KINDS.includes(d.kind)) continue;
       const isCore = inferLayer(d) === 'core';
-      const isSrv = d.kind === 'server' || d.kind === 'vps';
-      if (!isCore && !isSrv) continue;
       const { ax, ay } = absXY(d.x, d.y, d.groupId);
-      (isCore ? cores : srvs).push({
+      (isCore ? cores : hubs).push({
         id: d.id, ax, ay, name: d.name,
         color: KIND_META[d.kind]?.color || '#64748B',
         core: isCore, group: false, count: epCount.get(d.id) || 0,
+        tip: breakdownOf(d.id),
       });
     }
     const gm: Mark[] = [];
@@ -210,11 +238,25 @@ function CanvasInner() {
       gm.push({
         id: g.id, ax: ax + (g.width || 200) / 2, ay, name: g.name,
         color: g.color || '#0D9488', core: false, group: true,
-        count: childCount.get(g.id) || 0,
+        count: childCount.get(g.id) || 0, tip: '',
       });
     }
-    return [...cores, ...gm, ...srvs].slice(0, 40);
+    return [...cores, ...gm, ...hubs].slice(0, 60);
   }, [zoomBand, doc.devices, doc.groups, doc.links, isDeviceVisible]);
+
+  // v0.60: стабильное назначение цветов подсетям (сортировка → индекс
+  // в палитре). Один источник правды для рёбер и легенды.
+  const subnetPalette = useMemo(() => {
+    const keys = new Set<string>();
+    const devById = new Map(doc.devices.map(d => [d.id, d]));
+    for (const l of doc.links) {
+      const k = linkSubnetKey(l, devById);
+      if (k) keys.add(k);
+    }
+    const map = new Map<string, string>();
+    [...keys].sort().forEach((k, i) => map.set(k, SUBNET_PALETTE[i % SUBNET_PALETTE.length]));
+    return map;
+  }, [doc.devices, doc.links]);
 
   // ------- Build nodes: groups first (React Flow requires parents before children) -------
   const initialNodes: Node[] = useMemo(() => {
@@ -491,8 +533,12 @@ function CanvasInner() {
             bundleTotal: bundleIdx.get(l.id)?.total ?? 1,
           },
           style: {
-            // v0.42: speed-based color takes priority in modern view
-            stroke: (viewMode === 'modern' && speedColor) ? speedColor : baseColor,
+            // v0.42: speed-based color takes priority in modern view.
+            // v0.60: раскраска по подсетям — поверх скорости и кабеля
+            // (ручной l.color главнее всего; null → дефолтная ветка).
+            stroke: (colorLinksBySubnet && !l.color
+              ? subnetPalette.get(linkSubnetKey(l, deviceById) || '') : undefined)
+              || ((viewMode === 'modern' && speedColor) ? speedColor : baseColor),
             strokeWidth: speedWidth != null ? speedWidth
                        : isInterGroup ? baseWidth + 0.5 : baseWidth,
             strokeDasharray: l.cable === 'wifi' ? '4 4' : undefined,
@@ -500,7 +546,8 @@ function CanvasInner() {
         } as Edge;
       })
       .filter(Boolean) as Edge[];
-   }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand]);
+   }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
+       colorLinksBySubnet, subnetPalette]);
 
   // Additional "host" edges for VMs (skip VMs already rendered inside expanded server card)
   const hostEdges: Edge[] = useMemo(() => {
@@ -1602,6 +1649,7 @@ function CanvasInner() {
     <ZoomBandChip />
     <FarLandmarks marks={farMarks} moveRef={landmarkMoveRef} />
     <EndpointsFoldedChip />
+    <SubnetLegend palette={subnetPalette} />
 
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
         строка-вопрос с названием группы, «Да», «Отмена». */}
@@ -1702,6 +1750,47 @@ function ZoomBandChip() {
   );
 }
 
+// v0.60: легенда цветов подсетей (справа сверху, сворачивается).
+// Палитра приходит пропсом — тот же объект, что красит рёбра.
+function SubnetLegend({ palette }: { palette: Map<string, string> }) {
+  const colorOn = useStore(s => s.colorLinksBySubnet);
+  const [open, setOpen] = useState(true);
+  const entries = useMemo(
+    () => [...palette.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+    [palette]);
+  if (!colorOn || entries.length === 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 12, right: 12, zIndex: 30,
+      background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
+      fontSize: 11, color: '#334155', maxWidth: 220,
+    }}>
+      <button onClick={() => setOpen(o => !o)} title="Легенда цветов подсетей"
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 10px', border: 'none', background: 'transparent',
+          cursor: 'pointer', fontSize: 11, fontWeight: 800, color: '#0F172A',
+        }}>
+        <span style={{ fontSize: 9 }}>{open ? '▼' : '▶'}</span>
+        <span>Подсети</span>
+        <span style={{ marginLeft: 'auto', color: '#64748B' }}>{entries.length}</span>
+      </button>
+      {open && (
+        <div style={{ maxHeight: '32vh', overflowY: 'auto', padding: '0 10px 8px', display: 'grid', gap: 3 }}>
+          {entries.map(([k, c]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flexShrink: 0 }} />
+              <span style={{ fontFamily: 'ui-monospace,monospace', fontSize: 11 }}>{k}</span>
+            </div>
+          ))}
+          <div style={{ color: '#94A3B8', fontSize: 10, marginTop: 2 }}>серые — между подсетями</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // v0.59: синяя кнопка для чипов на синем фоне (chipBtn — янтарная).
 const chipBtnBlue: React.CSSProperties = {
   background: '#2563EB', border: '1px solid #2563EB', color: '#FFFFFF',
@@ -1753,6 +1842,34 @@ function EndpointsFoldedChip() {
   );
 }
 
+// v0.60: раскраска связей по подсетям (/24).
+const SUBNET_PALETTE = [
+  '#2563EB', '#0D9488', '#7C3AED', '#DB2777', '#EA580C', '#16A34A',
+  '#CA8A04', '#0891B2', '#4F46E5', '#BE123C', '#65A30D', '#9333EA',
+];
+function subnet24(ip?: string | null): string | null {
+  if (!ip) return null;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/.exec(ip.trim());
+  if (!m) return null;
+  return `${m[1]}.${m[2]}.${m[3]}.0/24`;
+}
+// Подсеть линка: сторона оконечного в приоритете (у свитчей часто mgmt-IP
+// из другой подсети). Разные подсети / неизвестное → null (цвет кабеля).
+function linkSubnetKey(
+  l: { fromDeviceId: string; toDeviceId: string },
+  devById: Map<string, Device>,
+): string | null {
+  const a = devById.get(l.fromDeviceId);
+  const b = devById.get(l.toDeviceId);
+  if (!a || !b) return null;
+  const sa = subnet24(a.ip), sb = subnet24(b.ip);
+  const aEp = ENDPOINT_KINDS.includes(a.kind), bEp = ENDPOINT_KINDS.includes(b.kind);
+  if (aEp && !bEp) return sa;
+  if (bEp && !aEp) return sb;
+  if (sa && sb && sa === sb) return sa;
+  return null;
+}
+
 // v0.58: двигальщик пилюль — проекция мировых координат в экранные.
 type LandmarkMoveFn = (v: { x: number; y: number; zoom: number }) => void;
 
@@ -1763,7 +1880,7 @@ type LandmarkMoveFn = (v: { x: number; y: number; zoom: number }) => void;
 function FarLandmarks({ marks, moveRef }: {
   marks: Array<{
     id: string; ax: number; ay: number; name: string;
-    color: string; core: boolean; group: boolean; count: number;
+    color: string; core: boolean; group: boolean; count: number; tip: string;
   }>;
   moveRef: { current: LandmarkMoveFn | null };
 }) {
@@ -1775,6 +1892,9 @@ function FarLandmarks({ marks, moveRef }: {
       const el = boxRef.current;
       if (!el) return;
       const W = el.clientWidth, H = el.clientHeight;
+      // v0.60: антиперекрытие — пилюли идут в порядке приоритета
+      // (ядро → группы → хабы), налезшие на старших прячем.
+      const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
       for (const m of marks) {
         const node = pillRefs.current.get(m.id);
         if (!node) continue;
@@ -1784,6 +1904,13 @@ function FarLandmarks({ marks, moveRef }: {
           if (node.style.display !== 'none') node.style.display = 'none';
           continue;
         }
+        const w = Math.min(230, 44 + m.name.length * 7.5 + (m.count > 0 ? 30 : 0));
+        const x0 = px - w / 2, x1 = px + w / 2, y1 = py - 8, y0 = y1 - 30;
+        if (placed.some(b => x0 < b.x1 && x1 > b.x0 && y0 < b.y1 && y1 > b.y0)) {
+          if (node.style.display !== 'none') node.style.display = 'none';
+          continue;
+        }
+        placed.push({ x0, y0, x1, y1 });
         if (node.style.display === 'none') node.style.display = 'flex';
         node.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) translate(-50%,-135%)`;
       }
@@ -1804,7 +1931,9 @@ function FarLandmarks({ marks, moveRef }: {
           onClick={() => {
             try { rf.fitView({ nodes: [{ id: m.id }], padding: 0.4, maxZoom: 1.1, duration: 300 }); } catch {}
           }}
-          title={m.group ? `Группа «${m.name}» — клик: приблизиться` : `${m.name} — клик: приблизиться`}
+          title={m.group
+            ? `Группа «${m.name}» (${m.count}) — клик: приблизиться`
+            : `${m.name}${m.tip ? ` — ${m.tip}` : ' — нет оконечных'} (клик: приблизиться)`}
           style={{
             position: 'absolute', left: 0, top: 0,
             display: 'flex', alignItems: 'center', gap: 6,

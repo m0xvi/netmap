@@ -48,8 +48,8 @@ interface Props {
 }
 
 /** Kinds that qualify as "endpoints" — get folded into their upstream hub
- *  when store.collapseEndpoints is true. */
-const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+ *  when store.collapseEndpoints is true. Exported for Canvas (v0.60). */
+export const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
 
 /** Kinds that render as "hub cards" (bigger, with optional endpoint list) */
 const HUB_KINDS: DeviceKind[] = ['router', 'switch', 'patchpanel', 'server', 'cloud', 'vps', 'vm'];
@@ -458,6 +458,10 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
     <div
       style={{
         background: 'white',
+        // v0.60: маяк крупнее на треть — RF меряет немасштабированный бокс,
+        // рёбра аккуратно уходят под карточку (для обзора это ок).
+        transform: 'scale(1.3)',
+        transformOrigin: 'center',
         border: isCore ? '2.5px solid #2563EB' : `1.5px solid ${selected ? meta.color : '#CBD5E1'}`,
         borderRadius: 18,
         minWidth: 300, maxWidth: 340,

@@ -275,6 +275,13 @@ interface State {
   toggleCollapseEndpoints: () => void;
 
   /**
+   * v0.60: красить связи по подсети (/24). Межподсетевые и неизвестные
+   * остаются цветом кабеля/скорости. Персистится (LS), по умолчанию вкл.
+   */
+  colorLinksBySubnet: boolean;
+  toggleColorLinksBySubnet: () => void;
+
+  /**
    * v0.57: семантический зум — ступень детализации карты по текущему зуму
    * канваса ('near' ≥0.7, 'mid' 0.35–0.7, 'far' <0.35, с гистерезисом).
    * Пишет только Canvas.onMove и только при смене ступени — ре-рендеров
@@ -1021,6 +1028,15 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.collapseEndpoints;
     try { localStorage.setItem('netmap:collapseEndpoints', next ? '1' : '0'); } catch {}
     return { collapseEndpoints: next };
+  }),
+  // v0.60: раскраска связей по подсетям (см. выше). Отсутствие ключа = вкл.
+  colorLinksBySubnet: (typeof window !== 'undefined'
+    ? (localStorage.getItem('netmap:colorLinksBySubnet') !== '0')
+    : true),
+  toggleColorLinksBySubnet: () => set(s => {
+    const next = !s.colorLinksBySubnet;
+    try { localStorage.setItem('netmap:colorLinksBySubnet', next ? '1' : '0'); } catch {}
+    return { colorLinksBySubnet: next };
   }),
   // v0.57: см. zoomBand выше. Запись только при реальной смене ступени.
   zoomBand: 'near',
