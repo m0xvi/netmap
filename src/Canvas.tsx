@@ -1761,7 +1761,7 @@ function SubnetLegend({ palette }: { palette: Map<string, string> }) {
   if (!colorOn || entries.length === 0) return null;
   return (
     <div data-netmap-overlay="true" style={{
-      position: 'absolute', top: 12, right: 12, zIndex: 30,
+      position: 'absolute', top: 12, left: 12, zIndex: 30,
       background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10,
       boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
       fontSize: 11, color: '#334155', maxWidth: 220,

@@ -267,6 +267,8 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   const toggleSidebar = useStore(s => s.toggleSidebar);
   const rightPanelOpen = useStore(s => s.rightPanelOpen);
   const toggleRightPanel = useStore(s => s.toggleRightPanel);
+  const toolsStripOpen = useStore(s => s.toolsStripOpen);
+  const toggleToolsStrip = useStore(s => s.toggleToolsStrip);
   const focusRelated = useStore(s => s.focusRelated);
   const toggleFocusRelated = useStore(s => s.toggleFocusRelated);
   const showGrid = useStore(s => s.showGrid);
@@ -293,6 +295,8 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { toggleSidebar(); onClose(); }} />
       <Item checked={rightPanelOpen} label="Правая панель" shortcut=""
             onClick={() => { toggleRightPanel(); onClose(); }} />
+      <Item checked={toolsStripOpen} label="Панель инструментов" shortcut=""
+            onClick={() => { toggleToolsStrip(); onClose(); }} />
       <Separator />
       <Section>Канвас</Section>
       <Item label="Восстановить вид (fit)" shortcut="F"

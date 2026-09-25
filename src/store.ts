@@ -310,6 +310,9 @@ interface State {
   toggleSidebar: () => void;
   rightPanelOpen: boolean;
   toggleRightPanel: () => void;
+  /** v0.61.0 — ToolsStrip (панель инструментов под тулбаром). Персист в LS. */
+  toolsStripOpen: boolean;
+  toggleToolsStrip: () => void;
   /** v0.47 — explicit set (used by select() to auto-open panel on device pick). */
   setRightPanelOpen: (open: boolean) => void;
 
@@ -1071,6 +1074,13 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.rightPanelOpen;
     try { localStorage.setItem('netmap:rightPanelOpen', next ? '1' : '0'); } catch {}
     return { rightPanelOpen: next };
+  }),
+  // v0.61.0: панель инструментов по умолчанию ОТКРЫТА (новая фича должна быть видна).
+  toolsStripOpen: (typeof window !== 'undefined' && localStorage.getItem('netmap:toolsStripOpen') !== '0'),
+  toggleToolsStrip: () => set(s => {
+    const next = !s.toolsStripOpen;
+    try { localStorage.setItem('netmap:toolsStripOpen', next ? '1' : '0'); } catch {}
+    return { toolsStripOpen: next };
   }),
   setRightPanelOpen: (open) => set(s => {
     if (s.rightPanelOpen === open) return {};

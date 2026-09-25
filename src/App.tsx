@@ -13,6 +13,7 @@ import { FocusView } from './FocusView';
 import { LayerLegend } from './LayerLegend';
 import { VlanFilterBanner } from './VlanFilterBanner';
 import { LayoutFAB } from './LayoutFAB';
+import { ToolsStrip } from './ToolsStrip';
 import { LoadingOverlay } from './LoadingOverlay';
 import { OnboardingHost } from './OnboardingDialog';
 import { NotificationDispatcher } from './NotificationDispatcher';
