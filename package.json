@@ -1,7 +1,7 @@
 {
   "name": "netmap",
   "productName": "NetMap",
-  "version": "0.61.0",
+  "version": "0.61.1",
   "description": "Interactive network map & inventory for sysadmins (Hotel Usadba prototype)",
   "author": {
     "name": "NetMap",

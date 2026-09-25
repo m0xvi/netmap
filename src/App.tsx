@@ -185,6 +185,8 @@ export default function App() {
           above the toolbar, replaces the old hamburger ☰ AppMenu. */}
       <MenuBar />
       <Toolbar />
+      {/* v0.61.1: ToolsStrip — горизонтальная панель инструментов (draw.io-стиль). */}
+      <ToolsStrip />
       {/* v0.36.2: update banner right under the toolbar — shows on the
           "available" / "downloading" / "downloaded" / "error" states from
           electron-updater. Hides when no updates or in dev mode. */}
