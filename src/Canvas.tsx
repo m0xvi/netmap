@@ -9,6 +9,7 @@ import type { DeviceKind } from './types';
 import { BUILT_IN_TEMPLATES, loadCustomTemplates, makeDeviceFromTemplate } from './templates';
 import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
+import { KIND_META } from './icons';
 
 import '@xyflow/react/dist/style.css';
 import { useStore } from './store';
@@ -101,6 +102,9 @@ function CanvasInner() {
   const filters = useStore(s => s.filters);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // v0.58: сюда FarLandmarks кладёт императивный двигальщик пилюль —
+  // onMove дёргает его каждый кадр без ре-рендеров React.
+  const landmarkMoveRef = useRef<LandmarkMoveFn | null>(null);
   const rf = useReactFlow();
 
   // ------- Filter helpers -------
@@ -132,6 +136,85 @@ function CanvasInner() {
       return true;
     };
   }, [filters, doc.links]);
+
+  // v0.58: ориентиры дальней ступени — пилюли в ЭКРАННЫХ координатах
+  // (читаются при любом зуме): ядро, группы, серверы. Список стабилен
+  // между ре-рендерами; позиции пилюль двигает onMove императивно.
+  const farMarks = useMemo(() => {
+    type Mark = {
+      id: string; ax: number; ay: number; name: string;
+      color: string; core: boolean; group: boolean; count: number;
+    };
+    if (zoomBand !== 'far') return [] as Mark[];
+    const groups = doc.groups || [];
+    const groupById = new Map(groups.map(g => [g.id, g]));
+    const collapsed = new Set(groups.filter(g => g.collapsed).map(g => g.id));
+    // Абсолютные координаты: у вложенных групп и устройств в группах
+    // хранимые x/y относительные — поднимаемся по родителям.
+    const absXY = (x: number, y: number, groupId?: string | null) => {
+      let ax = x, ay = y, p = groupId;
+      const guard = new Set<string>();
+      while (p && !guard.has(p)) {
+        guard.add(p);
+        const pg = groupById.get(p);
+        if (!pg) break;
+        ax += pg.x; ay += pg.y; p = pg.parentId;
+      }
+      return { ax, ay };
+    };
+    const underCollapsed = (groupId?: string | null) => {
+      let p = groupId;
+      const guard = new Set<string>();
+      while (p && !guard.has(p)) {
+        guard.add(p);
+        if (collapsed.has(p)) return true;
+        p = groupById.get(p)?.parentId;
+      }
+      return false;
+    };
+    // Счётчик оконечных на устройство (для «· N» в пилюле).
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+    const devById = new Map(doc.devices.map(d => [d.id, d]));
+    const epCount = new Map<string, number>();
+    for (const l of doc.links) {
+      const a = devById.get(l.fromDeviceId);
+      const b = devById.get(l.toDeviceId);
+      if (a && b) {
+        if (ENDPOINT_KINDS.includes(b.kind) || b.kind === 'vm')
+          epCount.set(a.id, (epCount.get(a.id) || 0) + 1);
+        if (ENDPOINT_KINDS.includes(a.kind) || a.kind === 'vm')
+          epCount.set(b.id, (epCount.get(b.id) || 0) + 1);
+      }
+    }
+    const cores: Mark[] = [];
+    const srvs: Mark[] = [];
+    for (const d of doc.devices) {
+      if (d.groupId && underCollapsed(d.groupId)) continue;
+      if (!isDeviceVisible(d)) continue;
+      const isCore = inferLayer(d) === 'core';
+      const isSrv = d.kind === 'server' || d.kind === 'vps';
+      if (!isCore && !isSrv) continue;
+      const { ax, ay } = absXY(d.x, d.y, d.groupId);
+      (isCore ? cores : srvs).push({
+        id: d.id, ax, ay, name: d.name,
+        color: KIND_META[d.kind]?.color || '#64748B',
+        core: isCore, group: false, count: epCount.get(d.id) || 0,
+      });
+    }
+    const gm: Mark[] = [];
+    const childCount = new Map<string, number>();
+    for (const d of doc.devices)
+      if (d.groupId) childCount.set(d.groupId, (childCount.get(d.groupId) || 0) + 1);
+    for (const g of groups) {
+      const { ax, ay } = absXY(g.x, g.y, g.parentId);
+      gm.push({
+        id: g.id, ax: ax + (g.width || 200) / 2, ay, name: g.name,
+        color: g.color || '#0D9488', core: false, group: true,
+        count: childCount.get(g.id) || 0,
+      });
+    }
+    return [...cores, ...gm, ...srvs].slice(0, 40);
+  }, [zoomBand, doc.devices, doc.groups, doc.links, isDeviceVisible]);
 
   // ------- Build nodes: groups first (React Flow requires parents before children) -------
   const initialNodes: Node[] = useMemo(() => {
@@ -1353,6 +1436,8 @@ function CanvasInner() {
         else if (cur === 'mid') next = z >= 0.74 ? 'near' : (z < 0.31 ? 'far' : 'mid');
         else next = z >= 0.74 ? 'near' : (z >= 0.39 ? 'mid' : 'far');
         if (next !== cur) st.setZoomBand(next);
+        // v0.58: двигаем пилюли-ориентиры (императивно, без ре-рендеров).
+        try { landmarkMoveRef.current?.(viewport); } catch {}
       }}
       onMoveEnd={(_event, viewport) => {
         window.dispatchEvent(new CustomEvent('netmap:viewport-changed', { detail: viewport }));
@@ -1467,6 +1552,7 @@ function CanvasInner() {
         «пропавшие связи» больше не были загадкой. */}
     <HiddenEdgesChip linksTotal={doc.links.length} shown={displayedEdges.length} />
     <ZoomBandChip />
+    <FarLandmarks marks={farMarks} moveRef={landmarkMoveRef} />
 
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
         строка-вопрос с названием группы, «Да», «Отмена». */}
@@ -1537,6 +1623,90 @@ function ZoomBandChip() {
         onClick={() => { try { rf.zoomTo(0.75, { duration: 300 }); } catch {} }}
         style={chipBtn}
       >Приблизить</button>
+    </div>
+  );
+}
+
+// v0.58: двигальщик пилюль — проекция мировых координат в экранные.
+type LandmarkMoveFn = (v: { x: number; y: number; zoom: number }) => void;
+
+// v0.58: пилюли-ориентиры дальней ступени. Рендерятся один раз на смену
+// списка; позиции обновляются императивно из onMove (без ре-рендеров
+// React на каждый кадр pan/zoom). Клик по пилюле — долететь к объекту.
+// Работает и в legacy-виде (не зависит от modern-нод).
+function FarLandmarks({ marks, moveRef }: {
+  marks: Array<{
+    id: string; ax: number; ay: number; name: string;
+    color: string; core: boolean; group: boolean; count: number;
+  }>;
+  moveRef: { current: LandmarkMoveFn | null };
+}) {
+  const rf = useReactFlow();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const pillRefs = useRef(new Map<string, HTMLDivElement>());
+  useEffect(() => {
+    const update: LandmarkMoveFn = (v) => {
+      const el = boxRef.current;
+      if (!el) return;
+      const W = el.clientWidth, H = el.clientHeight;
+      for (const m of marks) {
+        const node = pillRefs.current.get(m.id);
+        if (!node) continue;
+        const px = m.ax * v.zoom + v.x;
+        const py = m.ay * v.zoom + v.y;
+        if (px < -180 || py < -90 || px > W + 180 || py > H + 90) {
+          if (node.style.display !== 'none') node.style.display = 'none';
+          continue;
+        }
+        if (node.style.display === 'none') node.style.display = 'flex';
+        node.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) translate(-50%,-135%)`;
+      }
+    };
+    moveRef.current = update;
+    try { update(rf.getViewport()); } catch {}
+    return () => { if (moveRef.current === update) moveRef.current = null; };
+  }, [marks, moveRef, rf]);
+  if (marks.length === 0) return null;
+  return (
+    <div ref={boxRef} data-netmap-overlay="true" style={{
+      position: 'absolute', inset: 0, overflow: 'hidden',
+      pointerEvents: 'none', zIndex: 20,
+    }}>
+      {marks.map(m => (
+        <div key={m.id}
+          ref={(el) => { if (el) pillRefs.current.set(m.id, el); else pillRefs.current.delete(m.id); }}
+          onClick={() => {
+            try { rf.fitView({ nodes: [{ id: m.id }], padding: 0.4, maxZoom: 1.1, duration: 300 }); } catch {}
+          }}
+          title={m.group ? `Группа «${m.name}» — клик: приблизиться` : `${m.name} — клик: приблизиться`}
+          style={{
+            position: 'absolute', left: 0, top: 0,
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: '#FFFFFF',
+            border: m.core ? '2px solid #2563EB' : `1.5px ${m.group ? 'dashed' : 'solid'} ${m.color}`,
+            borderRadius: 999, padding: '4px 12px 4px 8px',
+            fontSize: 12, fontWeight: 700, color: '#0F172A',
+            boxShadow: m.core
+              ? '0 0 0 3px #2563EB22, 0 4px 14px rgba(37,99,235,0.3)'
+              : '0 4px 14px rgba(15,23,42,0.18)',
+            cursor: 'pointer', pointerEvents: 'auto', whiteSpace: 'nowrap',
+            maxWidth: 230, overflow: 'hidden', willChange: 'transform',
+          }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: m.core ? '#2563EB' : m.color, flexShrink: 0,
+          }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>
+          {m.count > 0 && (
+            <span style={{
+              fontSize: 11, fontWeight: 800, color: '#1D4ED8', background: '#EFF6FF',
+              borderRadius: 999, padding: '0 7px', flexShrink: 0,
+            }}>
+              {m.count}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
