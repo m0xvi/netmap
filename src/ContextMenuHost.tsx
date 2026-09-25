@@ -3,6 +3,8 @@ import { ContextMenu, type MenuItem } from './ContextMenu';
 import { promptText, confirmDialog, alertDialog } from './Modal';
 import type { StickyColor, NetworkLayer } from './types';
 import { inferLayer, LAYER_META } from './layers';
+import { hasPingBackend, pingBatch } from './pingClient';
+import { vaultGet } from './vaultClient';
 
 const STICKY_COLOR_META: Record<StickyColor, { emoji: string; label: string }> = {
   yellow: { emoji: 'Ж', label: 'Жёлтая' },
@@ -51,6 +53,62 @@ export function ContextMenuHost() {
       { label: `${dev.name}`, icon: '•', disabled: true },
       { separator: true, label: '' },
       { label: 'Открыть свойства', icon: '⚙', action: () => select(dev.id) },
+      // v0.64 — быстрые действия из макета B: разовый пинг и SSH прямо с карты.
+      {
+        label: 'Пинг',
+        icon: '⇄',
+        disabled: !dev.ip || !hasPingBackend,
+        action: async () => {
+          const ip = (dev.ip || '').split('/')[0];
+          if (!ip) return;
+          const apply = useStore.getState().applyPingResults;
+          apply([{ id: dev.id, liveStatus: 'checking' }]);
+          const res = await pingBatch([{ id: dev.id, ip }], { timeoutMs: 2000 });
+          const r = res[0];
+          const alive = !!r?.alive;
+          apply([{
+            id: dev.id,
+            liveStatus: alive ? 'up' : 'down',
+            lastRttMs: r?.rttMs,
+            lastCheckedAt: Date.now(),
+          }]);
+          useStore.getState().pushAlert({
+            severity: alive ? 'success' : 'warn',
+            origin: 'app',
+            title: alive ? `${dev.name}: доступен` : `${dev.name}: не отвечает`,
+            message: alive
+              ? `RTT ${typeof r?.rttMs === 'number' ? r.rttMs : '—'} мс`
+              : 'Таймаут 2 с',
+          });
+        },
+      },
+      ...(dev.ip ? [{
+        label: 'SSH-терминал',
+        icon: '>_',
+        action: async () => {
+          const host = (dev.ip || '').split('/')[0];
+          // Учётка: связка с vault (credentialId или credential.vaultItemId)
+          // приоритетнее встроенного credential.username.
+          let username = dev.credential?.username;
+          let password: string | undefined;
+          const vaultId = dev.credentialId || dev.credential?.vaultItemId;
+          if (vaultId) {
+            const res = await vaultGet(vaultId);
+            if (res.ok && res.item) {
+              if (res.item.username) username = res.item.username;
+              password = res.item.password;
+            }
+          }
+          if (!username) {
+            await alertDialog('SSH-терминал',
+              'Не найдены учётные данные. Укажите логин в карточке устройства (раздел «Доступ») или привяжите запись из vault.');
+            return;
+          }
+          window.dispatchEvent(new CustomEvent('netmap:open-ssh-terminal', {
+            detail: { host, port: 22, username, password, title: dev.name, subtitle: host },
+          }));
+        },
+      }] : []),
       {
         label: isExpanded ? 'Свернуть' : 'Развернуть (порты)',
         icon: isExpanded ? '◲' : '◱',
