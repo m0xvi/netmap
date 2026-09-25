@@ -99,7 +99,7 @@ export function ServerNode({ id, data, selected }: NodeProps<any>) {
           <div style={{ fontSize: 9, color: '#0891B2', background: '#ECFEFF',
                         padding: '1px 6px', borderRadius: 3, marginTop: 1,
                         display: 'flex', gap: 6, alignItems: 'center' }}>
-            <span>📹 {d.dvr.channels}ch</span>
+            <span>◉ {d.dvr.channels}ch</span>
             {d.dvr.disks && d.dvr.disks.length > 0 && (
               <span style={{ color: '#155E75' }}>
                 {d.dvr.disks.length}×{Math.round(d.dvr.disks.reduce((s, x) => s + (x.sizeGB || 0), 0) / 1024)}TB
@@ -185,7 +185,7 @@ export function ServerNode({ id, data, selected }: NodeProps<any>) {
       </div>
 
       {d.location && (
-        <div style={{ fontSize: 10, color: '#9CA3AF', padding: '4px 12px 0' }}>📍 {d.location}</div>
+        <div style={{ fontSize: 10, color: '#9CA3AF', padding: '4px 12px 0' }}>▪ {d.location}</div>
       )}
 
       {/* v0.35: hardware spec block — CPU / RAM / OS / disks */}
@@ -260,7 +260,7 @@ export function ServerNode({ id, data, selected }: NodeProps<any>) {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={{ ...specLabel, color: '#0F766E' }}>ВИДЕО</span>
             <span style={{ fontWeight: 600 }}>
-              📹 {d.dvr.channels} канал{d.dvr.channels % 10 === 1 && d.dvr.channels !== 11 ? '' : d.dvr.channels % 10 >= 2 && d.dvr.channels % 10 <= 4 && (d.dvr.channels < 12 || d.dvr.channels > 14) ? 'а' : 'ов'}
+              ◉ {d.dvr.channels} канал{d.dvr.channels % 10 === 1 && d.dvr.channels !== 11 ? '' : d.dvr.channels % 10 >= 2 && d.dvr.channels % 10 <= 4 && (d.dvr.channels < 12 || d.dvr.channels > 14) ? 'а' : 'ов'}
               {d.dvr.activeChannels != null ? ` · ${d.dvr.activeChannels} активн.` : ''}
             </span>
           </div>
@@ -460,7 +460,7 @@ function OsBadge({ os }: { os: string }) {
   else if (/debian/.test(low))                   { bg = '#FCE7F3'; color = '#9D174D'; label = 'DEBIAN'; }
   else if (/centos|rhel|redhat|fedora|rocky|alma/.test(low))
                                                  { bg = '#FEE2E2'; color = '#B91C1C'; label = 'RHEL'; }
-  else if (/linux|kernel/.test(low))             { bg = '#FEF3C7'; color = '#92400E'; label = 'LINUX'; icon = '🐧'; }
+  else if (/linux|kernel/.test(low))             { bg = '#FEF3C7'; color = '#92400E'; label = 'LINUX'; icon = '◆'; }
   else if (/trassir/.test(low))                  { bg = '#EDE9FE'; color = '#5B21B6'; label = 'TRASSIR'; }
   else if (/xeoma/.test(low))                    { bg = '#D1FAE5'; color = '#065F46'; label = 'XEOMA'; }
   else if (/hik|ivms|dahua/.test(low))           { bg = '#FEE2E2'; color = '#B91C1C'; label = 'CCTV'; }

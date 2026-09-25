@@ -221,7 +221,7 @@ function numMapsEqual(a: Map<string, number>, b: Map<string, number>): boolean {
 export const DYNAMIC_KINDS = new Set<string>([
   'switch', 'router',
   // endpoints:
-  'ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'vm', 'vps',
+  'ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other', 'vm', 'vps',
 ]);
 
 export const portSides = new PortSidesCache();

@@ -4,7 +4,7 @@
  *
  *   ┌─────────────────┐
  *   │  Devices     ⌄  │  ← header + collapse
- *   │  🔎 Search…     │
+ *   │   Search…     │
  *   │                 │
  *   │  NETWORK    ⌄   │  ← accordion sections
  *   │  ▪ Core Switch  │  ← draggable rows
@@ -75,13 +75,13 @@ const SECTIONS: Section[] = [
       { kind: 'camera', label: 'PTZ-камера',            hint: 'Поворотная' },
       // v0.35.7: DVR / NVR presets — created as kind='server' with a `dvr`
       // payload that ServerNode auto-detects to render the recorder icon.
-      { kind: 'server', label: 'Регистратор 8 каналов',   hint: 'NVR · 1×HDD',
+      { kind: 'dvr', label: 'Регистратор 8 каналов',   hint: 'NVR · 1×HDD',
         preset: { dvr: {
           channels: 8, activeChannels: 0, resolution: '1080p', retentionDays: 14,
           software: 'Hikvision iVMS',
           disks: [{ sizeGB: 2048, kind: 'HDD', model: 'WD Purple' }],
         } } },
-      { kind: 'server', label: 'Регистратор 16 каналов', hint: 'NVR · 2×HDD',
+      { kind: 'dvr', label: 'Регистратор 16 каналов', hint: 'NVR · 2×HDD',
         preset: { dvr: {
           channels: 16, activeChannels: 0, resolution: '1080p', retentionDays: 30,
           software: 'TRASSIR',
@@ -90,7 +90,7 @@ const SECTIONS: Section[] = [
             { sizeGB: 4096, kind: 'HDD', model: 'Seagate SkyHawk' },
           ],
         } } },
-      { kind: 'server', label: 'Регистратор 32 кан. 4K', hint: 'NVR · 4×HDD',
+      { kind: 'dvr', label: 'Регистратор 32 кан. 4K', hint: 'NVR · 4×HDD',
         preset: { dvr: {
           channels: 32, activeChannels: 0, resolution: '4K', retentionDays: 30,
           software: 'Dahua DSS',
@@ -110,6 +110,7 @@ const SECTIONS: Section[] = [
       { kind: 'server', label: 'Rack PDU', hint: 'PDU 1U' },
       { kind: 'server', label: 'СХД',      hint: 'NAS / SAN' },
       { kind: 'vm',     label: 'Виртуальная машина', hint: 'VM на сервере' },
+      { kind: 'pbx',    label: 'АТС', hint: 'IP-PBX / телефония' },
     ]
   },
   {
@@ -120,6 +121,7 @@ const SECTIONS: Section[] = [
       { kind: 'printer', label: 'Принтер',         hint: 'Сетевой принтер' },
       { kind: 'lock',    label: 'СКУД (замок)',    hint: 'SALTO / контроль доступа' },
       { kind: 'cloud',   label: 'Провайдер / облако', hint: 'ISP / cloud' },
+      { kind: 'other',   label: 'Другое устройство', hint: 'Прочее / неопознанное' },
     ]
   },
 ];

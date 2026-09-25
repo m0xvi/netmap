@@ -3,7 +3,7 @@
  *
  * Renders a nested list of folders using HTML5 drag-and-drop:
  *   - drag folder onto another folder → reparents
- *   - drag folder onto "🗑 Убрать" chip → moves to root (parent=null)
+ *   - drag folder onto "✕ Убрать" chip → moves to root (parent=null)
  *   - drag vault-item chip (from item list) onto folder → set item.folder
  *   - "+ Новая папка" button under the tree
  *   - right-click / long-press → rename / delete
@@ -159,7 +159,7 @@ export function VaultFolderTree({ selectedFolderId, onSelect, onChange, compact 
           ) : (
             <span style={{ width: 12, display: 'inline-block' }} />
           )}
-          <span>📁</span>
+          <span>▤</span>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {n.folder.name}
           </span>
@@ -176,7 +176,7 @@ export function VaultFolderTree({ selectedFolderId, onSelect, onChange, compact 
         onClick={() => onSelect('all')}
       >
         <span style={{ width: 12 }} />
-        <span>🗂</span>
+        <span>▤</span>
         <span>Все записи</span>
       </div>
       <div
@@ -187,7 +187,7 @@ export function VaultFolderTree({ selectedFolderId, onSelect, onChange, compact 
         onClick={() => onSelect(null)}
       >
         <span style={{ width: 12 }} />
-        <span>📂</span>
+        <span>▤</span>
         <span>Без папки</span>
       </div>
 

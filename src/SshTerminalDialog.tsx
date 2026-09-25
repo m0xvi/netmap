@@ -9,14 +9,17 @@
  *   { host, port?, username, password?, title?, subtitle? }
  *
  * Auto-resize on container size change. Ctrl+Shift+C copies selection.
+ *
+ * v0.62.0: каркас переведён на DialogShell (единая тема окон).
+ * Escape обрабатывает сам терминал (обёртка), closeOnEscape выключен.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { openSshShell, type SshSession, type SshConfig } from './sshShellClient';
+import { DialogShell } from './DialogTheme';
 
 interface OpenDetail extends SshConfig {
   title?: string;
@@ -136,67 +139,27 @@ function SshTerminalDialog({ cfg, onClose }: { cfg: OpenDetail; onClose: () => v
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.7)',
-        zIndex: 100030, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        backdropFilter: 'blur(2px)',
-      }}
+  const statusText = status === 'connecting' ? 'Подключение…'
+    : status === 'connected' ? 'Подключено'
+    : status === 'closed' ? 'Соединение закрыто'
+    : `Ошибка${errorMsg ? `: ${errorMsg}` : ''}`;
+
+  return (
+    <DialogShell
+      title={cfg.title || `SSH · ${cfg.username}@${cfg.host}${cfg.port ? ':' + cfg.port : ''}`}
+      subtitle={`${cfg.subtitle ? cfg.subtitle + ' · ' : ''}${statusText} · Ctrl+Shift+C — копировать, Ctrl+Shift+V — вставить, Esc — закрыть`}
+      icon="terminal"
+      width={1000}
+      level="top"
+      onClose={onClose}
+      closeOnEscape={false}
+      bodyStyle={{ background: '#0F172A', padding: 6, gap: 0 }}
     >
       <div
-        style={{
-          background: '#0F172A', width: '92vw', maxWidth: 1000, height: '85vh',
-          borderRadius: 12, boxShadow: '0 30px 80px rgba(0, 0, 0, 0.5)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          border: '1px solid #334155',
-        }}
-      >
-        <div style={{
-          padding: '10px 14px', background: '#1E293B', color: '#E2E8F0',
-          display: 'flex', alignItems: 'center', gap: 10,
-          borderBottom: '1px solid #334155',
-        }}>
-          <div style={{
-            width: 10, height: 10, borderRadius: '50%',
-            background: status === 'connected' ? '#4ADE80'
-                     : status === 'connecting' ? '#FBBF24'
-                     : '#F87171',
-          }} />
-          <div style={{ fontSize: 13, fontWeight: 600 }}>
-            {cfg.title || `SSH · ${cfg.username}@${cfg.host}${cfg.port ? ':' + cfg.port : ''}`}
-          </div>
-          {cfg.subtitle && (
-            <div style={{ fontSize: 11, color: '#94A3B8' }}>· {cfg.subtitle}</div>
-          )}
-          <div style={{ flex: 1 }} />
-          <div style={{ fontSize: 10, color: '#94A3B8' }}>
-            {status === 'connecting' && 'Подключение…'}
-            {status === 'connected' && '● online'}
-            {status === 'closed' && '○ закрыто'}
-            {status === 'error' && '⚠ ошибка'}
-          </div>
-          <div style={{ fontSize: 10, color: '#64748B', marginRight: 8 }}>
-            Ctrl+Shift+C / V · Esc — закрыть
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent', border: '1px solid #475569', color: '#CBD5E1',
-              padding: '3px 10px', borderRadius: 5, cursor: 'pointer', fontSize: 11,
-            }}
-          >✕ Закрыть</button>
-        </div>
-
-        <div
-          ref={termWrapRef}
-          style={{
-            flex: 1, minHeight: 0, background: '#0F172A', padding: 6,
-          }}
-          onKeyDown={(e) => { if (e.key === 'Escape' && !e.ctrlKey && !e.shiftKey) onClose(); }}
-        />
-      </div>
-    </div>,
-    document.body
+        ref={termWrapRef}
+        style={{ height: '70vh', minHeight: 300, background: '#0F172A' }}
+        onKeyDown={(e) => { if (e.key === 'Escape' && !e.ctrlKey && !e.shiftKey) onClose(); }}
+      />
+    </DialogShell>
   );
 }

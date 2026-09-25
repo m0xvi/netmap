@@ -11,7 +11,10 @@ export type DeviceKind =
   | 'pos'         // terminal / kassa
   | 'printer'
   | 'lock'        // SALTO door lock
-  | 'cloud';      // ISP / internet provider
+  | 'cloud'       // ISP / internet provider
+  | 'pbx'         // АТС / IP-PBX (IP-телефония)
+  | 'dvr'         // видеорегистратор / NVR
+  | 'other';      // прочее сетевое устройство (неопознанное)
 
 export type PortType = 'RJ45' | 'SFP' | 'SFP+' | 'Combo' | 'WiFi' | 'Console';
 export type PortStatus = 'up' | 'down' | 'disabled' | 'error';

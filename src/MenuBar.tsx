@@ -236,21 +236,21 @@ function FileMenu({ onClose, onBackups }: { onClose: () => void; onBackups: () =
   return (
     <>
       <Section>Проект</Section>
-      <Item icon="💾" label="Сохранить сейчас" shortcut="Ctrl+S"
+      <Item label="Сохранить сейчас" shortcut="Ctrl+S"
             onClick={() => {
               onClose();
               useStore.getState().pushAlert({ severity: 'success', origin: 'app', title: 'Сохранено', message: 'Записано в локальную базу.' });
             }} />
-      <Item icon="⏮" label="Резервные копии…" shortcut="" onClick={onBackups} />
+      <Item label="Резервные копии…" shortcut="" onClick={onBackups} />
       <Separator />
       <Section>Файл</Section>
-      <Item icon="⤒" label="Импортировать проект…" shortcut="" onClick={doImportFile} />
-      <Item icon="⤓" label="Экспортировать активный…" shortcut="" onClick={doExport} disabled={!active} />
-      <Item icon="⤓⤓" label="Экспортировать всю рабочую область…" shortcut="" onClick={doExportAll} />
+      <Item label="Импортировать проект…" shortcut="" onClick={doImportFile} />
+      <Item label="Экспортировать активный…" shortcut="" onClick={doExport} disabled={!active} />
+      <Item label="Экспортировать всю рабочую область…" shortcut="" onClick={doExportAll} />
       <Separator />
-      <Item icon="↺" label="Сбросить к демо-схеме" shortcut="" onClick={doReset} danger />
+      <Item label="Сбросить к демо-схеме" shortcut="" onClick={doReset} danger />
       <Separator />
-      <Item icon="⏻" label="Выход" shortcut="Alt+F4"
+      <Item label="Выход" shortcut="Alt+F4"
             onClick={() => { onClose(); window.close(); }} />
     </>
   );
@@ -261,10 +261,14 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
   const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
+  const toggleColorLinksBySubnet = useStore(s => s.toggleColorLinksBySubnet);
   const sidebarOpen = useStore(s => s.sidebarOpen);
   const toggleSidebar = useStore(s => s.toggleSidebar);
   const rightPanelOpen = useStore(s => s.rightPanelOpen);
   const toggleRightPanel = useStore(s => s.toggleRightPanel);
+  const toolsStripOpen = useStore(s => s.toolsStripOpen);
+  const toggleToolsStrip = useStore(s => s.toggleToolsStrip);
   const focusRelated = useStore(s => s.focusRelated);
   const toggleFocusRelated = useStore(s => s.toggleFocusRelated);
   const showGrid = useStore(s => s.showGrid);
@@ -275,25 +279,29 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   return (
     <>
       <Section>Стиль карточек</Section>
-      <Item icon={viewMode === 'modern' ? '●' : '○'} label="Modern (референс-стиль)" shortcut=""
+      <Item checked={viewMode === 'modern'} label="Modern (референс-стиль)" shortcut=""
             onClick={() => { setViewMode('modern'); onClose(); }} />
-      <Item icon={viewMode === 'legacy' ? '●' : '○'} label="Legacy (rack/compact)" shortcut=""
+      <Item checked={viewMode === 'legacy'} label="Legacy (rack/compact)" shortcut=""
             onClick={() => { setViewMode('legacy'); onClose(); }} />
       {viewMode === 'modern' && (
-        <Item icon={collapseEndpoints ? '☑' : '☐'} label="Сворачивать endpoint'ы" shortcut=""
+        <Item checked={collapseEndpoints} label="Сворачивать endpoint'ы" shortcut=""
               onClick={() => { toggleCollapseEndpoints(); onClose(); }} />
       )}
+      <Item checked={colorLinksBySubnet} label="Красить связи по подсетям" shortcut=""
+            onClick={() => { toggleColorLinksBySubnet(); onClose(); }} />
       <Separator />
       <Section>Панели</Section>
-      <Item icon={sidebarOpen ? '☑' : '☐'} label="Боковая панель" shortcut=""
+      <Item checked={sidebarOpen} label="Боковая панель" shortcut=""
             onClick={() => { toggleSidebar(); onClose(); }} />
-      <Item icon={rightPanelOpen ? '☑' : '☐'} label="Правая панель" shortcut=""
+      <Item checked={rightPanelOpen} label="Правая панель" shortcut=""
             onClick={() => { toggleRightPanel(); onClose(); }} />
+      <Item checked={toolsStripOpen} label="Панель инструментов" shortcut=""
+            onClick={() => { toggleToolsStrip(); onClose(); }} />
       <Separator />
       <Section>Канвас</Section>
-      <Item icon="⤢" label="Восстановить вид (fit)" shortcut="F"
+      <Item label="Восстановить вид (fit)" shortcut="F"
             onClick={() => { window.dispatchEvent(new CustomEvent('netmap:fit-view')); onClose(); }} />
-      <Item icon="⚡" label="Умная раскладка (по локациям / VLAN)" shortcut=""
+      <Item label="Умная раскладка (по локациям / VLAN)" shortcut=""
             onClick={async () => {
               onClose();
               try {
@@ -301,7 +309,7 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
                 setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
               } catch (e: any) { await alertDialog('Ошибка', e?.message || 'smart-layout failed'); }
             }} />
-      <Item icon="🔧" label="Разложить заново (без группировки)" shortcut=""
+      <Item label="Разложить заново (без группировки)" shortcut=""
             onClick={async () => {
               onClose();
               try { useStore.getState().autoLayout('TB'); setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400); }
@@ -310,12 +318,11 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
       {/* v0.43.5: сколько колонок для «орфанов» без uplink-свитча. */}
       <OrphanGridInline />
       <Separator />
-      <Separator />
-      <Item icon={snap ? '☑' : '☐'} label="Прилипание к сетке" shortcut=""
+      <Item checked={snap} label="Прилипание к сетке" shortcut=""
             onClick={() => { toggleSnap(); onClose(); }} />
-      <Item icon={showGrid ? '☑' : '☐'} label="Показывать сетку" shortcut=""
+      <Item checked={showGrid} label="Показывать сетку" shortcut=""
             onClick={() => { toggleGrid(); onClose(); }} />
-      <Item icon={focusRelated ? '☑' : '☐'} label="Фокус связанных при hover" shortcut=""
+      <Item checked={focusRelated} label="Фокус связанных при hover" shortcut=""
             onClick={() => { toggleFocusRelated(); onClose(); }} />
     </>
   );
@@ -330,22 +337,22 @@ function ToolsMenu({ onClose, onMikrotik, onImport, onDiscovery }: {
   return (
     <>
       <Section>Автообнаружение</Section>
-      <Item icon="◎" label="Автообнаружение топологии…" shortcut=""
+      <Item label="Автообнаружение топологии…" shortcut=""
             onClick={onDiscovery} />
       <Separator />
       <Section>Импорт с оборудования</Section>
-      <Item icon="↯" label="MikroTik (SSH / REST)…" shortcut="" onClick={onMikrotik} />
-      <Item icon="⌘" label="UniFi Controller…" shortcut="" onClick={() => onImport('unifi')} />
-      <Item icon="◈" label="TP-Link Omada Cloud…" shortcut="" onClick={() => onImport('omada-cloud')} />
-      <Item icon="…" label="Другое (Ruijie / D-Link / EdgeSwitch)…" shortcut=""
+      <Item label="MikroTik (SSH / REST)…" shortcut="" onClick={onMikrotik} />
+      <Item label="UniFi Controller…" shortcut="" onClick={() => onImport('unifi')} />
+      <Item label="TP-Link Omada Cloud…" shortcut="" onClick={() => onImport('omada-cloud')} />
+      <Item label="Другое (Ruijie / D-Link / EdgeSwitch)…" shortcut=""
             onClick={() => onImport(undefined)} />
       <Separator />
       <Section>Менеджер паролей</Section>
-      <Item icon="🔐" label="Vault Studio…" shortcut="Ctrl+K"
+      <Item label="Vault Studio…" shortcut="Ctrl+K"
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-vault-studio')); }} />
       <Separator />
       <Section>Диагностика</Section>
-      <Item icon="🛣" label="Traceroute…" shortcut=""
+      <Item label="Traceroute…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-traceroute', { detail: {} })); }} />
     </>
   );
@@ -358,14 +365,14 @@ function MonitorMenu({ onClose }: { onClose: () => void }) {
   return (
     <>
       <Section>Ping мониторинг</Section>
-      <Item icon={monitorEnabled ? '☑' : '☐'} label={`Фоновый ping (${interval}с)`}
+      <Item checked={monitorEnabled} label={`Фоновый ping (${interval}с)`}
             shortcut=""
             onClick={() => { setMonitor(!monitorEnabled); onClose(); }} />
-      <Item icon="⚙" label="Настройки мониторинга…" shortcut=""
+      <Item label="Настройки мониторинга…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings' } })); }} />
       <Separator />
       <Section>Уведомления</Section>
-      <Item icon="🔔" label="Центр уведомлений…" shortcut=""
+      <Item label="Центр уведомлений…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-alerts')); }} />
     </>
   );
@@ -466,8 +473,17 @@ function OrphanGridInline() {
   );
 }
 
-function Item({ icon, label, shortcut, onClick, disabled, danger }: {
-  icon?: string; label: string; shortcut: string;
+function IconCheck() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12.5 L9.5 18 L20 6.5" />
+    </svg>
+  );
+}
+
+function Item({ checked, label, shortcut, onClick, disabled, danger }: {
+  checked?: boolean; label: string; shortcut: string;
   onClick: () => void; disabled?: boolean; danger?: boolean;
 }) {
   return (
@@ -483,7 +499,11 @@ function Item({ icon, label, shortcut, onClick, disabled, danger }: {
       onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = '#F1F5F9'; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
     >
-      {icon && <span style={{ width: 14, textAlign: 'center', fontSize: 11 }}>{icon}</span>}
+      {checked === true && (
+        <span style={{ display: 'flex', color: '#2563EB', flexShrink: 0 }}>
+          <IconCheck />
+        </span>
+      )}
       <span style={{ flex: 1 }}>{label}</span>
       {shortcut && <span style={{ fontSize: 10, color: '#94A3B8' }}>{shortcut}</span>}
     </button>

@@ -11,12 +11,12 @@
  *   - store.monitorEnabled, store.monitorIntervalSec — уже были в v0.14.
  *   - Новый slice `notifSettings` (см. store.ts) для Telegram и toast.
  *
- * Рендерится через createPortal(document.body) чтобы всплывающие FAB /
+ * Рендерится через DialogShell (портал в document.body), чтобы оверлеи канваса /
  * legend не перекрывали (как MikrotikImportDialog в v0.36.0).
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DialogShell } from './DialogTheme';
 import { useStore } from './store';
 import { alertDialog } from './Modal';
 
@@ -42,30 +42,20 @@ export function SettingsDialogHost() {
 
 function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
-  // Escape closes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // v0.62.1: Escape обрабатывает DialogShell (свой дубль удалён).
 
-  return createPortal(
-    <div onClick={onClose} style={overlay}>
-      <div onClick={e => e.stopPropagation()} style={card}>
-        <div style={header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Настройки</div>
-          </div>
-          <button onClick={onClose} style={closeBtn}>×</button>
-        </div>
-
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+  return (
+    <DialogShell title="Настройки" icon="gear" width={760} onClose={onClose}>
+      <div style={{
+        display: 'flex', flex: 1, minHeight: 480, background: '#fff',
+        border: '1px solid #E4E9F2', borderRadius: 12, overflow: 'hidden',
+      }}>
           <div style={sidebar}>
-            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  icon="•" label="Общие" />
-            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  icon="◌" label="Мониторинг" />
-            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   icon="!" label="Уведомления" />
-            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} icon="□" label="Безопасность" />
-            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    icon="i" label="О программе" />
+            <TabBtn active={tab === 'general'}  onClick={() => setTab('general')}  label="Общие" />
+            <TabBtn active={tab === 'monitor'}  onClick={() => setTab('monitor')}  label="Мониторинг" />
+            <TabBtn active={tab === 'notify'}   onClick={() => setTab('notify')}   label="Уведомления" />
+            <TabBtn active={tab === 'security'} onClick={() => setTab('security')} label="Безопасность" />
+            <TabBtn active={tab === 'about'}    onClick={() => setTab('about')}    label="О программе" />
           </div>
           <div style={content}>
             {tab === 'general' && <GeneralTab />}
@@ -75,9 +65,7 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
             {tab === 'about'   && <AboutTab />}
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+    </DialogShell>
   );
 }
 
@@ -86,10 +74,14 @@ function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => vo
 // ------------------------------------------------------------------------
 function GeneralTab() {
   const [uiScale, setUiScale] = useState(() => {
-    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+    try {
+      const v = Number(localStorage.getItem('netmap:uiScale'));
+      if (!Number.isFinite(v) || v < 0.8 || v > 2) return 1;
+      return v;
+    } catch { return 1; }
   });
   const changeUiScale = (value: number) => {
-    const next = Math.max(0.8, Math.min(1.25, value));
+    const next = Math.max(0.8, Math.min(2, value));
     setUiScale(next);
     try { localStorage.setItem('netmap:uiScale', String(next)); } catch {}
     window.dispatchEvent(new CustomEvent('netmap:ui-scale', { detail: { value: next } }));
@@ -142,7 +134,7 @@ function GeneralTab() {
       <Section title="Интерфейс">
         <Field label="Масштаб всего интерфейса" hint="Настройка применяется ко всем панелям, меню и кнопкам программы.">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="range" min="0.8" max="1.25" step="0.05"
+            <input type="range" min="0.8" max="2" step="0.05"
                    value={uiScale} onChange={e => changeUiScale(Number(e.target.value))}
                    style={{ flex: 1 }} />
             <span style={{ minWidth: 48, textAlign: 'right', fontSize: 12, color: '#111827' }}>
@@ -150,7 +142,7 @@ function GeneralTab() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-            {[0.8, 1, 1.15, 1.25].map(value => (
+            {[0.8, 1, 1.25, 1.5, 2].map(value => (
               <button key={value} onClick={() => changeUiScale(value)} style={{
                 ...smallScaleBtn, borderColor: uiScale === value ? '#2563EB' : '#D1D5DB',
                 color: uiScale === value ? '#1D4ED8' : '#374151',
@@ -298,7 +290,7 @@ function NotifyTab() {
         botToken: settings.telegramBotToken,
         chatId: settings.telegramChatId,
         proxyUrl: settings.telegramProxyUrl,
-        message: '✅ NetMap — тестовое сообщение.\nЕсли вы это видите, интеграция настроена правильно.',
+        message: '✓ NetMap — тестовое сообщение.\nЕсли вы это видите, интеграция настроена правильно.',
       });
       if (res.ok) setTestResult('✓ Отправлено. Проверьте чат.');
       else setTestResult('✗ ' + (res.error || 'Не удалось'));
@@ -424,7 +416,7 @@ function SecurityTab() {
         </div>
         {status && (
           <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 12 }}>
-            Статус: {status.initialized ? (status.unlocked ? '🔓 разблокирован' : 'Безопасность заблокирован') : 'не создан'}
+            Статус: {status.initialized ? (status.unlocked ? 'разблокирован' : 'заблокирован') : 'не создан'}
             {' · '}записей: {status.itemCount}
           </div>
         )}
@@ -499,7 +491,7 @@ function SecurityTab() {
             style={{ padding: '4px 10px', border: '1px solid #FCA5A5', background: '#FEE2E2',
                      color: '#B91C1C', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
           >
-            🗑 Очистить журнал
+            Очистить журнал
           </button>
         </div>
       </Section>
@@ -546,7 +538,7 @@ function AboutTab() {
       </Section>
       <Section title="Обратная связь">
         <div style={{ fontSize: 12, color: '#374151' }}>
-          Ошибки и запросы фич — присылайте разработчику. Используйте кнопку «🐞 Показать сырой ответ» в диалогах импорта и «Скопировать отчёт» в баннере ошибок — это ускорит диагностику.
+          Ошибки и запросы фич — присылайте разработчику. Используйте кнопку «⌗ Показать сырой ответ» в диалогах импорта и «Скопировать отчёт» в баннере ошибок — это ускорит диагностику.
         </div>
       </Section>
     </>
@@ -556,21 +548,21 @@ function AboutTab() {
 // ------------------------------------------------------------------------
 // Reusable UI atoms
 // ------------------------------------------------------------------------
-function TabBtn({ active, onClick, icon, label }: {
-  active: boolean; onClick: () => void; icon: string; label: string;
+// v0.62.0: атомы и значения — из единой темы (DialogTheme).
+function TabBtn({ active, onClick, label }: {
+  active: boolean; onClick: () => void; label: string;
 }) {
   return (
     <button onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 8,
-      padding: '8px 12px', borderRadius: 6,
-      background: active ? '#EFF6FF' : 'transparent',
-      color: active ? '#1D4ED8' : '#374151',
+      padding: '8px 12px', borderRadius: 8,
+      background: active ? '#EDF1FF' : 'transparent',
+      color: active ? '#3550D4' : '#475569',
       border: 'none',
-      fontSize: 12, fontWeight: active ? 600 : 500,
+      fontSize: 12, fontWeight: active ? 700 : 500,
       cursor: 'pointer', textAlign: 'left',
       width: '100%',
     }}>
-      <span style={{ width: 18, textAlign: 'center' }}>{icon}</span>
       {label}
     </button>
   );
@@ -580,8 +572,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{
-        fontSize: 10, fontWeight: 700, color: '#9CA3AF',
-        textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 10,
+        fontSize: 11, fontWeight: 800, color: '#475569',
+        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10,
       }}>{title}</div>
       <div style={{ display: 'grid', gap: 12 }}>{children}</div>
     </div>
@@ -598,7 +590,7 @@ function Toggle({ label, sub, checked, onChange }: {
     }}>
       <span onClick={() => onChange(!checked)} style={{
         width: 34, height: 20, borderRadius: 10,
-        background: checked ? '#2563EB' : '#D1D5DB',
+        background: checked ? '#4361EE' : '#CBD5E6',
         position: 'relative', flexShrink: 0,
         transition: 'background 0.15s',
         marginTop: 1,
@@ -612,8 +604,8 @@ function Toggle({ label, sub, checked, onChange }: {
         }} />
       </span>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 12, color: '#111827', fontWeight: 500 }}>{label}</div>
-        {sub && <div style={{ fontSize: 10, color: '#6B7280', marginTop: 1 }}>{sub}</div>}
+        <div style={{ fontSize: 12, color: '#0F172A', fontWeight: 600 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, color: '#8B96AB', marginTop: 1 }}>{sub}</div>}
       </div>
     </label>
   );
@@ -624,62 +616,36 @@ function Field({ label, hint, children }: {
 }) {
   return (
     <div style={{ display: 'grid', gap: 4 }}>
-      <div style={{
-        fontSize: 10, fontWeight: 600, color: '#374151',
-        textTransform: 'uppercase', letterSpacing: 0.3,
-      }}>{label}</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>{label}</div>
       {children}
-      {hint && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{hint}</div>}
+      {hint && <div className="hint" style={{ marginTop: 2 }}>{hint}</div>}
     </div>
   );
 }
 
 // ---- styles ----
-const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
-  backdropFilter: 'blur(4px)', zIndex: 4000,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  padding: 24,
-};
-const card: React.CSSProperties = {
-  width: 'min(760px, 96vw)', maxHeight: '92vh',
-  background: '#FFFFFF', borderRadius: 10,
-  boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
-  display: 'flex', flexDirection: 'column',
-  overflow: 'hidden',
-  color: '#111827', fontFamily: 'system-ui, sans-serif',
-};
-const header: React.CSSProperties = {
-  padding: '12px 16px', borderBottom: '1px solid #E5E7EB',
-  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-};
-const closeBtn: React.CSSProperties = {
-  background: 'transparent', border: '1px solid #E5E7EB',
-  color: '#6B7280', padding: '4px 10px', borderRadius: 6,
-  cursor: 'pointer', fontSize: 14,
-};
 const sidebar: React.CSSProperties = {
-  width: 170, borderRight: '1px solid #F3F4F6',
+  width: 170, borderRight: '1px solid #E4E9F2',
   padding: 8, display: 'flex', flexDirection: 'column', gap: 2,
-  background: '#F9FAFB', flexShrink: 0,
+  background: '#F6F8FC', flexShrink: 0,
 };
 const content: React.CSSProperties = {
   flex: 1, padding: 20, overflowY: 'auto',
   minHeight: 0,
 };
 const inputStyle: React.CSSProperties = {
-  background: '#FFFFFF', border: '1px solid #D1D5DB', color: '#111827',
-  padding: '6px 10px', borderRadius: 6, fontSize: 12, outline: 'none',
+  background: '#fff', border: '1.5px solid #E4E9F2', color: '#0F172A',
+  padding: '8px 10px', borderRadius: 9, fontSize: 13, outline: 'none',
   width: '100%',
 };
 const smallScaleBtn: React.CSSProperties = {
-  background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 5,
-  padding: '4px 8px', cursor: 'pointer', fontSize: 10,
+  background: '#fff', border: '1.5px solid #E4E9F2', borderRadius: 8,
+  padding: '4px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#475569',
 };
 const primaryBtn: React.CSSProperties = {
-  background: '#2563EB', border: 'none', color: '#FFFFFF',
-  padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
-  fontSize: 12, fontWeight: 600,
+  background: 'linear-gradient(135deg,#4361ee,#5a3ee6)', border: 'none', color: '#fff',
+  padding: '9px 18px', borderRadius: 11, cursor: 'pointer',
+  fontSize: 13.5, fontWeight: 700,
 };
 
 // Suppress unused-import warning if alertDialog isn't reached

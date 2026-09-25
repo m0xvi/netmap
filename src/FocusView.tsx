@@ -218,7 +218,7 @@ function PortRow({ port, device, neighbor, neighborPortId, link }: {
           </span>
           <span style={{ fontSize: 9, opacity: 0.55 }}>
             {port.type || 'RJ45'}{port.speed ? ` · ${port.speed}` : ''}
-            {port.uplink ? ' · ↑' : ''}{port.poeActive ? ' · ⚡' : ''}
+            {port.uplink ? ' · ↑' : ''}{port.poeActive ? ' · ↯' : ''}
           </span>
         </div>
       </div>
@@ -410,7 +410,7 @@ function ConnectPicker({ device, port, currentLinkId, onClose }: {
               autoFocus
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder="🔎 Поиск по имени, IP, модели..."
+              placeholder="Поиск по имени, IP, модели..."
               style={{
                 background: '#FFFFFF', border: 'none', borderBottom: '1px solid #E5E7EB',
                 color: '#111827', padding: '8px 16px', fontSize: 12, outline: 'none',

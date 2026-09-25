@@ -29,6 +29,8 @@ export function inferLayer(d: Device): NetworkLayer {
     }
     case 'server':
     case 'vps':
+    case 'pbx':     // v0.54 — АТС: инфраструктурный appliance, как сервер
+    case 'dvr':     // v0.54 — видеорегистратор: как сервер
       return 'distribution';
     case 'patchpanel':
     case 'ap':
@@ -38,6 +40,7 @@ export function inferLayer(d: Device): NetworkLayer {
     case 'pos':
     case 'lock':
     case 'vm':
+    case 'other':   // v0.54 — неизвестное устройство: край сети
       return 'access';
   }
 }
@@ -53,7 +56,7 @@ export const LAYER_META: Record<NetworkLayer, {
 }> = {
   core: {
     label: 'CORE',
-    emoji: '🏛',
+    emoji: '◆',
     color: '#f87171',   // red — most critical
     bg: '#3b1d1d',
     description: 'Ядро — высокоскоростная магистраль',
@@ -61,7 +64,7 @@ export const LAYER_META: Record<NetworkLayer, {
   },
   distribution: {
     label: 'DIST',
-    emoji: '🌉',
+    emoji: '◇',
     color: '#fbbf24',   // yellow — mid tier
     bg: '#3f2b17',
     description: 'Распределение — интерфейс между ядром и пользователями',
@@ -69,7 +72,7 @@ export const LAYER_META: Record<NetworkLayer, {
   },
   access: {
     label: 'ACCESS',
-    emoji: '📱',
+    emoji: '○',
     color: '#10B981',   // green — user-facing
     bg: '#0d2818',
     description: 'Доступ — пользователи и оконечные устройства',

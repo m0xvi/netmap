@@ -102,10 +102,10 @@ async function fireTelegram(a: AlertEntry, settings: NotifSettings) {
   const w = window as any;
   if (!w.netmap?.telegramSend) return;
   const emoji =
-    a.severity === 'critical' ? '🔴' :
-    a.severity === 'warn'     ? '🟡' :
-    a.severity === 'success'  ? '🟢' :
-                                 'ℹ️';
+    a.severity === 'critical' ? '●' :
+    a.severity === 'warn'     ? '●' :
+    a.severity === 'success'  ? '●' :
+                                 'ℹ';
   const msg =
     `${emoji} <b>${escapeHtml(a.title || 'NetMap')}</b>\n` +
     `${escapeHtml(a.message)}` +

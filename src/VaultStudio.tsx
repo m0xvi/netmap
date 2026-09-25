@@ -5,9 +5,9 @@
  *   ┌────┬─────────────┬──────────────────────┬──────────────────────┐
  *   │ ⛨ │ Categories  │ Items list          │ Slide-over detail    │
  *   │ ▨ │ + New       │  · card  view       │  (opens on select)   │
- *   │ 🖥 │ + Search    │  · table view       │                      │
- *   │ 🌐 │ + Tags      │                      │                      │
- *   │ 🔔 │             │                      │                      │
+ *   │ ▣ │ + Search    │  · table view       │                      │
+ *   │ ◍ │ + Tags      │                      │                      │
+ *   │  │             │                      │                      │
  *   ├────┤             │                      │                      │
  *   │ AD │             │                      │                      │
  *   └────┴─────────────┴──────────────────────┴──────────────────────┘
@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DialogShell } from './DialogTheme';
 import {
   vaultStatus, vaultList, vaultGet, vaultUpsert, vaultDelete,
   vaultUnlock, vaultInit, vaultLock,
@@ -145,9 +145,18 @@ function VaultStudio({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  return createPortal(
-    <div style={backdrop}>
-      <div style={studio}>
+  return (
+    <DialogShell
+      title="Vault Studio"
+      subtitle="Пароли, SSH / SNMP / API-доступы, Wi-Fi и заметки"
+      icon="lock"
+      width={1600}
+      maxWidth="calc(100vw - 40px)"
+      onClose={onClose}
+      closeOnEscape={false}
+      bodyStyle={{ padding: 0, gap: 0 }}
+    >
+      <div style={{ height: '80vh', minHeight: 480, display: 'flex', flexDirection: 'column' }}>
         {!status ? (
           <div style={loaderStyle}>Загрузка…</div>
         ) : !status.initialized ? (
@@ -235,8 +244,7 @@ function VaultStudio({ open, onClose }: Props) {
       </div>
 
       <VaultImportExportDialog open={ioOpen} initialTab={ioTab} onClose={() => { setIoOpen(false); refresh(); }} />
-    </div>,
-    document.body
+    </DialogShell>
   );
 }
 
@@ -1458,16 +1466,7 @@ function UnlockScreen({ pw, err, showReset, onPw, onSubmit, onToggleReset, onRes
 // ===========================================================================
 // Styles
 
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
-  zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-  padding: 20, backdropFilter: 'blur(4px)',
-};
-const studio: React.CSSProperties = {
-  background: 'white', width: '100%', height: '100%', maxWidth: 1600, maxHeight: '95vh',
-  borderRadius: 14, boxShadow: '0 30px 80px rgba(0,0,0,0.3)',
-  display: 'flex', overflow: 'hidden',
-};
+// v0.62.0: каркас окна — DialogShell (единая тема окон).
 const loaderStyle: React.CSSProperties = {
   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8',
 };

@@ -10,12 +10,14 @@
  *   2. Confirm with user (шоу diff-summary).
  *   3. Call `useStore.getState().replaceActiveProjectDoc(snapshot)` OR
  *      import as a NEW project (safer default).
+ *
+ * v0.62.0: каркас переведён на DialogShell (единая тема окон).
  */
 
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useStore } from './store';
 import { alertDialog, confirmDialog } from './Modal';
+import { DialogShell, DlgBtn, DlgSection } from './DialogTheme';
 
 interface Props { open: boolean; onClose: () => void; }
 interface BackupRow { id: number; ts: number; note: string | null; size: number }
@@ -61,10 +63,13 @@ export function BackupsDialog({ open, onClose }: Props) {
 
   const doRestoreInPlace = async () => {
     if (!preview) return;
+    // v0.51.16: честный текст подтверждения — восстановление создаёт НОВЫЙ
+    // проект из snapshot и делает его активным; старый проект остаётся в
+    // списке (ничего не удаляется).
     if (!(await confirmDialog(
-      'Заменить текущий проект?',
-      'Все несохранённые изменения будут потеряны. Текущее состояние сначала уйдёт в новую резервную копию.',
-      { danger: true, okText: 'Заменить' }
+      'Восстановить вместо текущего проекта?',
+      'Из резервной копии будет создан новый проект, и он станет активным. Текущий проект останется в списке — его можно удалить позже вручную.',
+      { danger: true, okText: 'Восстановить' }
     ))) return;
     setBusy(true);
     try {
@@ -95,132 +100,92 @@ export function BackupsDialog({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  return createPortal(
-    <div style={backdrop} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={header}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>Резервные копии проекта</div>
-            <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-              Автоматические snapshot'ы (последние 20 сохранений). Хранятся в SQLite локально.
+  return (
+    <DialogShell
+      title="Резервные копии проекта"
+      subtitle="Автоматические snapshot'ы (последние 20 сохранений). Хранятся в SQLite локально."
+      icon="database"
+      width={900}
+      onClose={onClose}
+      bodyStyle={{ padding: 0, gap: 0 }}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', flex: 1, minHeight: 0 }}>
+        {/* List */}
+        <div style={{
+          borderRight: '1px solid #E2E8F0', overflowY: 'auto',
+          background: '#fff', maxHeight: '60vh',
+        }}>
+          {rows.length === 0 && (
+            <div className="empty" style={{ margin: 12 }}>
+              Резервных копий ещё нет. Первый snapshot появится после следующего сохранения.
             </div>
-          </div>
-          <button onClick={onClose} style={closeBtn}>✕</button>
+          )}
+          {rows.map(row => (
+            <button
+              key={row.id}
+              onClick={() => doPreview(row.id)}
+              style={{
+                width: '100%', textAlign: 'left', padding: '10px 14px',
+                border: 'none', borderBottom: '1px solid #E2E8F0',
+                background: selected === row.id ? '#EFF6FF' : 'transparent',
+                cursor: 'pointer',
+                borderLeft: '3px solid ' + (selected === row.id ? '#2563EB' : 'transparent'),
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>
+                {new Date(row.ts).toLocaleString()}
+              </div>
+              {row.note && (
+                <div style={{ fontSize: 10, color: '#64748B', marginTop: 3 }}>{row.note}</div>
+              )}
+              <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>
+                {(row.size / 1024).toFixed(1)} KB
+              </div>
+            </button>
+          ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', flex: 1, minHeight: 0 }}>
-          {/* List */}
-          <div style={{ borderRight: '1px solid #E2E8F0', overflowY: 'auto', background: '#F8FAFC' }}>
-            {rows.length === 0 && (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>
-                Резервных копий ещё нет. Первый snapshot появится после следующего сохранения.
+        {/* Preview */}
+        <div style={{ padding: 20, overflowY: 'auto', maxHeight: '60vh' }}>
+          {!preview && (
+            <div className="empty" style={{ marginTop: 40 }}>
+              Выберите snapshot слева
+            </div>
+          )}
+          {preview && (
+            <DlgSection title="Содержимое snapshot">
+              <div style={{
+                padding: 12, background: '#F1F5F9', borderRadius: 8,
+                fontSize: 12, color: '#334155', lineHeight: 1.7,
+              }}>
+                <div>Название проекта: <b>{preview.name || '(без названия)'}</b></div>
+                <div>Устройств: <b>{(preview.devices || []).length}</b></div>
+                <div>Связей: <b>{(preview.links || []).length}</b></div>
+                <div>Групп: <b>{(preview.groups || []).length}</b></div>
+                <div>VLAN'ов: <b>{(preview.vlans || []).length}</b></div>
+                <div>Sticky-заметок: <b>{(preview.stickies || []).length}</b></div>
               </div>
-            )}
-            {rows.map(row => (
-              <button
-                key={row.id}
-                onClick={() => doPreview(row.id)}
-                style={{
-                  width: '100%', textAlign: 'left', padding: '10px 14px',
-                  border: 'none', borderBottom: '1px solid #E2E8F0',
-                  background: selected === row.id ? '#EFF6FF' : 'transparent',
-                  cursor: 'pointer',
-                  borderLeft: '3px solid ' + (selected === row.id ? '#2563EB' : 'transparent'),
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>
-                  {new Date(row.ts).toLocaleString()}
-                </div>
-                {row.note && (
-                  <div style={{ fontSize: 10, color: '#64748B', marginTop: 3 }}>{row.note}</div>
-                )}
-                <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>
-                  {(row.size / 1024).toFixed(1)} KB
-                </div>
-              </button>
-            ))}
-          </div>
 
-          {/* Preview */}
-          <div style={{ padding: 20, overflowY: 'auto' }}>
-            {!preview && (
-              <div style={{ color: '#94A3B8', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
-                Выберите snapshot слева
+              <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <DlgBtn kind="primary" className="sm" disabled={busy} onClick={doRestoreAsNew}>
+                  + Восстановить как новый проект
+                </DlgBtn>
+                <DlgBtn kind="danger" className="sm" disabled={busy} onClick={doRestoreInPlace}>
+                  Заменить текущий
+                </DlgBtn>
+                <DlgBtn kind="ghost" className="sm" onClick={() => selected && doDelete(selected)}>
+                  Удалить
+                </DlgBtn>
               </div>
-            )}
-            {preview && (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
-                  Содержимое snapshot
-                </div>
-                <div style={{
-                  padding: 12, background: '#F1F5F9', borderRadius: 8,
-                  fontSize: 12, color: '#334155', lineHeight: 1.7,
-                }}>
-                  <div>📛 Название проекта: <b>{preview.name || '(без названия)'}</b></div>
-                  <div>📦 Устройств: <b>{(preview.devices || []).length}</b></div>
-                  <div>🔗 Связей: <b>{(preview.links || []).length}</b></div>
-                  <div>📁 Групп: <b>{(preview.groups || []).length}</b></div>
-                  <div>🏷 VLAN'ов: <b>{(preview.vlans || []).length}</b></div>
-                  <div>📝 Sticky-заметок: <b>{(preview.stickies || []).length}</b></div>
-                </div>
 
-                <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button style={primaryBtn} disabled={busy} onClick={doRestoreAsNew}>
-                    + Восстановить как новый проект
-                  </button>
-                  <button
-                    style={{ ...primaryBtn, background: '#DC2626' }}
-                    disabled={busy}
-                    onClick={doRestoreInPlace}
-                  >
-                    ⚠ Заменить текущий
-                  </button>
-                  <button
-                    style={{ ...smallBtn, background: '#FEE2E2', borderColor: '#FCA5A5', color: '#B91C1C' }}
-                    onClick={() => selected && doDelete(selected)}
-                  >🗑 Удалить</button>
-                </div>
-
-                <div style={{
-                  marginTop: 12, padding: 10, background: '#EFF6FF', border: '1px solid #BFDBFE',
-                  borderRadius: 6, fontSize: 11, color: '#1E40AF', lineHeight: 1.5,
-                }}>
-                  💡 «Восстановить как новый проект» безопаснее — оригинал не пострадает,
-                  можно сравнить и уже потом решить оставить или удалить старый.
-                </div>
-              </>
-            )}
-          </div>
+              <div className="infobox info" style={{ marginTop: 12 }}>
+                «Восстановить как новый проект» безопаснее — оригинал не пострадает,
+                можно сравнить и уже потом решить оставить или удалить старый.
+              </div>
+            </DlgSection>
+          )}
         </div>
       </div>
-    </div>,
-    document.body
+    </DialogShell>
   );
 }
-
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
-  zIndex: 100010, display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-const dialog: React.CSSProperties = {
-  background: 'white', width: '90vw', maxWidth: 900, height: '80vh',
-  borderRadius: 12, boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
-  display: 'flex', flexDirection: 'column', overflow: 'hidden',
-};
-const header: React.CSSProperties = {
-  padding: '14px 18px', borderBottom: '1px solid #E2E8F0',
-  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-};
-const closeBtn: React.CSSProperties = {
-  border: '1px solid #CBD5E1', background: 'white', color: '#64748B',
-  padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 14,
-};
-const primaryBtn: React.CSSProperties = {
-  padding: '7px 14px', border: 'none', borderRadius: 6, background: '#2563EB',
-  color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-};
-const smallBtn: React.CSSProperties = {
-  padding: '6px 12px', border: '1px solid #CBD5E1', borderRadius: 6, background: 'white',
-  fontSize: 12, cursor: 'pointer', color: '#334155',
-};

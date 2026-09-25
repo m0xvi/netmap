@@ -17,6 +17,7 @@ import {
   type UpdateStatus,
 } from './updaterClient';
 import { useStore } from './store';
+import { alertDialog } from './Modal';
 
 export function UpdateBanner() {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
@@ -27,6 +28,13 @@ export function UpdateBanner() {
 
   useEffect(() => {
     const off = onUpdateStatus((s) => {
+      // v0.62.2: сетевой сбой ФОНОВОЙ проверки (старт программы) — молча в
+      // консоль. Красная плашка + алерт только для ручной проверки из меню
+      // или не-сетевых ошибок (404/403/конфиг релиза).
+      if (s.state === 'error' && s.origin !== 'manual' && isNetworkUpdateError(s.error || '')) {
+        console.warn('[updater] background check network failure (silent):', s.error);
+        return;
+      }
       setStatus(s);
       setDismissed(false);
 
@@ -73,14 +81,14 @@ export function UpdateBanner() {
     const short = explainUpdateError(status.error || '');
     return (
       <Bar color="#B91C1C" bg="#FEE2E2" border="#FCA5A5">
-        <span>⚠ {short}</span>
+        <IconWarn /> <span>{short}</span>
         <div style={{ flex: 1 }} />
         <button
           style={{ ...dismissBtn, marginRight: 6 }}
           onClick={() => {
             // Full details in a modal / console for the curious.
             console.error('[updater] full error:', status.error);
-            alert('Подробности обновления:\n\n' + (status.error || 'unknown'));
+            void alertDialog('Подробности обновления', status.error || 'unknown');
           }}
         >Подробнее</button>
         <button style={dismissBtn} onClick={() => setDismissed(true)}>Скрыть</button>
@@ -91,7 +99,7 @@ export function UpdateBanner() {
   if (status.state === 'downloaded') {
     return (
       <Bar color="#065F46" bg="#D1FAE5" border="#6EE7B7">
-        <span>✓ Готова версия <b>{version || 'новая'}</b>. Перезапустить и установить?</span>
+        <IconCheck /> <span>Готова версия <b>{version || 'новая'}</b>. Перезапустить и установить?</span>
         <div style={{ flex: 1 }} />
         <button style={secondaryBtn} onClick={() => setDismissed(true)}>Позже</button>
         <button style={primaryBtn} onClick={() => { installUpdateNow(); }}>
@@ -105,7 +113,7 @@ export function UpdateBanner() {
     const p = status.progress;
     return (
       <Bar color="#1E40AF" bg="#DBEAFE" border="#BFDBFE">
-        <span>⬇ Загружаем обновление <b>{version || ''}</b>…</span>
+        <span>Загружаем обновление <b>{version || ''}</b>…</span>
         <div style={{
           flex: 1, height: 6, background: '#FFFFFF',
           borderRadius: 3, overflow: 'hidden', margin: '0 12px',
@@ -125,7 +133,7 @@ export function UpdateBanner() {
   if (status.state === 'available') {
     return (
       <Bar color="#1E40AF" bg="#DBEAFE" border="#BFDBFE">
-        <span>🔔 Доступна новая версия <b>{version || ''}</b>. Начинаем загрузку…</span>
+        <span>Доступна новая версия <b>{version || ''}</b>. Начинаем загрузку…</span>
         <div style={{ flex: 1 }} />
         <button style={secondaryBtn} onClick={() => downloadUpdateNow()}>
           Загрузить сейчас
@@ -136,6 +144,25 @@ export function UpdateBanner() {
   }
 
   return null;
+}
+
+// Small inline SVG status icons (no emoji in UI — HANDOFF §2.2).
+function IconWarn() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+function IconCheck() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
 }
 
 function Bar({ children, color, bg, border }: {
@@ -160,6 +187,23 @@ function formatSpeed(bps: number) {
 }
 
 /**
+ * v0.62.2 — true для транспортных сбоев (виновато окружение, а не настройка):
+ * Node errnos + Chromium net::ERRORS, которые electron-updater отдаёт
+ * текстом (ERR_TIMED_OUT, ERR_INTERNET_DISCONNECTED, …).
+ */
+function isNetworkUpdateError(raw: string): boolean {
+  const s = (raw || '').toLowerCase();
+  return (
+    s.includes('enotfound') || s.includes('etimedout') || s.includes('econnrefused') ||
+    s.includes('econnreset') || s.includes('eai_again') || s.includes('enotreachable') ||
+    s.includes('err_timed_out') || s.includes('err_connection_') ||
+    s.includes('err_internet_disconnected') || s.includes('err_network_') ||
+    s.includes('err_name_not_resolved') || s.includes('err_proxy_') ||
+    s.includes('socket hang up') || s.includes('network timeout') || s.includes('net::')
+  );
+}
+
+/**
  * v0.39.1 — Convert raw electron-updater errors into actionable Russian text.
  * Most common failure modes we've seen:
  *   - 404 releases.atom  → repo is private (or has no published release yet)
@@ -178,7 +222,7 @@ function explainUpdateError(raw: string): string {
   if (s.includes('403')) {
     return 'GitHub отклонил запрос (HTTP 403). Если репозиторий приватный — нужен GH_TOKEN. Обычно проще сделать репозиторий публичным.';
   }
-  if (s.includes('enotfound') || s.includes('etimedout') || s.includes('econnrefused') || s.includes('econnreset')) {
+  if (isNetworkUpdateError(raw)) {
     return 'Нет соединения с GitHub. Проверьте интернет / прокси / файрвол компании.';
   }
   if (s.includes('cannot find latest.yml') || s.includes('no such file')) {

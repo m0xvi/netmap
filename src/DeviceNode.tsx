@@ -28,12 +28,16 @@ const PORT_SIDE: Record<DeviceKind, Position> = {
   printer:    Position.Bottom,
   lock:       Position.Right,
   cloud:      Position.Bottom,
+  pbx:        Position.Right,
+  dvr:        Position.Right,
+  other:      Position.Right,
 };
 
 const POE_APPLICABLE: Record<DeviceKind, boolean> = {
   router: false, switch: true, patchpanel: false,
   ap: true, camera: true, printer: true, lock: true,
   server: false, vm: false, vps: false, pc: false, pos: false, cloud: false,
+  pbx: false, dvr: false, other: false,
 };
 
 /**
@@ -68,6 +72,9 @@ const CARD_STYLE: Record<DeviceKind, CardStyle> = {
   vm:         'box',
   vps:        'box',
   cloud:      'rack1u',
+  pbx:        'box',
+  dvr:        'box',
+  other:      'box',
 };
 
 export function DeviceNode({ id, data, selected }: NodeProps<any>) {
@@ -793,7 +800,7 @@ function ApExpandedCard({ d, meta, Icon, borderColor, cardShadow }: {
             <span style={{
               fontSize: 9, fontWeight: 700, color: '#B45309', background: '#FEF3C7',
               padding: '1px 5px', borderRadius: 3,
-            }}>⚡ PoE</span>
+            }}>↯ PoE</span>
           )}
           <span style={{
             fontSize: 9, fontWeight: 700,
@@ -1068,7 +1075,7 @@ function CameraDvrChip({ regId }: { regId: string }) {
            border: '1px solid #A5F3FC',
            maxWidth: 130, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
          }}>
-      <span style={{ fontSize: 10 }}>📹</span>
+      <span style={{ fontSize: 10 }}>◉</span>
       <span style={{ fontFamily: 'ui-monospace, monospace' }}>{regName}</span>
     </div>
   );

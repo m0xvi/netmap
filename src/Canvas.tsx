@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, addEdge, useReactFlow, ReactFlowProvider,
@@ -9,6 +9,8 @@ import type { DeviceKind } from './types';
 import { BUILT_IN_TEMPLATES, loadCustomTemplates, makeDeviceFromTemplate } from './templates';
 import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
+import { KIND_META } from './icons';
+import { ENDPOINT_KINDS } from './ModernDeviceNode';
 
 import '@xyflow/react/dist/style.css';
 import { useStore } from './store';
@@ -25,15 +27,36 @@ import { edgeRouter, buildObstacles } from './edgeRouter';
 import { portSides, DYNAMIC_KINDS } from './portSides';
 import { openPortPicker, buildPortOptions, type PortOption } from './PortPickerDialog';
 import { alertDialog } from './Modal';
+import { ContextMenu } from './ContextMenu';
+
+// v0.55.0 — perf: Canvas пересоздаёт data-объекты узлов при каждом hover
+// (highlighted) и тике мониторинга. Без memo это перерисовывало ВСЕ 200+
+// карточек по любому чиху. Компаратор смотрит на ссылки device/group и
+// примитивы — совпало, значит перерисовывать нечего.
+const sameNodeProps = (p: any, n: any) =>
+  p.id === n.id &&
+  p.type === n.type &&
+  p.selected === n.selected &&
+  p.dragging === n.dragging &&
+  p.data?.device === n.data?.device &&
+  p.data?.highlighted === n.data?.highlighted &&
+  p.data?.label === n.data?.label &&
+  p.data?.subtitle === n.data?.subtitle &&
+  p.data?.color === n.data?.color &&
+  p.data?.collapsed === n.data?.collapsed &&
+  p.data?.childCount === n.data?.childCount &&
+  p.data?.width === n.data?.width &&
+  p.data?.height === n.data?.height;
+const memoNode = (C: any) => memo(C, sameNodeProps);
 
 const nodeTypes: any = {
-  device: DeviceNode,
-  switchNode: SwitchNode,
-  patchNode: PatchPanelNode,
-  serverNode: ServerNode,
-  group: GroupNode,
+  device: memoNode(DeviceNode),
+  switchNode: memoNode(SwitchNode),
+  patchNode: memoNode(PatchPanelNode),
+  serverNode: memoNode(ServerNode),
+  group: memoNode(GroupNode),
   // v0.41: reference-style redesign
-  modernNode: ModernDeviceNode,
+  modernNode: memoNode(ModernDeviceNode),
 };
 
 const edgeTypes: any = {
@@ -53,6 +76,10 @@ function CanvasInner() {
   // v0.41: reference redesign — switches the node component and endpoint folding.
   const viewMode = useStore(s => s.viewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  // v0.57: ступень семантического зума — влияет на видимость оконечных и рёбра.
+  const zoomBand = useStore(s => s.zoomBand);
+  // v0.60: раскраска связей по подсетям.
+  const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
   const select = useStore(s => s.select);
   const selectGroup = useStore(s => s.selectGroup);
   const setPosition = useStore(s => s.setPosition);
@@ -78,6 +105,9 @@ function CanvasInner() {
   const filters = useStore(s => s.filters);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // v0.58: сюда FarLandmarks кладёт императивный двигальщик пилюль —
+  // onMove дёргает его каждый кадр без ре-рендеров React.
+  const landmarkMoveRef = useRef<LandmarkMoveFn | null>(null);
   const rf = useReactFlow();
 
   // ------- Filter helpers -------
@@ -109,6 +139,124 @@ function CanvasInner() {
       return true;
     };
   }, [filters, doc.links]);
+
+  // v0.58: ориентиры дальней ступени — пилюли в ЭКРАННЫХ координатах
+  // (читаются при любом зуме): ядро, группы, серверы. Список стабилен
+  // между ре-рендерами; позиции пилюль двигает onMove императивно.
+  // v0.60: пилюли для ВСЕХ хабов (не только ядра/серверов) + tip
+  // с раскладкой оконечных по типам.
+  const farMarks = useMemo(() => {
+    type Mark = {
+      id: string; ax: number; ay: number; name: string;
+      color: string; core: boolean; group: boolean; count: number; tip: string;
+    };
+    if (zoomBand !== 'far') return [] as Mark[];
+    const groups = doc.groups || [];
+    const groupById = new Map(groups.map(g => [g.id, g]));
+    const collapsed = new Set(groups.filter(g => g.collapsed).map(g => g.id));
+    // Абсолютные координаты: у вложенных групп и устройств в группах
+    // хранимые x/y относительные — поднимаемся по родителям.
+    const absXY = (x: number, y: number, groupId?: string | null) => {
+      let ax = x, ay = y, p = groupId;
+      const guard = new Set<string>();
+      while (p && !guard.has(p)) {
+        guard.add(p);
+        const pg = groupById.get(p);
+        if (!pg) break;
+        ax += pg.x; ay += pg.y; p = pg.parentId;
+      }
+      return { ax, ay };
+    };
+    const underCollapsed = (groupId?: string | null) => {
+      let p = groupId;
+      const guard = new Set<string>();
+      while (p && !guard.has(p)) {
+        guard.add(p);
+        if (collapsed.has(p)) return true;
+        p = groupById.get(p)?.parentId;
+      }
+      return false;
+    };
+    // Счётчик оконечных на устройство (для «· N» в пилюле).
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+    const devById = new Map(doc.devices.map(d => [d.id, d]));
+    const epCount = new Map<string, number>();
+    for (const l of doc.links) {
+      const a = devById.get(l.fromDeviceId);
+      const b = devById.get(l.toDeviceId);
+      if (a && b) {
+        if (ENDPOINT_KINDS.includes(b.kind) || b.kind === 'vm')
+          epCount.set(a.id, (epCount.get(a.id) || 0) + 1);
+        if (ENDPOINT_KINDS.includes(a.kind) || a.kind === 'vm')
+          epCount.set(b.id, (epCount.get(b.id) || 0) + 1);
+      }
+    }
+    // v0.60: та же агрегация по видам — для тултипа «PC 20 · CCTV 5».
+    const epKinds = new Map<string, Map<DeviceKind, number>>();
+    for (const l of doc.links) {
+      const bump = (hubId: string, peerId: string) => {
+        const peer = devById.get(peerId);
+        if (!peer || (!ENDPOINT_KINDS.includes(peer.kind) && peer.kind !== 'vm')) return;
+        let m = epKinds.get(hubId);
+        if (!m) { m = new Map(); epKinds.set(hubId, m); }
+        m.set(peer.kind, (m.get(peer.kind) || 0) + 1);
+      };
+      bump(l.fromDeviceId, l.toDeviceId);
+      bump(l.toDeviceId, l.fromDeviceId);
+    }
+    const breakdownOf = (hubId: string): string => {
+      const m = epKinds.get(hubId);
+      if (!m || m.size === 0) return '';
+      return [...m.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([k, n]) => `${KIND_META[k]?.label || k} ${n}`)
+        .join(' · ');
+    };
+    const cores: Mark[] = [];
+    const hubs: Mark[] = [];
+    for (const d of doc.devices) {
+      if (d.groupId && underCollapsed(d.groupId)) continue;
+      if (!isDeviceVisible(d)) continue;
+      // v0.60: ориентир — любой хаб (оконечные в far всё равно скрыты).
+      if (ENDPOINT_KINDS.includes(d.kind)) continue;
+      const isCore = inferLayer(d) === 'core';
+      const { ax, ay } = absXY(d.x, d.y, d.groupId);
+      (isCore ? cores : hubs).push({
+        id: d.id, ax, ay, name: d.name,
+        color: KIND_META[d.kind]?.color || '#64748B',
+        core: isCore, group: false, count: epCount.get(d.id) || 0,
+        tip: breakdownOf(d.id),
+      });
+    }
+    const gm: Mark[] = [];
+    const childCount = new Map<string, number>();
+    for (const d of doc.devices)
+      if (d.groupId) childCount.set(d.groupId, (childCount.get(d.groupId) || 0) + 1);
+    for (const g of groups) {
+      const { ax, ay } = absXY(g.x, g.y, g.parentId);
+      gm.push({
+        id: g.id, ax: ax + (g.width || 200) / 2, ay, name: g.name,
+        color: g.color || '#0D9488', core: false, group: true,
+        count: childCount.get(g.id) || 0, tip: '',
+      });
+    }
+    return [...cores, ...gm, ...hubs].slice(0, 60);
+  }, [zoomBand, doc.devices, doc.groups, doc.links, isDeviceVisible]);
+
+  // v0.60: стабильное назначение цветов подсетям (сортировка → индекс
+  // в палитре). Один источник правды для рёбер и легенды.
+  const subnetPalette = useMemo(() => {
+    const keys = new Set<string>();
+    const devById = new Map(doc.devices.map(d => [d.id, d]));
+    for (const l of doc.links) {
+      const k = linkSubnetKey(l, devById);
+      if (k) keys.add(k);
+    }
+    const map = new Map<string, string>();
+    [...keys].sort().forEach((k, i) => map.set(k, SUBNET_PALETTE[i % SUBNET_PALETTE.length]));
+    return map;
+  }, [doc.devices, doc.links]);
 
   // ------- Build nodes: groups first (React Flow requires parents before children) -------
   const initialNodes: Node[] = useMemo(() => {
@@ -147,9 +295,12 @@ function CanvasInner() {
 
     // v0.41: which endpoint kinds get hidden from the canvas when
     // collapseEndpoints is on (their info lives in the parent hub's chip list).
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock'];
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     const hideAsEndpoint = (d: Device): boolean => {
-      if (viewMode !== 'modern' || !collapseEndpoints) return false;
+      // v0.57: на дальней ступени оконечные прячутся в хабы всегда,
+      // независимо от ручного тумблера collapseEndpoints.
+      if (viewMode !== 'modern') return false;
+      if (!collapseEndpoints && zoomBand !== 'far') return false;
       if (!ENDPOINT_KINDS.includes(d.kind)) return false;
       // Only hide when this endpoint IS actually connected to a switch/router —
       // orphan endpoints stay visible so the user can still see + wire them.
@@ -195,9 +346,10 @@ function CanvasInner() {
     // + collapseEndpoints is active (that's the only path that needs it).
     // Otherwise we skip the dep so the node list doesn't churn on every
     // link add/remove/update — was causing full node remount storms.
-  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, collapseEndpoints,
+  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
       // Only depend on links when they actually influence node visibility.
-      (viewMode === 'modern' && collapseEndpoints) ? doc.links : null]);
+      // v0.57: дальняя ступень тоже прячет оконечные — ей links нужны.
+      (viewMode === 'modern' && (collapseEndpoints || zoomBand === 'far')) ? doc.links : null]);
 
   const initialEdges: Edge[] = useMemo(() => {
     const collapsedIds = new Set((doc.groups || []).filter(g => g.collapsed).map(g => g.id));
@@ -210,10 +362,12 @@ function CanvasInner() {
     };
 
     // v0.41: same "hide endpoints" heuristic as in initialNodes.
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock'];
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     const hideAsEndpoint = (d: Device | undefined): boolean => {
       if (!d) return false;
-      if (viewMode !== 'modern' || !collapseEndpoints) return false;
+      // v0.57: на дальней ступени прячем и рёбра к свернутым оконечным.
+      if (viewMode !== 'modern') return false;
+      if (!collapseEndpoints && zoomBand !== 'far') return false;
       if (!ENDPOINT_KINDS.includes(d.kind)) return false;
       return doc.links.some(l =>
         (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
@@ -379,8 +533,12 @@ function CanvasInner() {
             bundleTotal: bundleIdx.get(l.id)?.total ?? 1,
           },
           style: {
-            // v0.42: speed-based color takes priority in modern view
-            stroke: (viewMode === 'modern' && speedColor) ? speedColor : baseColor,
+            // v0.42: speed-based color takes priority in modern view.
+            // v0.60: раскраска по подсетям — поверх скорости и кабеля
+            // (ручной l.color главнее всего; null → дефолтная ветка).
+            stroke: (colorLinksBySubnet && !l.color
+              ? subnetPalette.get(linkSubnetKey(l, deviceById) || '') : undefined)
+              || ((viewMode === 'modern' && speedColor) ? speedColor : baseColor),
             strokeWidth: speedWidth != null ? speedWidth
                        : isInterGroup ? baseWidth + 0.5 : baseWidth,
             strokeDasharray: l.cable === 'wifi' ? '4 4' : undefined,
@@ -388,7 +546,8 @@ function CanvasInner() {
         } as Edge;
       })
       .filter(Boolean) as Edge[];
-   }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints]);
+   }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
+       colorLinksBySubnet, subnetPalette]);
 
   // Additional "host" edges for VMs (skip VMs already rendered inside expanded server card)
   const hostEdges: Edge[] = useMemo(() => {
@@ -531,7 +690,7 @@ function CanvasInner() {
         useStore.getState().pushAlert({
           severity: 'warn', origin: 'app',
           title: 'Устройства сжаты в одну точку',
-          message: `Все ${doc.devices.length} устройств в области < 50 px. Нажмите ☰ AppMenu → Восстановить вид (F) или запустите Auto Layout.`,
+          message: `Все ${doc.devices.length} устройств в области < 50 px. Нажмите F (вписать всё) или запустите авто-раскладку из панели инструментов.`,
         });
       }
     }, 1500);
@@ -585,6 +744,47 @@ function CanvasInner() {
     // back into setPosition → new doc → new initialNodes → new position
     // change → infinite loop (blank scene + ResizeObserver spam).
     const doc = useStore.getState().doc;
+    const st = useStore.getState();
+    // v0.59: тащим за собой свернутых оконечных (их нод нет на канвасе —
+    // сами они сдвинуться не могут). followed — защита от двойного
+    // сдвига одного устройства за батч (мультиселект).
+    const followed = new Set<string>();
+    const nodeIds = new Set(nodes.map(x => x.id));
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+    // Оконечные, свернутые в данный хаб прямо сейчас (та же эвристика,
+    // что hideAsEndpoint: collapse включен или дальняя ступень).
+    const foldedInto = (hubId: string): Device[] => {
+      if (st.viewMode !== 'modern') return [];
+      if (!st.collapseEndpoints && st.zoomBand !== 'far') return [];
+      return doc.links
+        .filter(l => l.fromDeviceId === hubId || l.toDeviceId === hubId)
+        .map(l => l.fromDeviceId === hubId ? l.toDeviceId : l.fromDeviceId)
+        .map(id => doc.devices.find(d => d.id === id))
+        .filter((d): d is Device =>
+          !!d && ENDPOINT_KINDS.includes(d.kind) && !nodeIds.has(d.id) && isDeviceVisible(d));
+    };
+    // Видимые-но-без-ноды устройства под группой (свернутые, вложенные).
+    const underGroup = (groupId: string): Device[] => {
+      const inSubtree = (gid?: string | null): boolean => {
+        let p = gid;
+        const guard = new Set<string>();
+        while (p && !guard.has(p)) {
+          guard.add(p);
+          if (p === groupId) return true;
+          p = (doc.groups || []).find(g => g.id === p)?.parentId;
+        }
+        return false;
+      };
+      return doc.devices.filter(d =>
+        d.groupId && inSubtree(d.groupId) && !nodeIds.has(d.id) && isDeviceVisible(d));
+    };
+    const follow = (list: Device[], dx: number, dy: number) => {
+      for (const f of list) {
+        if (followed.has(f.id)) continue;
+        followed.add(f.id);
+        setPosition(f.id, f.x + dx, f.y + dy);
+      }
+    };
     for (const c of changes) {
       if (c.type === 'position' && c.position && !c.dragging) {
         const n = nodes.find(x => x.id === c.id);
@@ -592,15 +792,22 @@ function CanvasInner() {
         if (n.type === 'group') {
           const g = (doc.groups || []).find(x => x.id === c.id);
           if (g && Math.abs(g.x - c.position.x) < 0.5 && Math.abs(g.y - c.position.y) < 0.5) continue;
+          const dx = c.position.x - (g?.x ?? c.position.x);
+          const dy = c.position.y - (g?.y ?? c.position.y);
           setGroupPosition(c.id, c.position.x, c.position.y);
+          if (dx !== 0 || dy !== 0) follow(underGroup(c.id), dx, dy);
         } else {
           const dev = doc.devices.find(x => x.id === c.id);
           if (dev && Math.abs(dev.x - c.position.x) < 0.5 && Math.abs(dev.y - c.position.y) < 0.5) continue;
+          const dx = c.position.x - (dev?.x ?? c.position.x);
+          const dy = c.position.y - (dev?.y ?? c.position.y);
           setPosition(c.id, c.position.x, c.position.y);
+          if ((dx !== 0 || dy !== 0) && (dev?.kind === 'switch' || dev?.kind === 'router'))
+            follow(foldedInto(c.id), dx, dy);
         }
       }
     }
-  }, [nodes, onNodesChange, setPosition, setGroupPosition]);
+  }, [nodes, onNodesChange, setPosition, setGroupPosition, isDeviceVisible]);
 
   // Strip synthetic suffixes: "_left"/"_right" (fallback handles) and ":back" (patch panel rear)
   const cleanHandle = (h: string | null | undefined) =>
@@ -750,6 +957,35 @@ function CanvasInner() {
   //      so cards never end up stacked as in v0.17.
   //
   // Works for ALL device node types (device / switchNode / patchNode / serverNode).
+  //
+  // v0.51.18: исходные координаты на начало перетаскивания — нужны для
+  // возврата карточки на место при «Отмена» в подтверждении смены группы.
+  const dragOrigins = useRef<Map<string, { x: number; y: number; groupId: string | null }>>(new Map());
+  const onNodeDragStart = useCallback((_e: any, node: Node) => {
+    if (node.type === 'group') return;
+    const dev = useStore.getState().doc.devices.find(d => d.id === node.id);
+    if (!dev) return;
+    dragOrigins.current.set(node.id, { x: dev.x, y: dev.y, groupId: dev.groupId ?? null });
+  }, []);
+
+  // v0.51.19: контекстное меню «сменить группу?» в точке дропа.
+  // Вместо центрированного диалога — меню прямо там, куда отпустили
+  // карточку (строки: вопрос / Да / Отмена), как просил пользователь.
+  const groupAskOpen = useRef(false);
+  const [groupAsk, setGroupAsk] = useState<null | {
+    x: number; y: number; title: string; yes: () => void; no: () => void;
+  }>(null);
+  const openGroupAsk = useCallback((x: number, y: number, title: string, yes: () => void, no: () => void) => {
+    groupAskOpen.current = true;
+    setGroupAsk({ x, y, title, yes, no });
+  }, []);
+  const resolveGroupAsk = useCallback((fn?: () => void) => {
+    if (!groupAskOpen.current) return;   // «Да»/«Отмена» уже нажаты
+    groupAskOpen.current = false;
+    setGroupAsk(null);
+    fn?.();
+  }, []);
+
   const onNodeDragStop = useCallback((_e: any, node: Node) => {
     // Clear any drop-target highlight regardless of what we do next.
     document.querySelectorAll('.react-flow__node-group.netmap-drop-target')
@@ -806,6 +1042,19 @@ function CanvasInner() {
         target = g;
       }
     }
+
+    // v0.51.19: ПОДТВЕРЖДЕНИЕ смены группы жестом перетаскивания —
+    // контекстным меню В ТОЧКЕ ДРОПА (строки: вопрос / Да / Отмена):
+    //   • вытащили карточку за пределы её группы  → «Убрать из группы „…“?»
+    //   • перетащили в ДРУГУЮ группу              → «Переместить в группу „…“?»
+    // Не затрагиваем: drop на устройство (создание связи — обработан выше)
+    // и добавление в группу устройства БЕЗ группы (намеренный жест).
+    // При «Отмена» (или закрытии меню мимо) карточка возвращается на место.
+    const origin = dragOrigins.current.get(dev.id)
+      ?? { x: dev.x, y: dev.y, groupId: dev.groupId ?? null };
+    dragOrigins.current.delete(dev.id);
+
+    const commit = () => {
 
     // v0.35.2: SAFETY — never let a re-parent produce out-of-bounds or NaN
     // coords. Previously a card dropped across a distant group border could
@@ -865,7 +1114,25 @@ function CanvasInner() {
 
     // --- 3) Auto-grow the target group if the drop pushed children past the edge ---
     growGroupToFitChildren(finalGroupId ?? null);
-  }, [setPosition, handleDropOnDevice]);
+
+    }; // commit
+
+    if (dev.groupId && target?.id !== dev.groupId
+        && useStore.getState().multiSelectedIds.size <= 1) {
+      const fromName = parent?.name ?? '';
+      openGroupAsk(
+        _e.clientX ?? 0, _e.clientY ?? 0,
+        target
+          ? `Переместить в группу «${target.name}»?`
+          : `Убрать из группы «${fromName}»?`,
+        commit,
+        // «Отмена» / клик мимо / Escape — возврат на исходное место.
+        () => setPosition(dev.id, origin.x, origin.y, origin.groupId),
+      );
+      return;
+    }
+    commit();
+  }, [setPosition, handleDropOnDevice, openGroupAsk]);
 
   // v0.24/25: no collision resolution DURING drag (avoid jitter). Only used
   // to highlight the target group the dragged card is hovering over — the actual
@@ -1212,8 +1479,11 @@ function CanvasInner() {
 
   // Also style edges based on path
   const pathLinkIds = useStore(s => s.pathLinkIds);
-  // v0.43.6: global "hide all edges" toggle from the FAB.
+  // v0.43.6: global "hide all edges" toggle (панель инструментов, меню «Вид»).
   const hideEdges = useStore(s => s.hideEdges);
+  // v0.51.22: большие схемы — прячем миникарту (рендер всех нод в отдельном
+  // svg съедает кадры при каждом pan/zoom).
+  const heavyDoc = useStore(s => s.doc.devices.length > 150);
   const displayedEdges = useMemo(() => {
     if (hideEdges) return [];   // just drop them from RF entirely
     return edges.map(e => {
@@ -1225,14 +1495,15 @@ function CanvasInner() {
         style: {
           ...(e.style as any || {}),
           opacity: dimmed ? 0.15 : 1,
-          strokeWidth: onPath ? 3.5 : ((e.style as any)?.strokeWidth || 1.5),
+          // v0.57: на дальней ступени магистрали толще — видно издалека.
+          strokeWidth: onPath ? 3.5 : zoomBand === 'far' ? 2.5 : ((e.style as any)?.strokeWidth || 1.5),
           stroke: onPath ? '#2563EB' : (e.style as any)?.stroke,
           transition: 'opacity 0.18s',
         },
       };
     });
   },
-  [edges, pathLinkIds, pathActive, hideEdges]);
+  [edges, pathLinkIds, pathActive, hideEdges, zoomBand]);
 
   return (
     <div ref={wrapperRef} onDragOver={onDragOver} onDrop={onDrop}
@@ -1249,6 +1520,20 @@ function CanvasInner() {
       edges={displayedEdges}
       onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
+      onMove={(_event, viewport) => {
+        // v0.57: ступень семантического зума — дешёвый обработчик: считаем
+        // ступень по zoom с гистерезисом ±0.04 и пишем в стор только смену.
+        const z = viewport.zoom;
+        const st = useStore.getState();
+        const cur = st.zoomBand;
+        let next = cur;
+        if (cur === 'near') next = z < 0.66 ? (z < 0.31 ? 'far' : 'mid') : 'near';
+        else if (cur === 'mid') next = z >= 0.74 ? 'near' : (z < 0.31 ? 'far' : 'mid');
+        else next = z >= 0.74 ? 'near' : (z >= 0.39 ? 'mid' : 'far');
+        if (next !== cur) st.setZoomBand(next);
+        // v0.58: двигаем пилюли-ориентиры (императивно, без ре-рендеров).
+        try { landmarkMoveRef.current?.(viewport); } catch {}
+      }}
       onMoveEnd={(_event, viewport) => {
         window.dispatchEvent(new CustomEvent('netmap:viewport-changed', { detail: viewport }));
       }}
@@ -1293,6 +1578,7 @@ function CanvasInner() {
           openContextMenu({ x: e.clientX, y: e.clientY, target: { type: 'device', id: n.id } });
         }
       }}
+      onNodeDragStart={onNodeDragStart}
       onNodeDrag={onNodeDrag}
       onNodeDragStop={onNodeDragStop}
       onSelectionChange={({ nodes: selNodes }) => {
@@ -1323,11 +1609,15 @@ function CanvasInner() {
       fitView
       minZoom={0.1}
       maxZoom={2}
-      colorMode="dark"
+      colorMode="light"
+      // v0.51.22: рендерим только ноды/рёбра в viewport — на схемах в сотни
+      // устройств это главный источник лагов без этого флага.
+      onlyRenderVisibleElements
       proOptions={{ hideAttribution: true }}
     >
       {showGrid && <Background gap={20} size={1} color="#E5E7EB" />}
       <Controls style={{ background: '#F9FAFB', border: '1px solid #D1D5DB' }} />
+      {!heavyDoc && (
       <MiniMap
         style={{ background: '#FFFFFF', border: '1px solid #D1D5DB', cursor: 'crosshair' }}
         nodeColor={(n) => {
@@ -1348,7 +1638,330 @@ function CanvasInner() {
           catch { /* rf may not be ready */ }
         }}
       />
+      )}
     </ReactFlow>
+
+    {/* v0.51.20: если в проекте ЕСТЬ связи, но на канвасе не видно ни одной —
+        это почти наверняка сохранённый тумблер «Скрыть все связи» или
+        фильтры. Показываем заметный чип с кнопкой в один клик, чтобы
+        «пропавшие связи» больше не были загадкой. */}
+    <HiddenEdgesChip linksTotal={doc.links.length} shown={displayedEdges.length} />
+    <ZoomBandChip />
+    <FarLandmarks marks={farMarks} moveRef={landmarkMoveRef} />
+    <EndpointsFoldedChip />
+    <SubnetLegend palette={subnetPalette} />
+
+    {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
+        строка-вопрос с названием группы, «Да», «Отмена». */}
+    {groupAsk && (
+      <ContextMenu
+        x={groupAsk.x} y={groupAsk.y}
+        onClose={() => resolveGroupAsk(groupAsk.no)}
+        items={[
+          { label: groupAsk.title, disabled: true, icon: '▦' },
+          { separator: true, label: '' },
+          { label: 'Да', icon: '✓', action: () => resolveGroupAsk(groupAsk.yes) },
+          { label: 'Отмена', icon: '✕', action: () => resolveGroupAsk(groupAsk.no) },
+        ]}
+      />
+    )}
+    </div>
+  );
+}
+
+// v0.51.20: заметный индикатор «связи скрыты». Появляется ТОЛЬКО когда в
+// проекте есть связи, но на канвасе не отрисовано ни одной — типичная
+// загадка «связи пропали» после случайно нажатого «Скрыть все связи»
+// (сохраняется в localStorage) или фильтров кабелей/VLAN.
+const chipBtn: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #F59E0B', color: '#92400E',
+  borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+  cursor: 'pointer', whiteSpace: 'nowrap',
+};
+
+function HiddenEdgesChip({ linksTotal, shown }: { linksTotal: number; shown: number }) {
+  const hideEdges = useStore(s => s.hideEdges);
+  const toggleHideEdges = useStore(s => s.toggleHideEdges);
+  const resetFilters = useStore(s => s.resetFilters);
+  if (linksTotal <= 0 || shown > 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#FEF3C7', border: '1px solid #F59E0B', color: '#92400E',
+      borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
+    }}>
+      <span>{hideEdges ? 'Все связи скрыты' : 'Связи скрыты фильтрами'}</span>
+      {hideEdges
+        ? <button onClick={toggleHideEdges} style={chipBtn}>Показать связи</button>
+        : <button onClick={resetFilters} style={chipBtn}>Сбросить фильтры</button>}
+    </div>
+  );
+}
+
+// v0.57: индикатор обзорной схемы — объясняет, куда делись оконечные,
+// и одним кликом возвращает читаемый зум.
+function ZoomBandChip() {
+  const zoomBand = useStore(s => s.zoomBand);
+  const viewMode = useStore(s => s.viewMode);
+  const devices = useStore(s => s.doc.devices);
+  const groups = useStore(s => s.doc.groups);
+  const rf = useReactFlow();
+  if (zoomBand !== 'far' || viewMode !== 'modern') return null;
+  const flyToContent = () => {
+    try {
+      // v0.59: летим к ЦЕНТРУ КОНТЕНТА — зум в центр пустого экрана
+      // выглядел как «кнопка не работает».
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      const groupById = new Map((groups || []).map(g => [g.id, g]));
+      const acc = (x: number, y: number, w: number, h: number, gid?: string | null) => {
+        let ax = x, ay = y, p = gid;
+        const guard = new Set<string>();
+        while (p && !guard.has(p)) {
+          guard.add(p);
+          const pg = groupById.get(p);
+          if (!pg) break;
+          ax += pg.x; ay += pg.y; p = pg.parentId;
+        }
+        x0 = Math.min(x0, ax); y0 = Math.min(y0, ay);
+        x1 = Math.max(x1, ax + w); y1 = Math.max(y1, ay + h);
+      };
+      for (const d of devices) acc(d.x, d.y, 260, 120, d.groupId);
+      for (const g of groups || []) acc(g.x, g.y, g.width || 200, g.collapsed ? 44 : (g.height || 200), g.parentId);
+      if (!isFinite(x0)) return;
+      rf.setCenter((x0 + x1) / 2, (y0 + y1) / 2, { zoom: 0.75, duration: 300 });
+    } catch {}
+  };
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1D4ED8',
+      borderRadius: 999, padding: '6px 8px 6px 14px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)', whiteSpace: 'nowrap',
+    }}>
+      <span>Обзорная схема — оконечные свернуты в хабы</span>
+      <button
+        onClick={flyToContent}
+        style={chipBtn}
+      >Приблизить</button>
+    </div>
+  );
+}
+
+// v0.60: легенда цветов подсетей (справа сверху, сворачивается).
+// Палитра приходит пропсом — тот же объект, что красит рёбра.
+function SubnetLegend({ palette }: { palette: Map<string, string> }) {
+  const colorOn = useStore(s => s.colorLinksBySubnet);
+  const [open, setOpen] = useState(true);
+  const entries = useMemo(
+    () => [...palette.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+    [palette]);
+  if (!colorOn || entries.length === 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 12, left: 12, zIndex: 30,
+      background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
+      fontSize: 11, color: '#334155', maxWidth: 220,
+    }}>
+      <button onClick={() => setOpen(o => !o)} title="Легенда цветов подсетей"
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 10px', border: 'none', background: 'transparent',
+          cursor: 'pointer', fontSize: 11, fontWeight: 800, color: '#0F172A',
+        }}>
+        <span style={{ fontSize: 9 }}>{open ? '▼' : '▶'}</span>
+        <span>Подсети</span>
+        <span style={{ marginLeft: 'auto', color: '#64748B' }}>{entries.length}</span>
+      </button>
+      {open && (
+        <div style={{ maxHeight: '32vh', overflowY: 'auto', padding: '0 10px 8px', display: 'grid', gap: 3 }}>
+          {entries.map(([k, c]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flexShrink: 0 }} />
+              <span style={{ fontFamily: 'ui-monospace,monospace', fontSize: 11 }}>{k}</span>
+            </div>
+          ))}
+          <div style={{ color: '#94A3B8', fontSize: 10, marginTop: 2 }}>серые — между подсетями</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// v0.59: синяя кнопка для чипов на синем фоне (chipBtn — янтарная).
+const chipBtnBlue: React.CSSProperties = {
+  background: '#2563EB', border: '1px solid #2563EB', color: '#FFFFFF',
+  borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+  cursor: 'pointer', whiteSpace: 'nowrap',
+};
+
+// v0.59: чип свернутых оконечных — объясняет «124 добавлено, на карте 15»
+// и одной кнопкой разворачивает всё обратно. В far не показываем
+// (там уже висит ZoomBandChip про свертку). top: 54 — под слотом
+// HiddenEdgesChip/PathBanner, чтобы никогда не перекрываться.
+function EndpointsFoldedChip() {
+  const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  const toggle = useStore(s => s.toggleCollapseEndpoints);
+  const viewMode = useStore(s => s.viewMode);
+  const zoomBand = useStore(s => s.zoomBand);
+  const devices = useStore(s => s.doc.devices);
+  const links = useStore(s => s.doc.links);
+  const folded = useMemo(() => {
+    if (viewMode !== 'modern' || !collapseEndpoints || zoomBand === 'far') return 0;
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+    let n = 0;
+    for (const d of devices) {
+      if (!ENDPOINT_KINDS.includes(d.kind)) continue;
+      const wired = links.some(l =>
+        (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
+        devices.some(x =>
+          (x.id === l.fromDeviceId || x.id === l.toDeviceId) &&
+          x.id !== d.id &&
+          (x.kind === 'switch' || x.kind === 'router')
+        )
+      );
+      if (wired) n++;
+    }
+    return n;
+  }, [devices, links, viewMode, collapseEndpoints, zoomBand]);
+  if (folded === 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 54, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1D4ED8',
+      borderRadius: 8, padding: '6px 8px 6px 12px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)', whiteSpace: 'nowrap',
+    }}>
+      <span>В хабы свернуто: {folded}</span>
+      <button onClick={toggle} style={chipBtnBlue}>Развернуть всё</button>
+    </div>
+  );
+}
+
+// v0.60: раскраска связей по подсетям (/24).
+const SUBNET_PALETTE = [
+  '#2563EB', '#0D9488', '#7C3AED', '#DB2777', '#EA580C', '#16A34A',
+  '#CA8A04', '#0891B2', '#4F46E5', '#BE123C', '#65A30D', '#9333EA',
+];
+function subnet24(ip?: string | null): string | null {
+  if (!ip) return null;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/.exec(ip.trim());
+  if (!m) return null;
+  return `${m[1]}.${m[2]}.${m[3]}.0/24`;
+}
+// Подсеть линка: сторона оконечного в приоритете (у свитчей часто mgmt-IP
+// из другой подсети). Разные подсети / неизвестное → null (цвет кабеля).
+function linkSubnetKey(
+  l: { fromDeviceId: string; toDeviceId: string },
+  devById: Map<string, Device>,
+): string | null {
+  const a = devById.get(l.fromDeviceId);
+  const b = devById.get(l.toDeviceId);
+  if (!a || !b) return null;
+  const sa = subnet24(a.ip), sb = subnet24(b.ip);
+  const aEp = ENDPOINT_KINDS.includes(a.kind), bEp = ENDPOINT_KINDS.includes(b.kind);
+  if (aEp && !bEp) return sa;
+  if (bEp && !aEp) return sb;
+  if (sa && sb && sa === sb) return sa;
+  return null;
+}
+
+// v0.58: двигальщик пилюль — проекция мировых координат в экранные.
+type LandmarkMoveFn = (v: { x: number; y: number; zoom: number }) => void;
+
+// v0.58: пилюли-ориентиры дальней ступени. Рендерятся один раз на смену
+// списка; позиции обновляются императивно из onMove (без ре-рендеров
+// React на каждый кадр pan/zoom). Клик по пилюле — долететь к объекту.
+// Работает и в legacy-виде (не зависит от modern-нод).
+function FarLandmarks({ marks, moveRef }: {
+  marks: Array<{
+    id: string; ax: number; ay: number; name: string;
+    color: string; core: boolean; group: boolean; count: number; tip: string;
+  }>;
+  moveRef: { current: LandmarkMoveFn | null };
+}) {
+  const rf = useReactFlow();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const pillRefs = useRef(new Map<string, HTMLDivElement>());
+  useEffect(() => {
+    const update: LandmarkMoveFn = (v) => {
+      const el = boxRef.current;
+      if (!el) return;
+      const W = el.clientWidth, H = el.clientHeight;
+      // v0.60: антиперекрытие — пилюли идут в порядке приоритета
+      // (ядро → группы → хабы), налезшие на старших прячем.
+      const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+      for (const m of marks) {
+        const node = pillRefs.current.get(m.id);
+        if (!node) continue;
+        const px = m.ax * v.zoom + v.x;
+        const py = m.ay * v.zoom + v.y;
+        if (px < -180 || py < -90 || px > W + 180 || py > H + 90) {
+          if (node.style.display !== 'none') node.style.display = 'none';
+          continue;
+        }
+        const w = Math.min(230, 44 + m.name.length * 7.5 + (m.count > 0 ? 30 : 0));
+        const x0 = px - w / 2, x1 = px + w / 2, y1 = py - 8, y0 = y1 - 30;
+        if (placed.some(b => x0 < b.x1 && x1 > b.x0 && y0 < b.y1 && y1 > b.y0)) {
+          if (node.style.display !== 'none') node.style.display = 'none';
+          continue;
+        }
+        placed.push({ x0, y0, x1, y1 });
+        if (node.style.display === 'none') node.style.display = 'flex';
+        node.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) translate(-50%,-135%)`;
+      }
+    };
+    moveRef.current = update;
+    try { update(rf.getViewport()); } catch {}
+    return () => { if (moveRef.current === update) moveRef.current = null; };
+  }, [marks, moveRef, rf]);
+  if (marks.length === 0) return null;
+  return (
+    <div ref={boxRef} data-netmap-overlay="true" style={{
+      position: 'absolute', inset: 0, overflow: 'hidden',
+      pointerEvents: 'none', zIndex: 20,
+    }}>
+      {marks.map(m => (
+        <div key={m.id}
+          ref={(el) => { if (el) pillRefs.current.set(m.id, el); else pillRefs.current.delete(m.id); }}
+          onClick={() => {
+            try { rf.fitView({ nodes: [{ id: m.id }], padding: 0.4, maxZoom: 1.1, duration: 300 }); } catch {}
+          }}
+          title={m.group
+            ? `Группа «${m.name}» (${m.count}) — клик: приблизиться`
+            : `${m.name}${m.tip ? ` — ${m.tip}` : ' — нет оконечных'} (клик: приблизиться)`}
+          style={{
+            position: 'absolute', left: 0, top: 0,
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: '#FFFFFF',
+            border: m.core ? '2px solid #2563EB' : `1.5px ${m.group ? 'dashed' : 'solid'} ${m.color}`,
+            borderRadius: 999, padding: '4px 12px 4px 8px',
+            fontSize: 12, fontWeight: 700, color: '#0F172A',
+            boxShadow: m.core
+              ? '0 0 0 3px #2563EB22, 0 4px 14px rgba(37,99,235,0.3)'
+              : '0 4px 14px rgba(15,23,42,0.18)',
+            cursor: 'pointer', pointerEvents: 'auto', whiteSpace: 'nowrap',
+            maxWidth: 230, overflow: 'hidden', willChange: 'transform',
+          }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: m.core ? '#2563EB' : m.color, flexShrink: 0,
+          }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>
+          {m.count > 0 && (
+            <span style={{
+              fontSize: 11, fontWeight: 800, color: '#1D4ED8', background: '#EFF6FF',
+              borderRadius: 999, padding: '0 7px', flexShrink: 0,
+            }}>
+              {m.count}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

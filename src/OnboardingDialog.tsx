@@ -45,22 +45,24 @@ export function resetOnboarding() {
 // Styles
 // ===========================================================================
 
+// v0.62.0: значения — из единой темы (DialogTheme). zIndex 250000 оставлен:
+// онбординг поверх всего, это стартовый тур, а не обычное окно.
 const styles: Record<string, React.CSSProperties> = {
   backdrop: {
-    position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
-    backdropFilter: 'blur(3px)',
+    position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
+    backdropFilter: 'blur(2px)',
     zIndex: 250000,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     padding: 20,
   },
   dialog: {
-    background: '#fff', borderRadius: 16,
+    background: '#fff', borderRadius: 14,
     width: 860, maxWidth: '100%',
     maxHeight: '90vh',
     display: 'flex', flexDirection: 'column',
-    boxShadow: '0 30px 80px rgba(15,23,42,0.35)',
+    boxShadow: '0 30px 60px -20px rgba(15,23,42,0.4)',
     overflow: 'hidden',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Arial,sans-serif',
     position: 'relative',
   },
   skipBtn: {
@@ -84,7 +86,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   stepBadge: {
     display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start',
-    background: '#eff6ff', color: '#1d4ed8',
+    background: '#edf1ff', color: '#3550d4',
     fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
     padding: '3px 10px', borderRadius: 999,
     textTransform: 'uppercase',
@@ -105,17 +107,17 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 10,
   },
   k: {
-    color: '#3b82f6', marginRight: 6, fontWeight: 700,
+    color: '#4361ee', marginRight: 6, fontWeight: 700,
   },
   tip: {
     marginTop: 14, padding: '10px 12px',
-    background: '#fef9c3', border: '1px solid #fde047',
-    borderRadius: 8, fontSize: 11.5, color: '#713f12', lineHeight: 1.5,
+    background: '#fdf6ea', border: '1px solid #f2ddb6',
+    borderRadius: 10, fontSize: 11.5, color: '#7c4a03', lineHeight: 1.5,
   },
   footer: {
     display: 'flex', alignItems: 'center', gap: 8,
     padding: '14px 20px',
-    borderTop: '1px solid #e2e8f0', background: '#f8fafc',
+    borderTop: '1px solid #e2e8f0', background: '#fff',
   },
   dots: {
     display: 'flex', gap: 5, alignItems: 'center',
@@ -126,16 +128,16 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'width 180ms ease, background 180ms ease',
   },
   btnSecondary: {
-    padding: '7px 14px', background: '#fff',
-    border: '1px solid #cbd5e1', color: '#334155',
-    borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    padding: '8px 16px', background: '#fff',
+    border: '1.5px solid #e4e9f2', color: '#475569',
+    borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: 'pointer',
   },
   btnPrimary: {
-    padding: '7px 16px',
-    background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+    padding: '9px 18px',
+    background: 'linear-gradient(135deg, #4361ee, #5a3ee6)',
     color: '#fff', border: 'none',
-    borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-    boxShadow: '0 2px 8px rgba(59,130,246,0.35)',
+    borderRadius: 11, fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
+    boxShadow: '0 4px 14px rgba(67,97,238,0.35)',
   },
 };
 
@@ -207,7 +209,7 @@ function OnboardingDialog({ onClose }: { onClose: () => void }) {
         {/* Skip button top-right */}
         <button onClick={onClose} style={styles.skipBtn}
                 title="Пропустить (Esc)">
-          Пропустить ✕
+          Пропустить
         </button>
 
         {/* Two-column layout: illustration | text */}
@@ -494,7 +496,7 @@ function Illu6_Vault() {
       <rect x="60" y="30" width="180" height="160" rx="12" fill="#4338ca"/>
       <rect x="60" y="30" width="180" height="30" rx="12" fill="#3730a3"/>
       <rect x="60" y="55" width="180" height="5" fill="#3730a3"/>
-      <text x="150" y="49" fontSize="12" fontWeight="700" fill="white" textAnchor="middle">🔒 Vault</text>
+      <text x="150" y="49" fontSize="12" fontWeight="700" fill="white" textAnchor="middle"> Vault</text>
       {/* Locked padlock icon big */}
       <g transform="translate(115, 80)">
         <rect x="10" y="20" width="50" height="40" rx="4" fill="white"/>
@@ -605,10 +607,10 @@ const SLIDES: Slide[] = [
         NetMap заменяет статичные схемы в Visio / draw.io живой картой сети,
         которая обновляется вместе с вашей инфраструктурой.
         <div style={styles.list}>
-          <div><b style={styles.k}>📍</b> Карта устройств с портами, VLAN, кабелями</div>
-          <div><b style={styles.k}>🔒</b> Встроенный vault для паролей (AES-256-GCM)</div>
-          <div><b style={styles.k}>📡</b> Ping-мониторинг + автообнаружение LLDP/SNMP</div>
-          <div><b style={styles.k}>💾</b> Всё локально — SQLite + localStorage</div>
+          <div><b style={styles.k}>▪</b> Карта устройств с портами, VLAN, кабелями</div>
+          <div><b style={styles.k}></b> Встроенный vault для паролей (AES-256-GCM)</div>
+          <div><b style={styles.k}>⌁</b> Ping-мониторинг + автообнаружение LLDP/SNMP</div>
+          <div><b style={styles.k}>↧</b> Всё локально — SQLite + localStorage</div>
         </div>
       </>
     ),
@@ -628,7 +630,7 @@ const SLIDES: Slide[] = [
           <div>Устройство появится в правом верхнем углу канваса — можно перетащить</div>
         </div>
         <div style={styles.tip}>
-          💡 Слева также вкладка <b>Топология</b> с фильтрами по слоям (core / distribution / access)
+          ℹ Слева также вкладка <b>Топология</b> с фильтрами по слоям (core / distribution / access)
           и VLAN.
         </div>
       </>
@@ -649,7 +651,7 @@ const SLIDES: Slide[] = [
           <div>4. Клик на зелёный (свободный) порт → «Соединить»</div>
         </div>
         <div style={styles.tip}>
-          💡 Если все порты заняты — выберите жёлтый порт, диалог покажет
+          ℹ Если все порты заняты — выберите жёлтый порт, диалог покажет
           «Заменить связь» (старая связь удалится, новая создастся).
         </div>
       </>
@@ -677,7 +679,7 @@ const SLIDES: Slide[] = [
           </div>
         </div>
         <div style={styles.tip}>
-          💡 <b>Esc</b> закрывает focus / модалки, <b>F</b> — восстановить вид карты (fit),
+          ℹ <b>Esc</b> закрывает focus / модалки, <b>F</b> — восстановить вид карты (fit),
           <b> Ctrl+Z</b> — отмена.
         </div>
       </>
@@ -697,7 +699,7 @@ const SLIDES: Slide[] = [
           <div><b>Vendor detect</b> — MikroTik / Ubiquiti / Cisco / D-Link / Ruijie</div>
         </div>
         <div style={styles.tip}>
-          💡 Найденные устройства показываются в диалоге «Review» с checkbox'ами
+          ℹ Найденные устройства показываются в диалоге «Review» с checkbox'ами
           — вы решаете, какие добавить. Один Ctrl+Z отменяет весь пакет.
         </div>
       </>
@@ -713,13 +715,13 @@ const SLIDES: Slide[] = [
         Пароли к устройствам, TOTP, заметки — хранятся в зашифрованном
         SQLite и открываются мастер-паролем.
         <div style={styles.list}>
-          <div>Клик на устройство → вкладка <b>🔒</b> → «+ Добавить запись»</div>
+          <div>Клик на устройство → вкладка <b></b> → «+ Добавить запись»</div>
           <div>Inline-форма как в Bitwarden: URL, login, password, TOTP, notes</div>
           <div>Кнопка <b>Generate</b> — 16-символьный безопасный пароль</div>
           <div><b>Vault Studio (Ctrl+K)</b> — полноэкранный редактор с папками</div>
         </div>
         <div style={styles.tip}>
-          💡 Пароль автоматически очищается из буфера обмена через 45 секунд после
+          ℹ Пароль автоматически очищается из буфера обмена через 45 секунд после
           копирования.
         </div>
       </>
@@ -732,7 +734,7 @@ const SLIDES: Slide[] = [
     subtitle: 'Автогруппировка по локациям, VLAN, подсетям',
     body: (
       <>
-        Кнопка ⭐ в правом верхнем углу канваса → <b>«Умная раскладка»</b>.
+        Кнопка ★ в правом верхнем углу канваса → <b>«Умная раскладка»</b>.
         Приложение автоматически группирует устройства:
         <div style={styles.list}>
           <div><b>Hybrid</b> (default) — сначала по <b>location</b>, потом VLAN, потом /24</div>
@@ -741,7 +743,7 @@ const SLIDES: Slide[] = [
           <div><b>IP /24</b> — по подсети IP-адреса</div>
         </div>
         <div style={styles.tip}>
-          💡 Endpoint'ы (камеры, PC, принтеры) автоматически «сворачиваются»
+          ℹ Endpoint'ы (камеры, PC, принтеры) автоматически «сворачиваются»
           в чипы внутри своего свитча — карта становится читаемой на 100+ устройствах.
           Toggle в toolbar: <b>Компактно / Развёрнуто</b>.
         </div>
@@ -763,7 +765,7 @@ const SLIDES: Slide[] = [
           <div><b>«Чайковский»</b> — 30 устройств, компактный пример</div>
         </div>
         <div style={styles.tip}>
-          💡 Введение можно повторно открыть через <b>Помощь → Показать введение</b> в меню
+          ℹ Введение можно повторно открыть через <b>Помощь → Показать введение</b> в меню
           сверху. Или посмотреть горячие клавиши через <b>F1</b>.
         </div>
       </>

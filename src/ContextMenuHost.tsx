@@ -76,7 +76,7 @@ export function ContextMenuHost() {
         icon: '▦',
         submenu: [
           {
-            label: `🤖 Авто (сейчас ${LAYER_META[inferLayer({ ...dev, layer: undefined })].label})`,
+            label: `Авто (сейчас ${LAYER_META[inferLayer({ ...dev, layer: undefined })].label})`,
             disabled: !dev.layer,
             action: () => updateDevice(dev.id, { layer: undefined }),
           },
@@ -91,15 +91,15 @@ export function ContextMenuHost() {
       { separator: true, label: '' },
       ...(POE_APPLICABLE[dev.kind] ? [{
         label: anyPoe ? 'Убрать метку PoE' : 'Пометить как PoE',
-        icon: '⚡',
+        icon: '↯',
         action: () => togglePoeAll(dev.id)
       }] : []),
       ...(dev.ip ? [{
         label: `Копировать IP · ${dev.ip}`,
-        icon: '📋',
+        icon: '⎘',
         action: () => navigator.clipboard.writeText(dev.ip!)
       }] : []),
-      { label: `Копировать имя · ${dev.name}`, icon: '📋',
+      { label: `Копировать имя · ${dev.name}`, icon: '⎘',
         action: () => navigator.clipboard.writeText(dev.name) },
       ...(dev.mgmtUrl ? [{
         label: 'Открыть mgmt URL',
@@ -108,13 +108,13 @@ export function ContextMenuHost() {
       }] : []),
       ...(dev.credential?.bitwardenUrl ? [{
         label: 'Открыть в Bitwarden',
-        icon: '🔐',
+        icon: '▣',
         action: () => window.open(dev.credential!.bitwardenUrl, '_blank')
       }] : []),
       { separator: true, label: '' },
       {
         label: `Удалить (кабелей: ${linksCount})`,
-        icon: '🗑️', danger: true,
+        icon: '✕', danger: true,
         action: async () => {
           if (await confirmDialog(`Удалить ${dev.name}?`,
               linksCount ? `Также отключится ${linksCount} кабелей.` : undefined,
@@ -142,7 +142,7 @@ export function ContextMenuHost() {
           if (name && name.trim()) updateGroup(g.id, { name: name.trim() });
       }},
       { separator: true, label: '' },
-      { label: `Удалить группу (детей: ${childCount})`, icon: '🗑️', danger: true, action: async () => {
+      { label: `Удалить группу (детей: ${childCount})`, icon: '✕', danger: true, action: async () => {
           if (childCount === 0 || await confirmDialog(
               `Удалить группу «${g.name}»?`,
               `В группе ${childCount} устройств. Устройства останутся на канвасе.`,
@@ -151,7 +151,7 @@ export function ContextMenuHost() {
           }
       }},
       ...(childCount > 0 ? [{
-        label: 'Удалить группу И устройства', icon: '💥', danger: true, action: async () => {
+        label: 'Удалить группу И устройства', icon: '✕', danger: true, action: async () => {
           if (await confirmDialog(
               `Удалить всё содержимое группы «${g.name}»?`,
               `Будет удалено ${childCount} устройств вместе с группой. Это можно отменить через Ctrl+Z.`,
@@ -172,7 +172,7 @@ export function ContextMenuHost() {
       { separator: true, label: '' },
       {
         label: 'Сменить цвет',
-        icon: '🎨',
+        icon: '▧',
         submenu: (Object.keys(STICKY_COLOR_META) as StickyColor[]).map(c => ({
           label: `${STICKY_COLOR_META[c].emoji} ${STICKY_COLOR_META[c].label}${c === note.color ? ' · сейчас' : ''}`,
           disabled: c === note.color,
@@ -190,12 +190,12 @@ export function ContextMenuHost() {
       },
       {
         label: note.collapsed ? 'Развернуть' : 'Свернуть в свиток',
-        icon: note.collapsed ? '📄' : '📜',
+        icon: note.collapsed ? '≡' : '≡',
         action: () => updateSticky(note.id, { collapsed: !note.collapsed }),
       },
       { separator: true, label: '' },
       {
-        label: 'Убрать заметку', icon: '🗑️', danger: true,
+        label: 'Убрать заметку', icon: '✕', danger: true,
         action: () => removeSticky(note.id),
       },
     ];
@@ -213,7 +213,7 @@ export function ContextMenuHost() {
     );
 
     items = [
-      { label: `🔌 ${dev.name} · ${port.id.toUpperCase()}`, disabled: true },
+      { label: `▪ ${dev.name} · ${port.id.toUpperCase()}`, disabled: true },
       { separator: true, label: '' },
       {
         label: 'Открыть свойства порта',
@@ -231,8 +231,8 @@ export function ContextMenuHost() {
         ],
       },
       {
-        label: port.poeActive ? 'PoE активен ⚡ — выключить' : 'Включить PoE ⚡',
-        icon: '⚡',
+        label: port.poeActive ? 'PoE активен ↯ — выключить' : 'Включить PoE ↯',
+        icon: '↯',
         action: () => updatePort(dev.id, port.id, {
           poeActive: !port.poeActive,
           poe: !port.poeActive || port.poe,
@@ -245,7 +245,7 @@ export function ContextMenuHost() {
       },
       {
         label: port.vlan != null ? `VLAN ${port.vlan} · изменить` : 'Задать VLAN',
-        icon: '🏷',
+        icon: '#',
         action: async () => {
           const raw = await promptText(
             port.vlan != null ? 'Изменить VLAN' : 'Задать VLAN',
@@ -267,7 +267,7 @@ export function ContextMenuHost() {
       { separator: true, label: '' },
       ...(port.label ? [{
         label: `Копировать "${port.label.length > 22 ? port.label.slice(0, 22) + '…' : port.label}"`,
-        icon: '📋',
+        icon: '⎘',
         action: () => navigator.clipboard.writeText(port.label!),
       }] : []),
       {
@@ -285,7 +285,7 @@ export function ContextMenuHost() {
       { separator: true, label: '' },
       {
         label: `Удалить порт (кабелей: ${linksOnPort.length})`,
-        icon: '🗑️', danger: true,
+        icon: '✕', danger: true,
         action: async () => {
           if (await confirmDialog(
               `Удалить порт ${port.id}?`,

@@ -275,6 +275,22 @@ interface State {
   toggleCollapseEndpoints: () => void;
 
   /**
+   * v0.60: красить связи по подсети (/24). Межподсетевые и неизвестные
+   * остаются цветом кабеля/скорости. Персистится (LS), по умолчанию вкл.
+   */
+  colorLinksBySubnet: boolean;
+  toggleColorLinksBySubnet: () => void;
+
+  /**
+   * v0.57: семантический зум — ступень детализации карты по текущему зуму
+   * канваса ('near' ≥0.7, 'mid' 0.35–0.7, 'far' <0.35, с гистерезисом).
+   * Пишет только Canvas.onMove и только при смене ступени — ре-рендеров
+   * на каждый кадр зума нет. Не персистится (сессионное).
+   */
+  zoomBand: 'near' | 'mid' | 'far';
+  setZoomBand: (b: 'near' | 'mid' | 'far') => void;
+
+  /**
    * v0.43.5: how many columns to use when auto-layout has to place many
    * "orphan" devices (no upstream switch link) — typical after a bulk
    * import from MikroTik/UniFi. 0 = auto (sqrt(N), capped by viewport).
@@ -294,6 +310,9 @@ interface State {
   toggleSidebar: () => void;
   rightPanelOpen: boolean;
   toggleRightPanel: () => void;
+  /** v0.61.0 — ToolsStrip (панель инструментов под тулбаром). Персист в LS. */
+  toolsStripOpen: boolean;
+  toggleToolsStrip: () => void;
   /** v0.47 — explicit set (used by select() to auto-open panel on device pick). */
   setRightPanelOpen: (open: boolean) => void;
 
@@ -1013,6 +1032,20 @@ export const useStore = create<State>((set, get) => ({
     try { localStorage.setItem('netmap:collapseEndpoints', next ? '1' : '0'); } catch {}
     return { collapseEndpoints: next };
   }),
+  // v0.60: раскраска связей по подсетям (см. выше). Отсутствие ключа = вкл.
+  colorLinksBySubnet: (typeof window !== 'undefined'
+    ? (localStorage.getItem('netmap:colorLinksBySubnet') !== '0')
+    : true),
+  toggleColorLinksBySubnet: () => set(s => {
+    const next = !s.colorLinksBySubnet;
+    try { localStorage.setItem('netmap:colorLinksBySubnet', next ? '1' : '0'); } catch {}
+    return { colorLinksBySubnet: next };
+  }),
+  // v0.57: см. zoomBand выше. Запись только при реальной смене ступени.
+  zoomBand: 'near',
+  setZoomBand: (b) => {
+    if (useStore.getState().zoomBand !== b) useStore.setState({ zoomBand: b });
+  },
   // v0.43.5 — orphan-grid columns for auto-layout of unlinked bulk imports.
   orphanGridCols: (() => {
     if (typeof window === 'undefined') return 0;
@@ -1041,6 +1074,13 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.rightPanelOpen;
     try { localStorage.setItem('netmap:rightPanelOpen', next ? '1' : '0'); } catch {}
     return { rightPanelOpen: next };
+  }),
+  // v0.61.0: панель инструментов по умолчанию ОТКРЫТА (новая фича должна быть видна).
+  toolsStripOpen: (typeof window !== 'undefined' && localStorage.getItem('netmap:toolsStripOpen') !== '0'),
+  toggleToolsStrip: () => set(s => {
+    const next = !s.toolsStripOpen;
+    try { localStorage.setItem('netmap:toolsStripOpen', next ? '1' : '0'); } catch {}
+    return { toolsStripOpen: next };
   }),
   setRightPanelOpen: (open) => set(s => {
     if (s.rightPanelOpen === open) return {};
@@ -1251,7 +1291,8 @@ export const useStore = create<State>((set, get) => ({
 
   autoLayout: (direction = 'TB', opts?: { preserveDisplay?: boolean; groupBy?: GroupingStrategy }) => set((s) => {
     // v0.45: `groupBy` triggers smart auto-grouping BEFORE dagre. Default 'none'
-    // for backward compatibility (LayoutFAB explicitly passes 'hybrid' now).
+    // for backward compatibility (кнопки явно передают 'hybrid' / выбранную
+    // стратегию: ToolsStrip и меню «Вид»).
     //
     // v0.34.3: added `preserveDisplay` option — when true, we DON'T force
     // rack → compact before layout. Used by setAllRackDisplay('rack') so a
@@ -1376,7 +1417,9 @@ export const useStore = create<State>((set, get) => ({
           mac: dev.mac,
           location: dev.location,
           ports: Array.isArray(dev.ports) && dev.ports.length ? (dev.ports as any) : [
-            { id: 'eth1', label: 'eth1', type: 'RJ45' as any },
+            // v0.55.0: VLAN из discovery — в порт, иначе smart-раскладка не видит VLAN.
+            { id: 'eth1', label: 'eth1', type: 'RJ45' as any,
+              ...((dev as any).vlan != null ? { vlan: (dev as any).vlan } : {}) },
           ],
           tags: Array.isArray(dev.tags) ? [...dev.tags, 'discovered'] : ['discovered'],
           x: 40 + col * 220,
@@ -1551,7 +1594,9 @@ export const useStore = create<State>((set, get) => ({
     if (migrated.version === 2) migrated = migrateV2toV3(migrated);
     const doc = normalize(migrated as NetMapDoc);
     persist(doc);
-    set({ doc, selectedDeviceId: null, selectedGroupId: null, selectedPortId: null });
+    // v0.51.16: кладём снимок ДО импорта в историю — восстановление из
+    // бэкапа / вставка схемы целиком откатывается одним Ctrl+Z.
+    set((s) => ({ ...historyPush(s), doc, selectedDeviceId: null, selectedGroupId: null, selectedPortId: null }));
   },
   resetToSeed: () => {
     // v0.29: also clear the "layout has been done" flag so the welcome banner

@@ -53,6 +53,7 @@ const CATEGORY_ORDER: DeviceKind[] = [
   'router', 'switch', 'patchpanel', 'ap',
   'camera', 'server', 'vm', 'vps',
   'pc', 'pos', 'printer', 'lock', 'cloud',
+  'pbx', 'dvr', 'other',
 ];
 
 // Русские labels для аккордеона — берём из KIND_META (там уже есть в англ).
@@ -71,6 +72,9 @@ const KIND_LABEL_RU: Partial<Record<DeviceKind, string>> = {
   printer:    'Принтеры',
   lock:       'Умные замки',
   cloud:      'Провайдеры / облака',
+  pbx:        'АТС',
+  dvr:        'Видеорегистраторы',
+  other:      'Прочее',
 };
 
 // ---------------------------------------------------------------------------

@@ -12,13 +12,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DialogShell, DlgBtn } from './DialogTheme';
 import { useStore } from './store';
 import {
   VENDORS, vendorMeta, testImport, scanImport,
   type ImportVendor, type ImportConfig, type TestResult,
 } from './importClient';
 import { MiniSpinner, ProgressStripe, btnBusy } from './Spinner';
+import { VaultCredsButtons } from './VaultCreds';
 import {
   summarizeSubnets, ipInAnyCidr,
   type ScanResult, type SubnetStat,
@@ -111,6 +112,8 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
   // Password is kept in a ref so it never persists to LS.
   const passwordRef = useRef<string>('');
   const [pwLength, setPwLength] = useState(0);
+  // v0.51.21: пересоздаёт неконтролируемый password-инпут после подстановки из Vault
+  const [pwVersion, setPwVersion] = useState(0);
 
   useEffect(() => {
     // Reset form to defaults + LS-loaded values when vendor changes.
@@ -305,27 +308,53 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
   const busy = testing || scanning || importing;
 
   // ---- Render ----
-  return createPortal(
-    <div style={backdrop}>
-      <div style={dialog}>
-        <div style={header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={headerIconBadge}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-            </div>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>Импорт с оборудования</div>
-              <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-                Единый диалог. Данные добавляются в текущий проект, группировка по подсетям.
-              </div>
-            </div>
-          </div>
-          <button style={closeBtn} onClick={onClose} disabled={busy}>✕</button>
-        </div>
+  // v0.62.0: busy-guard — во время операции окно не закрыть никак.
+  const safeClose = busy ? () => {} : onClose;
+  return (
+    <DialogShell
+      title="Импорт с оборудования"
+      subtitle="Единый диалог. Данные добавляются в текущий проект, группировка по подсетям."
+      icon="import"
+      width={1000}
+      onClose={safeClose}
+      footer={(
+        <>
+          {scan && (
+            <>
+              <span className="f-pill">Найдено: <b>{rows.length}</b> · показано: <b>{filtered.length}</b></span>
+              <span className="f-pill">
+                Выделено: <b>{effectiveSelected.size}</b>
+                {selected.size > effectiveSelected.size && (
+                  <span style={{ marginLeft: 4, color: '#B45309' }}>
+                    ({selected.size - effectiveSelected.size} вне фильтра)
+                  </span>
+                )}
+              </span>
+              {importPreview.toAdd > 0 && <span className="f-pill">+{importPreview.toAdd} новых</span>}
+              {importPreview.toUpdate > 0 && <span className="f-pill">↻{importPreview.toUpdate} обновить</span>}
+              {importPreview.toReplace > 0 && <span className="f-pill">↯{importPreview.toReplace} заменить</span>}
+              {importPreview.toSkip > 0 && <span className="f-pill">⊘{importPreview.toSkip} пропустить</span>}
+            </>
+          )}
+          <span className="f-spacer" />
+          {importing && (
+            <span className="f-dim" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <ProgressStripe />
+              <span>Записываем в проект…</span>
+            </span>
+          )}
+          <DlgBtn kind="ghost" onClick={safeClose} disabled={busy}>Закрыть</DlgBtn>
+          <DlgBtn
+            kind="primary"
+            onClick={doImport}
+            disabled={!scan || importPreview.total === 0 || importing}
+            style={importing ? btnBusy : undefined}
+          >
+            {importing && <MiniSpinner light />} {importing ? 'Импорт…' : `Импортировать (${importPreview.total})`}
+          </DlgBtn>
+        </>
+      )}
+    >
 
         {/* v0.44.2 — Vendor picker: grid of tiles instead of a <select>. */}
         <div style={{ padding: '14px 16px 6px 16px', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
@@ -381,8 +410,10 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                   </label>
                 ) : f.type === 'password' ? (
                   <input
+                    key={`pw-${pwVersion}`}
                     type="password"
                     placeholder={f.placeholder}
+                    defaultValue={passwordRef.current || undefined}
                     style={inputStyle}
                     onChange={(e) => { passwordRef.current = e.target.value; setPwLength(e.target.value.length); }}
                   />
@@ -420,6 +451,41 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
             {pwLength > 0 && <span style={{ fontSize: 11, color: '#64748B', alignSelf: 'center' }}>
               Пароль: {'•'.repeat(Math.min(pwLength, 10))}
             </span>}
+            {/* v0.51.21: учётки из Vault / в Vault, с тегами назначения и службы */}
+            {meta.fields.some(f => f.type === 'password') && (
+              <VaultCredsButtons
+                host={String((config as any).host ?? '')}
+                purpose={vendor === 'mikrotik' ? 'ssh'
+                         : String(vendor).includes('snmp') ? 'snmp' : 'api'}
+                serviceLabel={meta.label}
+                folder={vendor === 'mikrotik' ? 'MikroTik'
+                        : String(vendor).includes('snmp') ? 'SNMP' : undefined}
+                fields={[
+                  ...(meta.fields.some(f => f.key === 'username')
+                    ? [{ key: 'username', label: 'Логин' }] : []),
+                  { key: 'password', label: 'Пароль' },
+                  // v0.53.0: порт тоже сохраняем/подставляем, если он есть у вендора.
+                  ...((config as any).port != null ? [{ key: 'port', label: 'Порт' }] : []),
+                ]}
+                values={{
+                  username: String((config as any).username ?? ''),
+                  password: passwordRef.current,
+                  ...((config as any).port != null ? { port: String((config as any).port) } : {}),
+                }}
+                onApply={v => {
+                  if (v.username != null) setField('username', v.username);
+                  if (v.password != null) {
+                    passwordRef.current = v.password;
+                    setPwLength(v.password.length);
+                    setPwVersion(x => x + 1);
+                  }
+                  if (v.port != null && v.port !== '' && (config as any).port != null) {
+                    const p = parseInt(v.port, 10);
+                    if (Number.isFinite(p) && p > 0 && p < 65536) setField('port', p);
+                  }
+                }}
+              />
+            )}
             {meta.status === 'planned' && (
               <span style={{ fontSize: 11, color: '#B45309', alignSelf: 'center', background: '#FEF3C7', padding: '4px 8px', borderRadius: 6 }}>
                 ⚠ Модуль в разработке — доступен в v0.38
@@ -493,7 +559,7 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
                         cursor: 'pointer',
                       }}
                     >
-                      {s.fromRouter ? '📡 ' : ''}{s.cidr} · {s.deviceCount}
+                      {s.fromRouter ? '⌁ ' : ''}{s.cidr} · {s.deviceCount}
                     </button>
                   );
                 })}
@@ -635,51 +701,7 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
           )}
         </div>
 
-        {/* Footer */}
-        <div style={{
-          padding: '10px 16px', borderTop: '1px solid #E2E8F0', background: '#F8FAFC',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          flexWrap: 'wrap', gap: 8,
-        }}>
-          <div style={{ fontSize: 11, color: '#64748B', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            {scan && (
-              <>
-                <span>Найдено: {rows.length} · показано: {filtered.length}</span>
-                <span>
-                  Выделено: <b>{effectiveSelected.size}</b>
-                  {selected.size > effectiveSelected.size && (
-                    <span style={{ marginLeft: 4, color: '#B45309' }}>
-                      ({selected.size - effectiveSelected.size} вне фильтра)
-                    </span>
-                  )}
-                </span>
-                {importPreview.toAdd > 0 && <span style={{ color: '#059669' }}>+{importPreview.toAdd} новых</span>}
-                {importPreview.toUpdate > 0 && <span style={{ color: '#B45309' }}>↻{importPreview.toUpdate} обновить</span>}
-                {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>⚡{importPreview.toReplace} заменить</span>}
-                {importPreview.toSkip > 0 && <span style={{ color: '#6B7280' }}>⊘{importPreview.toSkip} пропустить</span>}
-              </>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {importing && (
-              <div style={{ fontSize: 11, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 8, marginRight: 6 }}>
-                <ProgressStripe />
-                <span>Записываем в проект…</span>
-              </div>
-            )}
-            <button style={smallBtn} onClick={onClose} disabled={busy}>Закрыть</button>
-            <button
-              style={{ ...primaryBtn, ...(importing ? btnBusy : {}) }}
-              onClick={doImport}
-              disabled={!scan || importPreview.total === 0 || importing}
-            >
-              {importing && <MiniSpinner light />} {importing ? 'Импорт…' : `Импортировать (${importPreview.total})`}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
+    </DialogShell>
   );
 }
 
@@ -689,11 +711,11 @@ export function ImportDialog({ open, onClose, initialVendor }: Props) {
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 11, color: '#475569', marginBottom: 4, fontWeight: 600 }}>
+      <label style={{ display: 'block', fontSize: 11.5, color: '#475569', marginBottom: 4, fontWeight: 700 }}>
         {label}
       </label>
       {children}
-      {hint && <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 3 }}>{hint}</div>}
+      {hint && <div className="hint" style={{ marginTop: 3 }}>{hint}</div>}
     </div>
   );
 }
@@ -701,34 +723,17 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 // ---------------------------------------------------------------------------
 // Styles
 
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)',
-  zIndex: 100000,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-const dialog: React.CSSProperties = {
-  background: 'white', width: '90vw', maxWidth: 1000, height: '85vh',
-  borderRadius: 12, boxShadow: '0 20px 60px rgba(15, 23, 42, 0.25)',
-  display: 'flex', flexDirection: 'column',
-};
-const header: React.CSSProperties = {
-  padding: '14px 16px', borderBottom: '1px solid #E2E8F0',
-  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-};
-const closeBtn: React.CSSProperties = {
-  border: 'none', background: 'transparent', fontSize: 18, color: '#64748B',
-  cursor: 'pointer', padding: 4, lineHeight: 1,
-};
+// v0.62.0: значения кнопок/полей — из единой темы (DialogTheme).
 const inputStyle: React.CSSProperties = {
-  padding: '6px 10px', border: '1px solid #CBD5E1', borderRadius: 6, fontSize: 12, background: 'white',
+  padding: '8px 10px', border: '1.5px solid #E4E9F2', borderRadius: 9, fontSize: 13, background: '#fff', color: '#0F172A',
 };
 const primaryBtn: React.CSSProperties = {
-  padding: '6px 14px', border: 'none', borderRadius: 6, background: '#2563EB',
-  color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  padding: '9px 18px', border: 'none', borderRadius: 11, background: 'linear-gradient(135deg,#4361ee,#5a3ee6)',
+  color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
 };
 const smallBtn: React.CSSProperties = {
-  padding: '6px 12px', border: '1px solid #CBD5E1', borderRadius: 6, background: 'white',
-  fontSize: 12, cursor: 'pointer', color: '#334155',
+  padding: '8px 14px', border: '1.5px solid #E4E9F2', borderRadius: 11, background: '#fff',
+  fontSize: 13, fontWeight: 700, cursor: 'pointer', color: '#475569',
 };
 const checkLabel: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
@@ -739,13 +744,7 @@ const th: React.CSSProperties = {
 };
 const td: React.CSSProperties = { padding: '6px 10px', fontSize: 11 };
 
-// v0.44.2 — vendor picker tiles + header badge
-const headerIconBadge: React.CSSProperties = {
-  width: 36, height: 36, borderRadius: 10,
-  background: 'linear-gradient(135deg, #3B82F6, #6366F1)', color: 'white',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.35)',
-};
+// v0.44.2 — vendor picker tiles
 const vendorTile: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '10px 12px', borderRadius: 10,

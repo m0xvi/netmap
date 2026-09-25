@@ -46,13 +46,13 @@ export function AlertsPanel() {
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
             <button onClick={markAllAlertsRead} style={smallBtn} title="Отметить прочитанными">✓</button>
-            <button onClick={doClear} style={{ ...smallBtn, color: '#B91C1C' }} title="Очистить всё">🗑</button>
+            <button onClick={doClear} style={{ ...smallBtn, color: '#B91C1C' }} title="Очистить всё">✕</button>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           <Chip active={filter === 'all'}      onClick={() => setFilter('all')}      color="#64748B" label={`Все ${counts.all}`} />
-          <Chip active={filter === 'critical'} onClick={() => setFilter('critical')} color="#DC2626" label={`🔴 ${counts.critical}`} />
-          <Chip active={filter === 'warn'}     onClick={() => setFilter('warn')}     color="#F59E0B" label={`🟡 ${counts.warn}`} />
+          <Chip active={filter === 'critical'} onClick={() => setFilter('critical')} color="#DC2626" label={`● ${counts.critical}`} />
+          <Chip active={filter === 'warn'}     onClick={() => setFilter('warn')}     color="#F59E0B" label={`● ${counts.warn}`} />
           <Chip active={filter === 'info'}     onClick={() => setFilter('info')}     color="#3B82F6" label={`ℹ ${counts.info}`} />
           <Chip active={filter === 'success'}  onClick={() => setFilter('success')}  color="#22C55E" label={`✓ ${counts.success}`} />
         </div>
@@ -61,7 +61,7 @@ export function AlertsPanel() {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {visible.length === 0 && (
           <div style={{ padding: 30, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>
-            🎉 Пусто. Всё под контролем.
+            ✓ Пусто. Всё под контролем.
           </div>
         )}
         {visible.slice().reverse().map(a => {
@@ -114,8 +114,8 @@ export function AlertsPanel() {
 // ---------------------------------------------------------------------------
 
 const SEVERITY_META = {
-  critical: { icon: '🔴', color: '#DC2626', bgSubtle: '#FEF2F2' },
-  warn:     { icon: '🟡', color: '#F59E0B', bgSubtle: '#FFFBEB' },
+  critical: { icon: '●', color: '#DC2626', bgSubtle: '#FEF2F2' },
+  warn:     { icon: '●', color: '#F59E0B', bgSubtle: '#FFFBEB' },
   info:     { icon: 'ℹ',  color: '#3B82F6', bgSubtle: '#EFF6FF' },
   success:  { icon: '✓',  color: '#22C55E', bgSubtle: '#F0FDF4' },
 } as const;

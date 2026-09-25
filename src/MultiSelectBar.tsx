@@ -35,7 +35,7 @@ export function MultiSelectBar() {
   };
 
   const bulkSetLocation = async () => {
-    const location = await promptText('Location для выбранных устройств', selected[0]?.location || '', 'Например: Серверная, Ресепшн или 2 этаж');
+    const location = await promptText('Локация для выбранных устройств', selected[0]?.location || '', 'Например: Серверная, Ресепшн или 2 этаж');
     if (location == null) return;
     selected.forEach(d => updateDevice(d.id, { location: location.trim() || undefined }));
   };
@@ -94,8 +94,8 @@ export function MultiSelectBar() {
         fontSize: 11, fontWeight: 600,
       }}>{ids.size} выбрано</span>
 
-      <button onClick={bulkAddTag} style={btn()}>🏷 Тег</button>
-      <button onClick={bulkSetLocation} style={btn()}>Location</button>
+      <button onClick={bulkAddTag} style={btn()}># Тег</button>
+      <button onClick={bulkSetLocation} style={btn()}>Локация</button>
 
       {/* Move to group */}
       <div style={{ position: 'relative' }}>
@@ -103,11 +103,11 @@ export function MultiSelectBar() {
       </div>
       <LayerSelect onPick={bulkSetLayer} />
 
-      <button onClick={bulkTogglePoe} style={btn()}>⚡ Toggle PoE</button>
+      <button onClick={bulkTogglePoe} style={btn()}>↯ PoE</button>
 
       <BulkVlanSelect selectedIds={ids} />
 
-      <button onClick={bulkDelete} style={btn('#FEE2E2', '#FCA5A5', '#B91C1C')}>🗑 Удалить</button>
+      <button onClick={bulkDelete} style={btn('#FEE2E2', '#FCA5A5', '#B91C1C')}>✕ Удалить</button>
 
       <button onClick={clearSelection} style={btn()}>✕</button>
     </div>
@@ -123,7 +123,7 @@ function LayerSelect({ onPick }: { onPick: (layer: NetworkLayer | null) => void 
     { id: 'access', label: 'Access', color: '#059669' },
   ];
   return <>
-    <button onClick={() => setOpen(v => !v)} style={btn()}>Layer ▾</button>
+    <button onClick={() => setOpen(v => !v)} style={btn()}>Слой ▾</button>
     {open && <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, background: '#F9FAFB', border: '1px solid #D1D5DB', borderRadius: 6, padding: '4px 0', minWidth: 150, boxShadow: '0 8px 24px rgba(15,23,42,0.12)' }}>
       {options.map(option => <div key={option.id || 'auto'} onClick={() => { onPick(option.id); setOpen(false); }} style={item}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: option.color, marginRight: 6 }} />{option.label}</div>)}
     </div>}
@@ -168,6 +168,9 @@ function btn(bg = '#E5E7EB', border = '#D1D5DB', color = '#111827'): React.CSSPr
   return {
     background: bg, border: `1px solid ${border}`, color,
     padding: '5px 10px', borderRadius: 5, cursor: 'pointer', fontSize: 11,
+    // v0.51.19: подписи в одну строку — раньше «В группу» и «↯ PoE»
+    // разламывались на две строки и меню выглядело рваным.
+    whiteSpace: 'nowrap',
   };
 }
 const item: React.CSSProperties = {

@@ -46,6 +46,14 @@ const OID = {
   dot1dTpFdbStatus:  '1.3.6.1.2.1.17.4.3.1.3',
   dot1dBasePortIf:   '1.3.6.1.2.1.17.1.4.1.2',   // bridge port -> ifIndex
 
+  // v0.52.0: Q-BRIDGE-MIB per-VLAN FDB — тот же FDB, но с номером VLAN.
+  // Индекс: VlanId(1 subid) + MAC(6 subids). Status: 3=learned, 4=self, 5=mgmt.
+  dot1qTpFdbPort:    '1.3.6.1.2.1.17.7.1.2.2.1.2',   // bridge port
+  dot1qTpFdbStatus:  '1.3.6.1.2.1.17.7.1.2.2.1.3',
+  // v0.53.0: статическая VLAN-таблица коммутатора — перечисляет ВСЕ VLAN,
+  // известные железке, даже без единого найденного устройства в них.
+  dot1qVlanStaticName: '1.3.6.1.2.1.17.7.1.4.3.1.1', // index = VlanId
+
   // IP-MIB — ARP
   ipNetToPhysicalPhysAddress: '1.3.6.1.2.1.4.35.1.4', // ipNetToPhysicalPhysAddress
   ipNetToMediaPhysAddress:    '1.3.6.1.2.1.4.22.1.2', // legacy IPv4 ARP

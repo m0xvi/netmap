@@ -78,7 +78,7 @@ export function VaultAutoLockOverlay() {
         boxShadow: '0 30px 80px rgba(0, 0, 0, 0.4)', padding: 24,
       }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#0F172A', marginBottom: 4 }}>
-          🔒 Vault заблокирован
+           Vault заблокирован
         </div>
         <div style={{ fontSize: 12, color: '#64748B', marginBottom: 16 }}>
           Автоблокировка сработала из-за неактивности. Введите мастер-пароль чтобы продолжить.

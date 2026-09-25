@@ -12,7 +12,7 @@ import { ICONS, KIND_META } from './icons';
 import { VLAN_COLORS, vlanColorForIndex } from './vlanDefaults';
 import { MiniSpinner } from './Spinner';
 
-const KINDS: DeviceKind[] = ['router','switch','patchpanel','ap','camera','server','vm','vps','pc','pos','printer','lock','cloud'];
+const KINDS: DeviceKind[] = ['router','switch','patchpanel','ap','camera','server','vm','vps','pc','pos','printer','lock','cloud','pbx','dvr','other'];
 
 // Stable empty references shared by all selectors so components don't re-render
 // forever when the underlying field is undefined. `useStore(s => s.x || [])`
@@ -42,9 +42,9 @@ export function DevicePanel() {
     return (
       <aside style={panelStyle}>
         <div style={{ padding: 20, color: '#9CA3AF', fontSize: 13 }}>
-          👈 Кликните по устройству на схеме, чтобы увидеть детали.
+           Кликните по устройству на схеме, чтобы увидеть детали.
           <br /><br />
-          💡 <b>Совет:</b> для свитчей нажмите иконку <b>◱</b> справа в заголовке — развернётся rack-view со всеми портами. Клик по порту → редактирование прямо здесь.
+          ℹ <b>Совет:</b> для свитчей нажмите иконку <b>◱</b> справа в заголовке — развернётся rack-view со всеми портами. Клик по порту → редактирование прямо здесь.
         </div>
       </aside>
     );
@@ -381,9 +381,9 @@ function InfoTab({ device, update }: { device: Device; update: (id: string, p: P
           }}
           style={inputStyle}
         >
-          <option value="auto">🤖 Авто ({inferLayer(device).toUpperCase()})</option>
-          <option value="core">🏛 Core — магистраль</option>
-          <option value="distribution">🌉 Distribution — распределение</option>
+          <option value="auto">Авто ({inferLayer(device).toUpperCase()})</option>
+          <option value="core">◆ Core — магистраль</option>
+          <option value="distribution">◇ Distribution — распределение</option>
           <option value="access">Access — оконечные</option>
         </select>
       </Field>
@@ -561,7 +561,7 @@ function QuickActionsBlock({ device, update }: {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {canTrace && (
           <button onClick={doTrace} style={quickBtn}>
-            <span>🛣</span> Traceroute
+            <span>⇢</span> Traceroute
           </button>
         )}
         {canWol && (
@@ -795,12 +795,12 @@ function PortsTab({ device, focusedPortId }: { device: Device; focusedPortId: st
 
         <div style={{ background: portBgFor(focusedPort), border: '1px solid #D1D5DB',
                       borderRadius: 8, padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 22 }}>{focusedPort.uplink ? '🔵' : focusedPort.status === 'up' ? '🟢' : '⚫'}</span>
+          <span style={{ fontSize: 22 }}>{focusedPort.uplink ? '●' : focusedPort.status === 'up' ? '●' : '●'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{focusedPort.id.toUpperCase()}</div>
             <div style={{ fontSize: 10, opacity: 0.7 }}>
               {focusedPort.type || 'RJ45'} · {focusedPort.speed || '1G'}
-              {focusedPort.poeActive ? ' · PoE⚡' : focusedPort.poe ? ' · PoE-capable' : ''}
+              {focusedPort.poeActive ? ' · PoE↯' : focusedPort.poe ? ' · PoE-capable' : ''}
             </div>
           </div>
         </div>
@@ -854,7 +854,7 @@ function PortsTab({ device, focusedPortId }: { device: Device; focusedPortId: st
           <label style={checkLabel}>
             <input type="checkbox" checked={!!focusedPort.poeActive}
                    onChange={e => updatePort(device.id, focusedPort.id, { poeActive: e.target.checked })} />
-            ⚡ активен
+            ↯ активен
           </label>
           <label style={checkLabel}>
             <input type="checkbox" checked={!!focusedPort.uplink}
@@ -935,9 +935,9 @@ function PortsTab({ device, focusedPortId }: { device: Device; focusedPortId: st
               <span style={{ flex: 1, fontSize: 12, opacity: p.label ? 1 : 0.4 }}>
                 {p.label || '(не подписан)'}
               </span>
-              {p.poeActive && <span title="PoE активен" style={{ fontSize: 10 }}>⚡</span>}
+              {p.poeActive && <span title="PoE активен" style={{ fontSize: 10 }}>↯</span>}
               {p.uplink && <span title="uplink" style={{ fontSize: 10, color: '#60a5fa' }}>↑</span>}
-              {linked && <span title="есть кабель" style={{ fontSize: 10, opacity: 0.6 }}>🔗</span>}
+              {linked && <span title="есть кабель" style={{ fontSize: 10, opacity: 0.6 }}>↔</span>}
             </div>
           );
         })}
@@ -1627,7 +1627,7 @@ function HardwareTab({ device, update }: {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       {device.kind === 'ap' && <SsidEditor device={device} update={update} />}
-      {device.kind === 'server' && (
+      {(device.kind === 'server' || device.kind === 'dvr') && (
         <>
           <HostSpecEditor device={device} update={update} />
           <DvrEditor device={device} update={update} />
@@ -1641,7 +1641,7 @@ function HardwareTab({ device, update }: {
           Параметры VM (vCPU / RAM / OS / storage) редактируются в <b>Overview → Редактирование</b>.
         </div>
       )}
-      {!['ap', 'server', 'vm', 'camera'].includes(device.kind) && (
+      {!['ap', 'server', 'vm', 'camera', 'dvr'].includes(device.kind) && (
         <div style={{ padding: 10, background: '#F9FAFB', border: '1px solid #E5E7EB',
                       borderRadius: 8, fontSize: 12, color: '#6B7280' }}>
           Для этого типа устройства пока нет отдельного редактора железа. Используйте <b>Overview → Редактирование</b> для базовых полей (модель, вендор, IP…).
@@ -1664,7 +1664,8 @@ function CameraRegistrarEditor({ device }: { device: Device }) {
   // to fill the DVR block first.
   const registrars = doc.devices.filter(d =>
     d.id !== device.id && (
-      !!d.dvr || (d.kind === 'server' && /dvr|nvr|reg[_-]?cctv|trassir|hikvision|dahua/i.test(`${d.name} ${d.model || ''}`))
+      !!d.dvr || d.kind === 'dvr' ||
+      (d.kind === 'server' && /dvr|nvr|reg[_-]?cctv|trassir|hikvision|dahua/i.test(`${d.name} ${d.model || ''}`))
     )
   );
   const currentId = device.attachedToRegistrarId || '';
@@ -1716,7 +1717,7 @@ function CameraRegistrarEditor({ device }: { device: Device }) {
             borderRadius: 6, fontSize: 11, color: '#0F766E',
             display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
           }}>
-            <span style={{ fontSize: 14 }}>📹</span>
+            <span style={{ fontSize: 14 }}>◉</span>
             <div style={{ flex: 1, minWidth: 120 }}>
               <div style={{ fontWeight: 600, color: '#0F172A' }}>{current.name}</div>
               {current.dvr && (
@@ -1795,7 +1796,7 @@ function RegistrarCamerasEditor({ device }: { device: Device }) {
             <div key={c.id} style={{
               ...rowStyle, alignItems: 'center', gap: 8, padding: '5px 8px',
             }}>
-              <span style={{ fontSize: 14 }}>🎥</span>
+              <span style={{ fontSize: 14 }}>◉</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, color: '#111827',
                               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2877,7 +2878,7 @@ function BulkPortActions({ device, selectedPorts, onDone }: {
         )}
       </div>
 
-      <button onClick={togglePoe} style={bulkBtn}>⚡ PoE</button>
+      <button onClick={togglePoe} style={bulkBtn}>↯ PoE</button>
       <button onClick={() => { applyPatch({ status: 'up' }); }} style={bulkBtn}>Up</button>
       <button onClick={() => { applyPatch({ status: 'disabled' }); }} style={bulkBtn}>Disable</button>
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { Canvas } from './Canvas';
 import { RightPanel } from './RightPanel';
@@ -12,7 +12,8 @@ import { PingMonitor } from './PingMonitor';
 import { FocusView } from './FocusView';
 import { LayerLegend } from './LayerLegend';
 import { VlanFilterBanner } from './VlanFilterBanner';
-import { LayoutFAB } from './LayoutFAB';
+
+import { ToolsStrip } from './ToolsStrip';
 import { LoadingOverlay } from './LoadingOverlay';
 import { OnboardingHost } from './OnboardingDialog';
 import { NotificationDispatcher } from './NotificationDispatcher';
@@ -24,23 +25,117 @@ import { TracerouteDialogHost } from './TracerouteDialog';
 import { hydrateFromNativeBackend } from './store';
 import { hydrateTemplatesFromBackend } from './templates';
 
+// ---------------------------------------------------------------------------
+// v0.51.17: слайд-анимация сворачивания боковых панелей.
+//
+// Панель больше не монтируется/размонтируется мгновенно: она ВСЕГДА
+// смонтирована внутри обёртки, у которой анимируется ширина (0 ↔ реальная
+// ширина контента). Ширина контента измеряется через ResizeObserver, поэтому
+// анимация корректна даже когда содержимое панели меняет размер (например,
+// правая панель: обзор 320 → инспектор устройства 360, или внутреннее
+// сворачивание левой панели до иконочной рейки 44).
+// ---------------------------------------------------------------------------
+
+const PANEL_MS = 240;
+const PANEL_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+
+/** Уважаем системный запрос «уменьшить движение» и настройку приложения
+    «Отключить анимации» (тот же ключ, что использует Canvas). */
+function usePanelReduceMotion(): boolean {
+  const [reduced, setReduced] = useState(() => {
+    try { if (localStorage.getItem('netmap:disableMapAnimations') === '1') return true; } catch {}
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+  });
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const onChange = () => setReduced(mq.matches);
+      mq.addEventListener?.('change', onChange);
+      return () => mq.removeEventListener?.('change', onChange);
+    } catch { return; }
+  }, []);
+  return reduced;
+}
+
+function SlidePanel({ open, children }: { open: boolean; children: React.ReactNode }) {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [contentW, setContentW] = useState(0);
+  const reduceMotion = usePanelReduceMotion();
+
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    // offsetWidth не зависит от CSS-масштаба страницы — то, что нужно для
+    // ширины в тех же единицах, что и раскладка.
+    const measure = () => setContentW(el.offsetWidth);
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }
+  }, []);
+
+  // Когда панель закрыта, прячем её из tab-порядка ПОСЛЕ завершения
+  // анимации (задержанный переход на visibility), а при открытии — сразу.
+  const transition = reduceMotion
+    ? 'none'
+    : open
+      ? `width ${PANEL_MS}ms ${PANEL_EASE}, visibility 0s`
+      : `width ${PANEL_MS}ms ${PANEL_EASE}, visibility 0s linear ${PANEL_MS}ms`;
+
+  return (
+    <div style={{
+      width: open ? contentW : 0,
+      minWidth: 0,
+      flexShrink: 0,
+      height: '100%',
+      overflow: 'hidden',
+      visibility: open ? 'visible' : 'hidden',
+      transition,
+    }}>
+      <div ref={innerRef} style={{ width: 'max-content', height: '100%' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const sidebarOpen = useStore(s => s.sidebarOpen);
   const rightPanelOpen = useStore(s => s.rightPanelOpen);
   const toggleSidebar = useStore(s => s.toggleSidebar);
   const toggleRightPanel = useStore(s => s.toggleRightPanel);
   const [uiScale, setUiScale] = useState(() => {
-    try { return Number(localStorage.getItem('netmap:uiScale') || 1); } catch { return 1; }
+    try {
+      const v = Number(localStorage.getItem('netmap:uiScale'));
+      if (!Number.isFinite(v) || v < 0.8 || v > 2) return 1;
+      return v;
+    } catch { return 1; }
   });
 
   useEffect(() => {
     const onScale = (e: Event) => {
       const value = Number((e as CustomEvent<{ value: number }>).detail?.value);
-      if (Number.isFinite(value)) setUiScale(Math.max(0.8, Math.min(1.25, value)));
+      if (Number.isFinite(value)) setUiScale(Math.max(0.8, Math.min(2, value)));
     };
     window.addEventListener('netmap:ui-scale', onScale);
     return () => window.removeEventListener('netmap:ui-scale', onScale);
   }, []);
+
+  // v0.51.16: как применяется масштаб.
+  // В Electron (нативный бэкенд) — page-zoom через webFrame (см. preload):
+  // он масштабирует всё окно целиком и НЕ ломает координаты мыши на канвасе
+  // (перетаскивание, drop из каталога, коннекты портов, рамки выделения).
+  // Старый путь через `body.style.zoom` этим управлял плохо: координаты
+  // курсора и getBoundingClientRect() масштабируются, а внутренняя математика
+  // React Flow — нет, поэтому при масштабе ≠ 100% карточки «убегали» от
+  // курсора, а интерфейс отсекался снизу/справа (100vh × zoom).
+  // В браузерном preview (нет бэкенда) остаёмся на CSS zoom как компромисс,
+  // но компенсируем размер корневого контейнера, чтобы ничего не отсекалось.
+  const hasNativeZoom = typeof window !== 'undefined'
+    && typeof (window as any).netmap?.setUiZoom === 'function';
+  const cssZoomFallback = hasNativeZoom ? 1 : uiScale;
 
   useEffect(() => {
     // Keep the desktop workspace fixed to the viewport. Wheel gestures over
@@ -51,14 +146,19 @@ export default function App() {
     html.style.overflow = 'hidden';
     body.style.overflow = 'hidden';
     body.style.margin = '0';
-    body.style.zoom = String(uiScale);
+    if (hasNativeZoom) {
+      (window as any).netmap.setUiZoom(uiScale);
+      body.style.zoom = '';
+    } else {
+      body.style.zoom = String(uiScale);
+    }
     return () => {
       html.style.overflow = previous.htmlOverflow;
       body.style.overflow = previous.bodyOverflow;
       body.style.margin = previous.bodyMargin;
       body.style.zoom = previous.bodyZoom;
     };
-  }, [uiScale]);
+  }, [uiScale, hasNativeZoom]);
 
   useEffect(() => {
     // v0.36.1: mark hydration complete so LoadingOverlay splash hides.
@@ -72,11 +172,21 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      // v0.51.16: при CSS-zoom (браузерный preview) 100vh «растягивается»
+      // на коэффициент масштаба и интерфейс обрезается снизу/справа.
+      // Делим размер на зум, чтобы после масштабирования занять ровно вьюпорт.
+      height: cssZoomFallback !== 1 ? `calc(100vh / ${cssZoomFallback})` : '100vh',
+      width: cssZoomFallback !== 1 ? `calc(100vw / ${cssZoomFallback})` : undefined,
+      minHeight: 0, overflow: 'hidden',
+    }}>
       {/* v0.42: HTML custom menubar (File/View/Tools/Monitor/Help). Sits
           above the toolbar, replaces the old hamburger ☰ AppMenu. */}
       <MenuBar />
       <Toolbar />
+      {/* v0.61.1: ToolsStrip — горизонтальная панель инструментов (draw.io-стиль). */}
+      <ToolsStrip />
       {/* v0.36.2: update banner right under the toolbar — shows on the
           "available" / "downloading" / "downloaded" / "error" states from
           electron-updater. Hides when no updates or in dev mode. */}
@@ -84,8 +194,9 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
         {/* v0.42: new 5-icon activity-bar sidebar replaces the old accordion.
             Panels: Topology (Catalog/Layers/VLANs) · Devices (table) ·
-            Alerts (notification centre) · Vault · Settings. */}
-        {sidebarOpen && <NewSidebar />}
+            Alerts (notification centre) · Vault · Settings.
+            v0.51.17: обёртка слайд-анимации сворачивания. */}
+        <SlidePanel open={sidebarOpen}><NewSidebar /></SlidePanel>
         <div style={{ flex: 1, position: 'relative' }}>
           <Canvas />
           <PathBanner />
@@ -94,7 +205,9 @@ export default function App() {
               они дублируют информацию из правой панели / фильтров и мешают
               просмотру карты на весь экран. */}
           <VlanFilterBanner />
-          <LayoutFAB />
+          {/* v0.63.0: LayoutFAB (синий круг) удалён — он дублировал кнопки
+              панели инструментов. Единственное уникальное действие, выбор
+              стратегии умной раскладки, переехало на split-кнопку в ToolsStrip. */}
 
           {/* v0.41: floating tab-buttons to bring the panels back when hidden.
               Sit at left/right edge of the map, half-visible chevrons. */}
@@ -113,7 +226,8 @@ export default function App() {
             >‹</button>
           )}
         </div>
-        {rightPanelOpen && <RightPanel />}
+        {/* v0.51.17: обёртка слайд-анимации сворачивания. */}
+        <SlidePanel open={rightPanelOpen}><RightPanel /></SlidePanel>
       </div>
       <ContextMenuHost />
       <PingMonitor />

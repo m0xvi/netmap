@@ -32,8 +32,17 @@ function useOutsideClick(ref: React.RefObject<HTMLElement>, open: boolean, close
   }, [ref, open, close]);
 }
 
-function MenuItem({ icon, label, onClick, disabled, active, danger, sub }: {
-  icon?: string; label: string; sub?: string;
+function IconCheck() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12.5 L9.5 18 L20 6.5" />
+    </svg>
+  );
+}
+
+function MenuItem({ checked, label, onClick, disabled, active, danger, sub }: {
+  checked?: boolean; label: string; sub?: string;
   onClick?: () => void; disabled?: boolean; active?: boolean; danger?: boolean;
 }) {
   return (
@@ -52,7 +61,11 @@ function MenuItem({ icon, label, onClick, disabled, active, danger, sub }: {
       onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = active ? '#DBEAFE' : '#F3F4F6'; }}
       onMouseLeave={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = active ? '#EFF6FF' : 'transparent'; }}
     >
-      {icon && <span style={{ width: 18, textAlign: 'center', fontSize: 13, opacity: 0.75 }}>{icon}</span>}
+      {checked === true && (
+        <span style={{ display: 'flex', color: '#2563EB', flexShrink: 0 }}>
+          <IconCheck />
+        </span>
+      )}
       <span style={{ flex: 1, minWidth: 0,
                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
       {sub && <span style={{ fontSize: 10, color: '#9CA3AF' }}>{sub}</span>}
@@ -142,19 +155,19 @@ export function ProjectMenu() {
           <div style={sectionHeader}>Проекты · {workspace.projects.length}</div>
           {workspace.projects.map(p => (
             <MenuItem key={p.id}
-                      icon={p.id === workspace.activeId ? '✓' : ' '}
+                      checked={p.id === workspace.activeId}
                       label={p.name}
                       onClick={() => { switchProject(p.id); setOpen(false); }}
                       active={p.id === workspace.activeId} />
           ))}
 
           <Separator />
-          <MenuItem icon="＋" label="Новый проект…"       onClick={doNew} />
-          <MenuItem icon="⧉" label="Дублировать активный…" onClick={doDuplicate} disabled={!active} />
-          <MenuItem icon="✎" label="Переименовать…"       onClick={doRename} disabled={!active} />
+          <MenuItem label="Новый проект…"       onClick={doNew} />
+          <MenuItem label="Дублировать активный…" onClick={doDuplicate} disabled={!active} />
+          <MenuItem label="Переименовать…"       onClick={doRename} disabled={!active} />
 
           <Separator />
-          <MenuItem icon="🗑" label="Удалить активный проект…" onClick={doDelete} danger
+          <MenuItem label="Удалить активный проект…" onClick={doDelete} danger
                     disabled={workspace.projects.length <= 1} />
         </div>
       )}
@@ -180,6 +193,8 @@ export function AppMenu() {
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
   const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
+  const toggleColorLinksBySubnet = useStore(s => s.toggleColorLinksBySubnet);
 
   const [open, setOpen] = useState(false);
   const [mikrotikOpen, setMikrotikOpen] = useState(false);
@@ -324,14 +339,14 @@ export function AppMenu() {
           </div>
 
           <div style={sectionHeader}>Проект</div>
-          <MenuItem icon="💾" label="Сохранить сейчас" sub="Ctrl+S"
+          <MenuItem label="Сохранить сейчас" sub="Ctrl+S"
                     onClick={doSave} />
-          <MenuItem icon="⤢" label="Восстановить вид (вписать всё)" sub="F"
+          <MenuItem label="Восстановить вид (вписать всё)" sub="F"
                     onClick={() => {
                       setOpen(false);
                       window.dispatchEvent(new CustomEvent('netmap:fit-view'));
                     }} />
-          <MenuItem icon="🔧" label="Разложить заново (авто-layout)"
+          <MenuItem label="Разложить заново (авто-layout)"
                     sub="Если ноды спрятались или сжались в одну точку"
                     onClick={async () => {
                       setOpen(false);
@@ -342,37 +357,37 @@ export function AppMenu() {
                         await alertDialog('Ошибка', e?.message || 'auto-layout failed');
                       }
                     }} />
-          <MenuItem icon="⏮" label="Резервные копии…"
+          <MenuItem label="Резервные копии…"
                     sub="Последние 20 сохранений"
                     onClick={() => { setOpen(false); setBackupsOpen(true); }} />
-          <MenuItem icon="↺" label="Сбросить к демо-схеме" onClick={doReset} danger />
+          <MenuItem label="Сбросить к демо-схеме" onClick={doReset} danger />
 
           <Separator />
           <div style={sectionHeader}>Файл</div>
-          <MenuItem icon="⤒" label="Импортировать проект…" sub="JSON"
+          <MenuItem label="Импортировать проект…" sub="JSON"
                     onClick={doImportFile} />
-          <MenuItem icon="⤓" label="Экспортировать активный…" sub="JSON"
+          <MenuItem label="Экспортировать активный…" sub="JSON"
                     onClick={doExport} disabled={!active} />
-          <MenuItem icon="⤓⤓" label="Экспортировать всю рабочую область…"
+          <MenuItem label="Экспортировать всю рабочую область…"
                     onClick={doExportAll} />
 
           <Separator />
           <div style={sectionHeader}>Импорт с оборудования</div>
-          <MenuItem icon="↯" label="MikroTik (SSH / REST)…"
+          <MenuItem label="MikroTik (SSH / REST)…"
                     onClick={() => { setOpen(false); setMikrotikOpen(true); }} />
-          <MenuItem icon="⌘" label="UniFi Controller…"
+          <MenuItem label="UniFi Controller…"
                     sub="self-hosted :8443"
                     onClick={() => { setOpen(false); setImportVendor('unifi'); setImportOpen(true); }} />
-          <MenuItem icon="◈" label="TP-Link Omada Cloud…"
+          <MenuItem label="TP-Link Omada Cloud…"
                     sub="omada.tplinkcloud.com"
                     onClick={() => { setOpen(false); setImportVendor('omada-cloud'); setImportOpen(true); }} />
-          <MenuItem icon="…" label="Другое (Ruijie / D-Link / EdgeSwitch)…"
+          <MenuItem label="Другое (Ruijie / D-Link / EdgeSwitch)…"
                     sub="в разработке · v0.38"
                     onClick={() => { setOpen(false); setImportVendor(undefined); setImportOpen(true); }} />
 
           <Separator />
           <div style={sectionHeader}>Инструменты</div>
-          <MenuItem icon="🔐" label="Vault Studio…"
+          <MenuItem label="Vault Studio…"
                     sub="Ctrl+K"
                     onClick={() => {
                       setOpen(false);
@@ -382,28 +397,34 @@ export function AppMenu() {
           <Separator />
           <div style={sectionHeader}>Вид</div>
           <MenuItem
-            icon={viewMode === 'modern' ? '✦' : '⬒'}
+            checked={viewMode === 'modern'}
             label={viewMode === 'modern' ? 'Стиль: Modern' : 'Стиль: Legacy'}
             sub="Переключить"
             onClick={() => { setViewMode(viewMode === 'modern' ? 'legacy' : 'modern'); }}
           />
           {viewMode === 'modern' && (
             <MenuItem
-              icon={collapseEndpoints ? '✓' : ' '}
+              checked={collapseEndpoints}
               label="Свернуть endpoint'ы в свитч"
               sub={collapseEndpoints ? 'вкл' : 'выкл'}
               onClick={() => { toggleCollapseEndpoints(); }}
             />
           )}
-          <MenuItem icon={focusRelated ? '✓' : ' '}
+          <MenuItem
+            checked={colorLinksBySubnet}
+            label="Красить связи по подсетям"
+            sub={colorLinksBySubnet ? 'вкл' : 'выкл'}
+            onClick={() => { toggleColorLinksBySubnet(); }}
+          />
+          <MenuItem checked={focusRelated}
                     label="Фокус связанных при hover"
                     sub={focusRelated ? 'вкл' : 'выкл'}
                     onClick={() => { toggleFocusRelated(); }} />
 
           <Separator />
-          <MenuItem icon="⚙" label="Настройки…"
+          <MenuItem label="Настройки…"
                     onClick={() => openDialog('settings')} />
-          <MenuItem icon="⇩" label="Проверить обновления…"
+          <MenuItem label="Проверить обновления…"
                     sub="GitHub Releases"
                     onClick={async () => {
                       setOpen(false);
@@ -425,7 +446,7 @@ export function AppMenu() {
                         });
                       }
                     }} />
-          <MenuItem icon="?" label="Помощь · горячие клавиши"
+          <MenuItem label="Помощь · горячие клавиши"
                     onClick={() => openDialog('help')} />
         </div>
       )}

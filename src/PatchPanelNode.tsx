@@ -125,7 +125,7 @@ export function PatchPanelNode({ id, data, selected }: NodeProps<any>) {
             {d.model || 'patch panel'}
           </div>
           {d.location && (
-            <div style={{ fontSize: 9, opacity: 0.5, marginTop: 1 }}>📍 {d.location}</div>
+            <div style={{ fontSize: 9, opacity: 0.5, marginTop: 1 }}>▪ {d.location}</div>
           )}
         </div>
 

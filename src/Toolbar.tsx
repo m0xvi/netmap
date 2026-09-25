@@ -7,12 +7,13 @@ import { promptText, confirmDialog } from './Modal';
 /**
  * v0.35.7 top toolbar redesign:
  *
- *   [Logo] [ProjectMenu ⌄]  [Health widget]  [🔎 search ⌘K …]         [☰ AppMenu] [Focus] [🔔] [?]
+ *   [Logo] [ProjectMenu ⌄]  [Health widget]  [ search ⌘K …]         [☰ AppMenu] [Focus] [] [?]
  *
  * — «Add Device» removed: there's already a full left-sidebar palette.
  * — «Import» removed: moved into the AppMenu hamburger.
  * — Kebab «⋮» removed: undo/redo/knife/auto-layout/export moved into the
- *   floating FAB on the canvas (LayoutFAB, radial fan-out on click).
+ *   toolbar strip under the toolbar (ToolsStrip; с v0.63.0 — единственное
+ *   место этих действий, плавающая кнопка удалена как дубль).
  * — ProjectMenu and AppMenu are visually separated so the user can tell
  *   "which project I'm on" apart from "what can I do with it".
  */
@@ -27,7 +28,9 @@ export function Toolbar() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      // Ctrl+F — фокус на поиск. ВАЖНО: не занимаем Ctrl+K — он открывает
+      // Vault Studio (см. VaultStudio.tsx и меню Инструменты).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -159,7 +162,7 @@ export function Toolbar() {
             <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
-        <kbd style={kbdHint}>⌘ K</kbd>
+        <kbd style={kbdHint}>Ctrl F</kbd>
         {q && results.length > 0 && (
           <div style={dropdown}>
             {results.map(r => (
@@ -308,8 +311,8 @@ function SavedViews() {
   };
   const preset = (name: string) => {
     const f = defaultViewFilters();
-    if (name === 'infrastructure') ['camera','pc','pos','printer','lock'].forEach(k => f.hiddenKinds.add(k));
-    if (name === 'cameras') ['router','switch','patchpanel','ap','server','vm','vps','pc','pos','printer','lock','cloud'].forEach(k => f.hiddenKinds.add(k));
+    if (name === 'infrastructure') ['camera','pc','pos','printer','lock','other'].forEach(k => f.hiddenKinds.add(k));
+    if (name === 'cameras') ['router','switch','patchpanel','ap','server','vm','vps','pc','pos','printer','lock','cloud','pbx','other'].forEach(k => f.hiddenKinds.add(k));
     if (name === 'new') f.tag = 'imported';
     apply(f);
   };
@@ -812,7 +815,8 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         </HelpSection>
 
         <HelpSection title="Горячие клавиши">
-          <HelpRow k="Ctrl+K / ⌘K" v="Фокус на поиск" />
+          <HelpRow k="Ctrl+F" v="Фокус на поиск" />
+          <HelpRow k="Ctrl+K" v="Vault Studio (менеджер паролей)" />
           <HelpRow k="Ctrl+Z / Ctrl+Y" v="Отменить / повторить" />
           <HelpRow k="Delete" v="Удалить выделенное" />
           <HelpRow k="T" v="Режим ножа (обрезать кабели)" />
@@ -828,8 +832,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <HelpRow k="tag:cctv" v="По тегу" />
         </HelpSection>
 
-        <HelpSection title="Плавающая кнопка">
+        <HelpSection title="Раскладка схемы">
           <HelpRow k="Разложить" v="Автоматическая раскладка по Cisco 3-tier" />
+          <HelpRow k="Умная" v="Группировка по локациям / VLAN / подсетям" />
+          <HelpRow k="Шеврон у «Умной»" v="Выбор стратегии группировки" />
         </HelpSection>
 
         <div style={{
@@ -838,7 +844,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           fontSize: 11, color: '#6B7280', lineHeight: 1.5,
         }}>
           <b style={{ color: '#111827' }}>Совет:</b> начните с готовой схемы отеля (File → Сбросить к «Усадьбе»),
-          затем нажмите синюю плавающую кнопку в правом верхнем углу канваса, чтобы схема разложилась красиво.
+          затем нажмите «Умная раскладка» на панели инструментов — схема разложится красиво.
         </div>
       </div>
     </div>

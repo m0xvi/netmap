@@ -30,7 +30,6 @@ export function RightPanel() {
   return (
     <div style={{
       display: 'flex', height: '100%', flexShrink: 0,
-      transition: 'width 0.2s ease',
     }}>
       {/* Slim rail with the toggle button */}
       <div style={{
