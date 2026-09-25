@@ -12,7 +12,8 @@ import { promptText, confirmDialog } from './Modal';
  * — «Add Device» removed: there's already a full left-sidebar palette.
  * — «Import» removed: moved into the AppMenu hamburger.
  * — Kebab «⋮» removed: undo/redo/knife/auto-layout/export moved into the
- *   floating FAB on the canvas (LayoutFAB, radial fan-out on click).
+ *   toolbar strip under the toolbar (ToolsStrip; с v0.63.0 — единственное
+ *   место этих действий, плавающая кнопка удалена как дубль).
  * — ProjectMenu and AppMenu are visually separated so the user can tell
  *   "which project I'm on" apart from "what can I do with it".
  */
@@ -831,8 +832,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <HelpRow k="tag:cctv" v="По тегу" />
         </HelpSection>
 
-        <HelpSection title="Плавающая кнопка">
+        <HelpSection title="Раскладка схемы">
           <HelpRow k="Разложить" v="Автоматическая раскладка по Cisco 3-tier" />
+          <HelpRow k="Умная" v="Группировка по локациям / VLAN / подсетям" />
+          <HelpRow k="Шеврон у «Умной»" v="Выбор стратегии группировки" />
         </HelpSection>
 
         <div style={{
@@ -841,7 +844,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           fontSize: 11, color: '#6B7280', lineHeight: 1.5,
         }}>
           <b style={{ color: '#111827' }}>Совет:</b> начните с готовой схемы отеля (File → Сбросить к «Усадьбе»),
-          затем нажмите синюю плавающую кнопку в правом верхнем углу канваса, чтобы схема разложилась красиво.
+          затем нажмите «Умная раскладка» на панели инструментов — схема разложится красиво.
         </div>
       </div>
     </div>

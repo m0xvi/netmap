@@ -700,8 +700,8 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
   }
 
   // ---------------------------------------------------------------------------
-  // UI. v0.36.0: rendered via a Portal to document.body so the floating
-  // LayoutFAB / LayerLegend (which live inside a `position:relative` canvas
+  // UI. v0.36.0: rendered via a Portal to document.body so the canvas overlays
+  // (LayerLegend and others, which live inside a `position:relative` canvas
   // container earlier in the DOM) don't paint over the modal. Without the
   // portal, z-index alone can't fight DOM order across sibling stacking
   // contexts — see e.g. that issue with the corner buttons in v0.35.

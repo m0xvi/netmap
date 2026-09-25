@@ -1291,7 +1291,8 @@ export const useStore = create<State>((set, get) => ({
 
   autoLayout: (direction = 'TB', opts?: { preserveDisplay?: boolean; groupBy?: GroupingStrategy }) => set((s) => {
     // v0.45: `groupBy` triggers smart auto-grouping BEFORE dagre. Default 'none'
-    // for backward compatibility (LayoutFAB explicitly passes 'hybrid' now).
+    // for backward compatibility (кнопки явно передают 'hybrid' / выбранную
+    // стратегию: ToolsStrip и меню «Вид»).
     //
     // v0.34.3: added `preserveDisplay` option — when true, we DON'T force
     // rack → compact before layout. Used by setAllRackDisplay('rack') so a

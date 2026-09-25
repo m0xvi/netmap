@@ -7,15 +7,20 @@
  *   (умная, сверху-вниз, развернуть/свернуть свитчи) · Данные (discovery,
  *   импорты, traceroute, Vault) · Экспорт (PNG/SVG/JSON).
  *
- * Обработчики — те же самые действия, что в LayoutFAB и меню Tools
- * (те же store-функции и window-события), дублирования логики нет:
- * FAB/меню оставлены как есть, полоса — быстрый доступ в один клик.
+ * Обработчики — те же самые действия, что в меню Tools/Вид
+ * (те же store-функции и window-события), дублирования логики нет.
+ *
+ * v0.63.0: плавающая кнопка LayoutFAB удалена вместе со своим дублирующим
+ * фан-меню — все её действия жили и здесь. Единственное, что было только на
+ * FAB, — выбор стратегии группировки умной раскладки. Он переехал сюда:
+ * «Умная раскладка» стала split-кнопкой (иконка — гибрид в один клик,
+ * шеврон — меню стратегий: локации / VLAN / подсети / гибрид).
  *
  * Сворачивается шевроном справа; состояние хранится в store
  * (toolsStripOpen) и переживает перезапуск через localStorage.
  */
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { alertDialog } from './Modal';
 import { exportPng, exportSvg, exportJson } from './exportCanvas';
@@ -131,6 +136,110 @@ const Divider = () => (
   <div style={{ width: 1, height: 20, background: '#E2E8F0', margin: '0 5px', flexShrink: 0 }} />
 );
 
+// ---------------------------------------------------------------------------
+// v0.63.0: стратегии «умной раскладки».
+// Меню переехало сюда с удалённой плавающей кнопки LayoutFAB — там оно было
+// единственным местом выбора стратегии, а сама кнопка дублировала полосу.
+
+type GroupStrategy = 'hybrid' | 'location' | 'vlan' | 'ip';
+
+const SMART_STRATEGIES: Array<{ id: GroupStrategy; title: string; subtitle: string }> = [
+  { id: 'hybrid',   title: 'Гибрид (рекомендуется)', subtitle: 'Локация → VLAN → подсеть /24' },
+  { id: 'location', title: 'Только по локациям',     subtitle: 'device.location: «Ресепшн», «Серверная», …' },
+  { id: 'vlan',     title: 'Только по VLAN',         subtitle: 'Порт.vlan / trunk.vlans / link.vlan' },
+  { id: 'ip',       title: 'Только по подсети /24',  subtitle: 'IP-адрес устройства' },
+];
+
+/** Split-кнопка: иконка — «умная раскладка» (гибрид) в один клик,
+ *  шеврон — выбор стратегии группировки. */
+function SmartSplit({ def, menuOpen, onToggleMenu }: {
+  def: ToolDef; menuOpen: boolean; onToggleMenu: () => void;
+}) {
+  const [hovMain, setHovMain] = useState(false);
+  const [hovCaret, setHovCaret] = useState(false);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+      <button
+        title={def.title}
+        onClick={def.onClick}
+        onMouseEnter={() => setHovMain(true)}
+        onMouseLeave={() => setHovMain(false)}
+        style={{
+          width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: 'none', padding: 0,
+          borderTopLeftRadius: 6, borderBottomLeftRadius: 6,
+          background: hovMain ? '#F1F5F9' : 'transparent',
+          color: '#334155', cursor: 'pointer',
+        }}
+      >
+        <TIcon>{def.icon}</TIcon>
+      </button>
+      <button
+        title="Стратегия группировки: локации / VLAN / подсети"
+        onClick={onToggleMenu}
+        onMouseEnter={() => setHovCaret(true)}
+        onMouseLeave={() => setHovCaret(false)}
+        style={{
+          width: 15, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: 'none', padding: 0,
+          borderTopRightRadius: 6, borderBottomRightRadius: 6,
+          background: menuOpen ? '#DBEAFE' : hovCaret ? '#F1F5F9' : 'transparent',
+          color: menuOpen ? '#1D4ED8' : '#94A3B8', cursor: 'pointer',
+        }}
+      >
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+             style={{ display: 'block' }}>{P.chevDown}</svg>
+      </button>
+    </div>
+  );
+}
+
+/** Меню стратегий. position: fixed — потому что полоса имеет overflow-x: auto
+ *  и absolute-поповер внутри неё обрезался бы по вертикали. */
+function SmartMenu({ pos, onPick }: {
+  pos: { top: number; left: number };
+  onPick: (g: GroupStrategy) => void;
+}) {
+  const [hov, setHov] = useState<GroupStrategy | null>(null);
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'fixed', top: pos.top, left: pos.left, zIndex: 9000,
+      background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10,
+      boxShadow: '0 12px 32px rgba(15,23,42,0.18)', padding: 6, minWidth: 266,
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase',
+        letterSpacing: 0.6, padding: '4px 8px 6px',
+      }}>
+        Стратегия группировки
+      </div>
+      {SMART_STRATEGIES.map(s => (
+        <button
+          key={s.id}
+          onClick={() => onPick(s.id)}
+          onMouseEnter={() => setHov(s.id)}
+          onMouseLeave={() => setHov(null)}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left', border: 'none',
+            background: hov === s.id ? '#F1F5F9' : 'transparent',
+            borderRadius: 8, padding: '7px 8px', cursor: 'pointer',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>{s.title}</div>
+          <div style={{ fontSize: 10, color: '#64748B', marginTop: 1 }}>{s.subtitle}</div>
+        </button>
+      ))}
+      <div style={{
+        borderTop: '1px solid #F1F5F9', marginTop: 4, padding: '7px 8px 3px',
+        fontSize: 10, color: '#94A3B8', lineHeight: 1.45,
+      }}>
+        Классическая раскладка без группировки — соседняя кнопка
+      </div>
+    </div>
+  );
+}
+
 const FLAG_KEY = 'netmap:layoutDone';
 function markLayoutDone(projectId: string) {
   try {
@@ -156,7 +265,7 @@ export function ToolsStrip() {
   const setAllRackDisplay = useStore(s => s.setAllRackDisplay);
   const activeId = useStore(s => s.workspace?.activeId || 'default');
 
-  // Те же действия раскладки, что в LayoutFAB (прогресс + автовыкладка).
+  // Действия раскладки: прогресс-оверлей + автовыкладка (то же, что в меню «Вид»).
   const doLayout = (
     dir: 'TB' | 'LR' = 'TB',
     groupBy?: 'none' | 'hybrid' | 'location' | 'vlan' | 'ip',
@@ -214,6 +323,54 @@ export function ToolsStrip() {
   const fire = (name: string, detail?: unknown) =>
     window.dispatchEvent(new CustomEvent(name, detail === undefined ? undefined : { detail }));
 
+  // v0.63.0: меню стратегий «умной раскладки» (переехало с удалённого LayoutFAB).
+  const [smartMenu, setSmartMenu] = useState(false);
+  const [smartPos, setSmartPos] = useState<{ top: number; left: number } | null>(null);
+  const smartAnchorRef = useRef<HTMLSpanElement>(null);
+
+  const closeSmartMenu = () => { setSmartMenu(false); setSmartPos(null); };
+
+  const toggleSmartMenu = () => {
+    if (smartMenu) { closeSmartMenu(); return; }
+    const r = smartAnchorRef.current?.getBoundingClientRect();
+    setSmartPos({
+      top: r ? r.bottom + 4 : 44,
+      left: r ? Math.max(8, Math.min(r.left, window.innerWidth - 282)) : 8,
+    });
+    setSmartMenu(true);
+  };
+
+  // Закрытие: Escape, клик мимо, скролл/ресайз, сворачивание полосы.
+  useEffect(() => {
+    if (!open) { setSmartMenu(false); setSmartPos(null); return; }
+    if (!smartMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeSmartMenu(); };
+    const onDown = (e: MouseEvent) => {
+      // target может быть не-узлом (например, само window) — тогда меню закрываем,
+      // а не бросаем исключение на contains().
+      const t = e.target as unknown as Node | null;
+      const inside = !!t && typeof (t as Node).nodeType === 'number'
+        && !!smartAnchorRef.current?.contains(t);
+      if (!inside) closeSmartMenu();
+    };
+    const onViewport = () => closeSmartMenu();
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', onViewport);
+    window.addEventListener('scroll', onViewport, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', onViewport);
+      window.removeEventListener('scroll', onViewport, true);
+    };
+  }, [smartMenu, open]);
+
+  const pickStrategy = (g: GroupStrategy) => {
+    doLayout('TB', g);
+    closeSmartMenu();
+  };
+
   const groups: ToolDef[][] = [
     // История
     [
@@ -242,7 +399,7 @@ export function ToolsStrip() {
     // Раскладка
     [
       {
-        id: 'smart', title: 'Умная раскладка · гибрид (локации / VLAN / подсети)',
+        id: 'smart', title: 'Умная раскладка · гибрид (локации / VLAN / подсети). Шеврон справа — выбор стратегии',
         icon: P.smart, onClick: () => doLayout('TB', 'hybrid'),
       },
       { id: 'layout', title: 'Разложить схему · сверху вниз', icon: P.layout, onClick: () => doLayout('TB') },
@@ -304,30 +461,39 @@ export function ToolsStrip() {
   }
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 2, padding: '3px 8px',
-      background: '#FFFFFF', borderBottom: '1px solid #E2E8F0',
-      overflowX: 'auto', flexShrink: 0,
-    }}>
-      {groups.map((g, gi) => (
-        <Fragment key={gi}>
-          {gi > 0 && <Divider />}
-          {g.map(d => <ToolBtn key={d.id} def={d} />)}
-        </Fragment>
-      ))}
-      <div style={{ flex: 1, minWidth: 8 }} />
-      <button
-        title="Свернуть панель инструментов"
-        onClick={toggle}
-        style={{
-          width: 30, height: 30, flexShrink: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          border: 'none', borderRadius: 6, background: 'transparent',
-          color: '#64748B', cursor: 'pointer',
-        }}
-      >
-        <TIcon>{P.chevUp}</TIcon>
-      </button>
-    </div>
+    <>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 2, padding: '3px 8px',
+        background: '#FFFFFF', borderBottom: '1px solid #E2E8F0',
+        overflowX: 'auto', flexShrink: 0,
+      }}>
+        {groups.map((g, gi) => (
+          <Fragment key={gi}>
+            {gi > 0 && <Divider />}
+            {g.map(d => d.id === 'smart' ? (
+              <span key={d.id} ref={smartAnchorRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
+                <SmartSplit def={d} menuOpen={smartMenu} onToggleMenu={toggleSmartMenu} />
+              </span>
+            ) : (
+              <ToolBtn key={d.id} def={d} />
+            ))}
+          </Fragment>
+        ))}
+        <div style={{ flex: 1, minWidth: 8 }} />
+        <button
+          title="Свернуть панель инструментов"
+          onClick={toggle}
+          style={{
+            width: 30, height: 30, flexShrink: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            border: 'none', borderRadius: 6, background: 'transparent',
+            color: '#64748B', cursor: 'pointer',
+          }}
+        >
+          <TIcon>{P.chevUp}</TIcon>
+        </button>
+      </div>
+      {smartMenu && smartPos && <SmartMenu pos={smartPos} onPick={pickStrategy} />}
+    </>
   );
 }

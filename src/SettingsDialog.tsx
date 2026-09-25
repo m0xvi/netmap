@@ -11,7 +11,7 @@
  *   - store.monitorEnabled, store.monitorIntervalSec — уже были в v0.14.
  *   - Новый slice `notifSettings` (см. store.ts) для Telegram и toast.
  *
- * Рендерится через DialogShell (портал в document.body), чтобы всплывающие FAB /
+ * Рендерится через DialogShell (портал в document.body), чтобы оверлеи канваса /
  * legend не перекрывали (как MikrotikImportDialog в v0.36.0).
  */
 

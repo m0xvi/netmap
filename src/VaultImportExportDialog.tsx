@@ -9,7 +9,7 @@
  *   • Мигратор — сканирует device.credential.password и предлагает перенести
  *                в vault (auto-bind по device.credentialId).
  *
- * Каркас — DialogShell (портал в body), чтобы не перекрывалось LayoutFAB / LayerLegend.
+ * Каркас — DialogShell (портал в body), чтобы не перекрывалось оверлеями канваса (LayerLegend и др.).
  */
 
 import { useEffect, useMemo, useState } from 'react';

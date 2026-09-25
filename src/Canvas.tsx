@@ -690,7 +690,7 @@ function CanvasInner() {
         useStore.getState().pushAlert({
           severity: 'warn', origin: 'app',
           title: 'Устройства сжаты в одну точку',
-          message: `Все ${doc.devices.length} устройств в области < 50 px. Нажмите F (вписать всё) или запустите авто-раскладку из плавающей кнопки.`,
+          message: `Все ${doc.devices.length} устройств в области < 50 px. Нажмите F (вписать всё) или запустите авто-раскладку из панели инструментов.`,
         });
       }
     }, 1500);
@@ -1479,7 +1479,7 @@ function CanvasInner() {
 
   // Also style edges based on path
   const pathLinkIds = useStore(s => s.pathLinkIds);
-  // v0.43.6: global "hide all edges" toggle from the FAB.
+  // v0.43.6: global "hide all edges" toggle (панель инструментов, меню «Вид»).
   const hideEdges = useStore(s => s.hideEdges);
   // v0.51.22: большие схемы — прячем миникарту (рендер всех нод в отдельном
   // svg съедает кадры при каждом pan/zoom).

@@ -12,7 +12,7 @@ import { PingMonitor } from './PingMonitor';
 import { FocusView } from './FocusView';
 import { LayerLegend } from './LayerLegend';
 import { VlanFilterBanner } from './VlanFilterBanner';
-import { LayoutFAB } from './LayoutFAB';
+
 import { ToolsStrip } from './ToolsStrip';
 import { LoadingOverlay } from './LoadingOverlay';
 import { OnboardingHost } from './OnboardingDialog';
@@ -205,7 +205,9 @@ export default function App() {
               они дублируют информацию из правой панели / фильтров и мешают
               просмотру карты на весь экран. */}
           <VlanFilterBanner />
-          <LayoutFAB />
+          {/* v0.63.0: LayoutFAB (синий круг) удалён — он дублировал кнопки
+              панели инструментов. Единственное уникальное действие, выбор
+              стратегии умной раскладки, переехало на split-кнопку в ToolsStrip. */}
 
           {/* v0.41: floating tab-buttons to bring the panels back when hidden.
               Sit at left/right edge of the map, half-visible chevrons. */}
