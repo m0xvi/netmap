@@ -697,6 +697,47 @@ function CanvasInner() {
     // back into setPosition → new doc → new initialNodes → new position
     // change → infinite loop (blank scene + ResizeObserver spam).
     const doc = useStore.getState().doc;
+    const st = useStore.getState();
+    // v0.59: тащим за собой свернутых оконечных (их нод нет на канвасе —
+    // сами они сдвинуться не могут). followed — защита от двойного
+    // сдвига одного устройства за батч (мультиселект).
+    const followed = new Set<string>();
+    const nodeIds = new Set(nodes.map(x => x.id));
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+    // Оконечные, свернутые в данный хаб прямо сейчас (та же эвристика,
+    // что hideAsEndpoint: collapse включен или дальняя ступень).
+    const foldedInto = (hubId: string): Device[] => {
+      if (st.viewMode !== 'modern') return [];
+      if (!st.collapseEndpoints && st.zoomBand !== 'far') return [];
+      return doc.links
+        .filter(l => l.fromDeviceId === hubId || l.toDeviceId === hubId)
+        .map(l => l.fromDeviceId === hubId ? l.toDeviceId : l.fromDeviceId)
+        .map(id => doc.devices.find(d => d.id === id))
+        .filter((d): d is Device =>
+          !!d && ENDPOINT_KINDS.includes(d.kind) && !nodeIds.has(d.id) && isDeviceVisible(d));
+    };
+    // Видимые-но-без-ноды устройства под группой (свернутые, вложенные).
+    const underGroup = (groupId: string): Device[] => {
+      const inSubtree = (gid?: string | null): boolean => {
+        let p = gid;
+        const guard = new Set<string>();
+        while (p && !guard.has(p)) {
+          guard.add(p);
+          if (p === groupId) return true;
+          p = (doc.groups || []).find(g => g.id === p)?.parentId;
+        }
+        return false;
+      };
+      return doc.devices.filter(d =>
+        d.groupId && inSubtree(d.groupId) && !nodeIds.has(d.id) && isDeviceVisible(d));
+    };
+    const follow = (list: Device[], dx: number, dy: number) => {
+      for (const f of list) {
+        if (followed.has(f.id)) continue;
+        followed.add(f.id);
+        setPosition(f.id, f.x + dx, f.y + dy);
+      }
+    };
     for (const c of changes) {
       if (c.type === 'position' && c.position && !c.dragging) {
         const n = nodes.find(x => x.id === c.id);
@@ -704,15 +745,22 @@ function CanvasInner() {
         if (n.type === 'group') {
           const g = (doc.groups || []).find(x => x.id === c.id);
           if (g && Math.abs(g.x - c.position.x) < 0.5 && Math.abs(g.y - c.position.y) < 0.5) continue;
+          const dx = c.position.x - (g?.x ?? c.position.x);
+          const dy = c.position.y - (g?.y ?? c.position.y);
           setGroupPosition(c.id, c.position.x, c.position.y);
+          if (dx !== 0 || dy !== 0) follow(underGroup(c.id), dx, dy);
         } else {
           const dev = doc.devices.find(x => x.id === c.id);
           if (dev && Math.abs(dev.x - c.position.x) < 0.5 && Math.abs(dev.y - c.position.y) < 0.5) continue;
+          const dx = c.position.x - (dev?.x ?? c.position.x);
+          const dy = c.position.y - (dev?.y ?? c.position.y);
           setPosition(c.id, c.position.x, c.position.y);
+          if ((dx !== 0 || dy !== 0) && (dev?.kind === 'switch' || dev?.kind === 'router'))
+            follow(foldedInto(c.id), dx, dy);
         }
       }
     }
-  }, [nodes, onNodesChange, setPosition, setGroupPosition]);
+  }, [nodes, onNodesChange, setPosition, setGroupPosition, isDeviceVisible]);
 
   // Strip synthetic suffixes: "_left"/"_right" (fallback handles) and ":back" (patch panel rear)
   const cleanHandle = (h: string | null | undefined) =>
@@ -1553,6 +1601,7 @@ function CanvasInner() {
     <HiddenEdgesChip linksTotal={doc.links.length} shown={displayedEdges.length} />
     <ZoomBandChip />
     <FarLandmarks marks={farMarks} moveRef={landmarkMoveRef} />
+    <EndpointsFoldedChip />
 
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
         строка-вопрос с названием группы, «Да», «Отмена». */}
@@ -1608,8 +1657,34 @@ function HiddenEdgesChip({ linksTotal, shown }: { linksTotal: number; shown: num
 function ZoomBandChip() {
   const zoomBand = useStore(s => s.zoomBand);
   const viewMode = useStore(s => s.viewMode);
+  const devices = useStore(s => s.doc.devices);
+  const groups = useStore(s => s.doc.groups);
   const rf = useReactFlow();
   if (zoomBand !== 'far' || viewMode !== 'modern') return null;
+  const flyToContent = () => {
+    try {
+      // v0.59: летим к ЦЕНТРУ КОНТЕНТА — зум в центр пустого экрана
+      // выглядел как «кнопка не работает».
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      const groupById = new Map((groups || []).map(g => [g.id, g]));
+      const acc = (x: number, y: number, w: number, h: number, gid?: string | null) => {
+        let ax = x, ay = y, p = gid;
+        const guard = new Set<string>();
+        while (p && !guard.has(p)) {
+          guard.add(p);
+          const pg = groupById.get(p);
+          if (!pg) break;
+          ax += pg.x; ay += pg.y; p = pg.parentId;
+        }
+        x0 = Math.min(x0, ax); y0 = Math.min(y0, ay);
+        x1 = Math.max(x1, ax + w); y1 = Math.max(y1, ay + h);
+      };
+      for (const d of devices) acc(d.x, d.y, 260, 120, d.groupId);
+      for (const g of groups || []) acc(g.x, g.y, g.width || 200, g.collapsed ? 44 : (g.height || 200), g.parentId);
+      if (!isFinite(x0)) return;
+      rf.setCenter((x0 + x1) / 2, (y0 + y1) / 2, { zoom: 0.75, duration: 300 });
+    } catch {}
+  };
   return (
     <div data-netmap-overlay="true" style={{
       position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
@@ -1620,9 +1695,60 @@ function ZoomBandChip() {
     }}>
       <span>Обзорная схема — оконечные свернуты в хабы</span>
       <button
-        onClick={() => { try { rf.zoomTo(0.75, { duration: 300 }); } catch {} }}
+        onClick={flyToContent}
         style={chipBtn}
       >Приблизить</button>
+    </div>
+  );
+}
+
+// v0.59: синяя кнопка для чипов на синем фоне (chipBtn — янтарная).
+const chipBtnBlue: React.CSSProperties = {
+  background: '#2563EB', border: '1px solid #2563EB', color: '#FFFFFF',
+  borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+  cursor: 'pointer', whiteSpace: 'nowrap',
+};
+
+// v0.59: чип свернутых оконечных — объясняет «124 добавлено, на карте 15»
+// и одной кнопкой разворачивает всё обратно. В far не показываем
+// (там уже висит ZoomBandChip про свертку). top: 54 — под слотом
+// HiddenEdgesChip/PathBanner, чтобы никогда не перекрываться.
+function EndpointsFoldedChip() {
+  const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  const toggle = useStore(s => s.toggleCollapseEndpoints);
+  const viewMode = useStore(s => s.viewMode);
+  const zoomBand = useStore(s => s.zoomBand);
+  const devices = useStore(s => s.doc.devices);
+  const links = useStore(s => s.doc.links);
+  const folded = useMemo(() => {
+    if (viewMode !== 'modern' || !collapseEndpoints || zoomBand === 'far') return 0;
+    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
+    let n = 0;
+    for (const d of devices) {
+      if (!ENDPOINT_KINDS.includes(d.kind)) continue;
+      const wired = links.some(l =>
+        (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
+        devices.some(x =>
+          (x.id === l.fromDeviceId || x.id === l.toDeviceId) &&
+          x.id !== d.id &&
+          (x.kind === 'switch' || x.kind === 'router')
+        )
+      );
+      if (wired) n++;
+    }
+    return n;
+  }, [devices, links, viewMode, collapseEndpoints, zoomBand]);
+  if (folded === 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 54, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1D4ED8',
+      borderRadius: 8, padding: '6px 8px 6px 12px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)', whiteSpace: 'nowrap',
+    }}>
+      <span>В хабы свернуто: {folded}</span>
+      <button onClick={toggle} style={chipBtnBlue}>Развернуть всё</button>
     </div>
   );
 }
