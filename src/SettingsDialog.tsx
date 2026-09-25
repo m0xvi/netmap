@@ -42,12 +42,7 @@ export function SettingsDialogHost() {
 
 function SettingsDialog({ onClose, initialTab = 'general' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
-  // Escape closes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // v0.62.1: Escape обрабатывает DialogShell (свой дубль удалён).
 
   return (
     <DialogShell title="Настройки" icon="gear" width={760} onClose={onClose}>

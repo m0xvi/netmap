@@ -117,8 +117,17 @@ export function openPortPicker(
   ensureRoot();
   return new Promise((resolve) => {
     const spec: DialogSpec = { source, target, resolve };
-    if (setSpec) setSpec(spec);
-    else requestAnimationFrame(() => setSpec?.(spec));
+    if (setSpec) { setSpec(spec); return; }
+    // v0.62.1: Host может ещё не закоммититься (тяжёлая карта stall'ит main
+    // thread) — повторяем до ~30 кадров вместо одной попытки. Если Host так
+    // и не встал — честный null вместо вечно висящего промиса.
+    let n = 0;
+    const attempt = () => {
+      if (setSpec) setSpec(spec);
+      else if (++n < 30) requestAnimationFrame(attempt);
+      else resolve(null);
+    };
+    requestAnimationFrame(attempt);
   });
 }
 
