@@ -22,6 +22,13 @@
  * подписан только на своё: «Connected Devices» вынесены в HubEndpoints с
  * узкими селекторами (ссылки хаба + соседи, сравнение через shallow),
  * строки EndpointRow берут по одному устройству по id.
+ *
+ * v0.57 — семантический зум (store.zoomBand): 'mid' ужимает карточки
+ * (листы без IP-строки, хабы без чипов — только шапка с итогом), 'far'
+ * рисует хаб «маяком» (FarBeacon: крупное имя, статус, CORE-плашка для
+ * ядра, полоса FarEndpointStrip со счётчиками оконечных по типам).
+ * Оконечные на 'far' прячет сам Canvas (hideAsEndpoint) — ручной
+ * тумблер collapseEndpoints при этом не трогаем.
  */
 
 import { useMemo, useState, useEffect } from 'react';
@@ -32,6 +39,7 @@ import { ICONS, KIND_META } from './icons';
 import type { Device, DeviceKind } from './types';
 import { getFavicon } from './faviconClient';
 import { portSides } from './portSides';
+import { inferLayer } from './layers';
 
 interface Props {
   id: string;
@@ -72,6 +80,8 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
   const isEndpoint = ENDPOINT_KINDS.includes(device.kind);
 
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  // v0.57: ступень семантического зума — mid ужимает, far рисует «маяк».
+  const zoomBand = useStore(s => s.zoomBand);
   const setFocus = useStore(s => s.focusDevice);
   const rf = useReactFlow();
 
@@ -123,10 +133,13 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           }}>
             {device.name}
           </div>
-          <div style={{ fontSize: 10, color: '#64748B', display: 'flex', gap: 6, alignItems: 'center' }}>
-            {device.ip && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{device.ip}</span>}
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, display: 'inline-block' }} />
-          </div>
+          {/* v0.57: на средней ступени лист — только имя (IP/статус не читаются). */}
+          {zoomBand !== 'mid' && (
+            <div style={{ fontSize: 10, color: '#64748B', display: 'flex', gap: 6, alignItems: 'center' }}>
+              {device.ip && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{device.ip}</span>}
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, display: 'inline-block' }} />
+            </div>
+          )}
         </div>
         {/* v0.42.1: per-port handles (invisible) + fallback edge-hugging
             handles so React Flow can route edges to the exact port defined
@@ -135,6 +148,11 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
         <PortHandles device={device} />
       </div>
     );
+  }
+
+  // v0.57: дальняя ступень — хаб рисуется «маяком»: крупно, читаемо издалека.
+  if (isHub && zoomBand === 'far') {
+    return <FarBeacon id={id} device={device} selected={selected} />;
   }
 
   // ---------- HUB (big card with optional endpoints) rendering ----------
@@ -229,6 +247,8 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
 
 function HubEndpoints({ hubId }: { hubId: string }) {
   const [expanded, setExpanded] = useState(true);
+  // v0.57: mid — только шапка с итогом, far — секция не нужна (есть полоса «маяка»).
+  const zoomBand = useStore(s => s.zoomBand);
   // Только ссылки этого хаба (useShallow: новые массивы с теми же
   // ссылками ре-рендера не вызывают).
   const links = useStore(useShallow(
@@ -244,6 +264,7 @@ function HubEndpoints({ hubId }: { hubId: string }) {
   ));
   const endpointGroups = useMemo(() => groupPeerEndpoints(peers), [peers]);
   if (endpointGroups.length === 0) return null;
+  if (zoomBand === 'far') return null;
   return (
     <div style={{ borderTop: '1px solid #F1F5F9' }}>
       <button
@@ -260,7 +281,7 @@ function HubEndpoints({ hubId }: { hubId: string }) {
           {endpointGroups.reduce((a, g) => a + g.count, 0)}
         </span>
       </button>
-      {expanded && (
+      {(expanded && zoomBand === 'near') && (
         <div style={{ padding: '0 8px 8px' }}>
           {endpointGroups.map(g => (
             <EndpointChip key={g.kind} kind={g.kind} count={g.count} ids={g.ids} />
@@ -420,3 +441,140 @@ const ENDPOINT_LABEL: Partial<Record<DeviceKind, string>> = {
   pos: 'POS Terminals',
   printer: 'Printers',
 };
+
+// ---------------------------------------------------------------------------
+// v0.57: «маяк» — хаб на дальней ступени семантического зума. Крупная
+// контрастная карточка: имя читается издалека, оконечные — счётчиками
+// по типам. Ядро (inferLayer === 'core') — с синим кольцом и плашкой CORE.
+
+function FarBeacon({ id, device, selected }: { id: string; device: Device; selected?: boolean }) {
+  const meta = KIND_META[device.kind];
+  const Icon = ICONS[device.kind];
+  const setFocus = useStore(s => s.focusDevice);
+  const isOnline = device.liveStatus !== 'down';
+  const statusColor = isOnline ? '#22C55E' : '#EF4444';
+  const isCore = inferLayer(device) === 'core';
+  return (
+    <div
+      style={{
+        background: 'white',
+        border: isCore ? '2.5px solid #2563EB' : `1.5px solid ${selected ? meta.color : '#CBD5E1'}`,
+        borderRadius: 18,
+        minWidth: 300, maxWidth: 340,
+        boxShadow: isCore
+          ? '0 0 0 4px #2563EB22, 0 8px 28px rgba(37,99,235,0.25)'
+          : (selected
+            ? `0 0 0 4px ${meta.color}22, 0 6px 20px rgba(15,23,42,0.12)`
+            : '0 4px 16px rgba(15,23,42,0.10)'),
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px 12px', cursor: 'pointer' }}
+        onDoubleClick={(e) => { e.stopPropagation(); setFocus(id); }}
+        title="Двойной клик — крупный вид"
+      >
+        <div
+          style={{
+            width: 64, height: 64, borderRadius: '50%',
+            background: `linear-gradient(135deg, ${meta.color} 0%, ${meta.color}CC 100%)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+            boxShadow: `0 6px 16px ${meta.color}50`,
+          }}
+        >
+          <Icon size={32} color="#FFFFFF" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: 17, fontWeight: 800, color: '#0F172A',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {device.name}
+          </div>
+          <div style={{
+            fontSize: 12, color: '#64748B', marginTop: 2,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {device.model && <span>{device.model}</span>}
+            {device.model && device.ip && <span> · </span>}
+            {device.ip && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{device.ip}</span>}
+          </div>
+          <div style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 11, padding: '2px 10px', borderRadius: 999,
+                background: isOnline ? '#F0FDF4' : '#FEF2F2',
+                color: statusColor, fontWeight: 700,
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
+            {isCore && (
+              <span style={{
+                fontSize: 10, fontWeight: 800, letterSpacing: 1,
+                padding: '2px 10px', borderRadius: 999,
+                background: '#2563EB', color: '#FFFFFF',
+              }}>
+                CORE
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <FarEndpointStrip hubId={id} />
+      <PortHandles device={device} />
+    </div>
+  );
+}
+
+// Полоса агрегации оконечных для «маяка»: иконка типа + счётчик.
+// Подписки узкие (ссылки хаба + соседи), как у HubEndpoints.
+function FarEndpointStrip({ hubId }: { hubId: string }) {
+  const links = useStore(useShallow(
+    (s) => s.doc.links.filter(l => l.fromDeviceId === hubId || l.toDeviceId === hubId),
+  ));
+  const peerIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of links) set.add(l.fromDeviceId === hubId ? l.toDeviceId : l.fromDeviceId);
+    return set;
+  }, [links, hubId]);
+  const peers = useStore(useShallow(
+    (s) => s.doc.devices.filter(d => peerIds.has(d.id)),
+  ));
+  const groups = useMemo(() => groupPeerEndpoints(peers), [peers]);
+  const vmCount = useMemo(() => peers.filter(d => d.kind === 'vm').length, [peers]);
+  const total = groups.reduce((a, g) => a + g.count, 0) + vmCount;
+  if (total === 0) return null;
+  const vmMeta = KIND_META['vm'];
+  const VmIcon = ICONS['vm'];
+  const chip = (color: string, bg: string): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    background: bg, border: `1px solid ${color}35`, borderRadius: 999,
+    padding: '3px 10px 3px 6px', fontSize: 12, fontWeight: 800, color,
+  });
+  return (
+    <div style={{
+      borderTop: '1px solid #F1F5F9', padding: '10px 14px 12px',
+      display: 'flex', flexWrap: 'wrap', gap: 6,
+    }}>
+      {groups.map(g => {
+        const m = KIND_META[g.kind];
+        const I = ICONS[g.kind];
+        return (
+          <span key={g.kind} title={`${ENDPOINT_LABEL[g.kind] || m.label}: ${g.count}`} style={chip(m.color, m.bg)}>
+            <I size={14} color={m.color} />{g.count}
+          </span>
+        );
+      })}
+      {vmCount > 0 && (
+        <span title={`VM: ${vmCount}`} style={chip(vmMeta.color, vmMeta.bg)}>
+          <VmIcon size={14} color={vmMeta.color} />{vmCount}
+        </span>
+      )}
+    </div>
+  );
+}

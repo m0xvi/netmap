@@ -74,6 +74,8 @@ function CanvasInner() {
   // v0.41: reference redesign — switches the node component and endpoint folding.
   const viewMode = useStore(s => s.viewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  // v0.57: ступень семантического зума — влияет на видимость оконечных и рёбра.
+  const zoomBand = useStore(s => s.zoomBand);
   const select = useStore(s => s.select);
   const selectGroup = useStore(s => s.selectGroup);
   const setPosition = useStore(s => s.setPosition);
@@ -170,7 +172,10 @@ function CanvasInner() {
     // collapseEndpoints is on (their info lives in the parent hub's chip list).
     const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     const hideAsEndpoint = (d: Device): boolean => {
-      if (viewMode !== 'modern' || !collapseEndpoints) return false;
+      // v0.57: на дальней ступени оконечные прячутся в хабы всегда,
+      // независимо от ручного тумблера collapseEndpoints.
+      if (viewMode !== 'modern') return false;
+      if (!collapseEndpoints && zoomBand !== 'far') return false;
       if (!ENDPOINT_KINDS.includes(d.kind)) return false;
       // Only hide when this endpoint IS actually connected to a switch/router —
       // orphan endpoints stay visible so the user can still see + wire them.
@@ -216,9 +221,10 @@ function CanvasInner() {
     // + collapseEndpoints is active (that's the only path that needs it).
     // Otherwise we skip the dep so the node list doesn't churn on every
     // link add/remove/update — was causing full node remount storms.
-  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, collapseEndpoints,
+  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
       // Only depend on links when they actually influence node visibility.
-      (viewMode === 'modern' && collapseEndpoints) ? doc.links : null]);
+      // v0.57: дальняя ступень тоже прячет оконечные — ей links нужны.
+      (viewMode === 'modern' && (collapseEndpoints || zoomBand === 'far')) ? doc.links : null]);
 
   const initialEdges: Edge[] = useMemo(() => {
     const collapsedIds = new Set((doc.groups || []).filter(g => g.collapsed).map(g => g.id));
@@ -234,7 +240,9 @@ function CanvasInner() {
     const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     const hideAsEndpoint = (d: Device | undefined): boolean => {
       if (!d) return false;
-      if (viewMode !== 'modern' || !collapseEndpoints) return false;
+      // v0.57: на дальней ступени прячем и рёбра к свернутым оконечным.
+      if (viewMode !== 'modern') return false;
+      if (!collapseEndpoints && zoomBand !== 'far') return false;
       if (!ENDPOINT_KINDS.includes(d.kind)) return false;
       return doc.links.some(l =>
         (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
@@ -409,7 +417,7 @@ function CanvasInner() {
         } as Edge;
       })
       .filter(Boolean) as Edge[];
-   }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints]);
+   }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand]);
 
   // Additional "host" edges for VMs (skip VMs already rendered inside expanded server card)
   const hostEdges: Edge[] = useMemo(() => {
@@ -1309,14 +1317,15 @@ function CanvasInner() {
         style: {
           ...(e.style as any || {}),
           opacity: dimmed ? 0.15 : 1,
-          strokeWidth: onPath ? 3.5 : ((e.style as any)?.strokeWidth || 1.5),
+          // v0.57: на дальней ступени магистрали толще — видно издалека.
+          strokeWidth: onPath ? 3.5 : zoomBand === 'far' ? 2.5 : ((e.style as any)?.strokeWidth || 1.5),
           stroke: onPath ? '#2563EB' : (e.style as any)?.stroke,
           transition: 'opacity 0.18s',
         },
       };
     });
   },
-  [edges, pathLinkIds, pathActive, hideEdges]);
+  [edges, pathLinkIds, pathActive, hideEdges, zoomBand]);
 
   return (
     <div ref={wrapperRef} onDragOver={onDragOver} onDrop={onDrop}
@@ -1333,6 +1342,18 @@ function CanvasInner() {
       edges={displayedEdges}
       onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
+      onMove={(_event, viewport) => {
+        // v0.57: ступень семантического зума — дешёвый обработчик: считаем
+        // ступень по zoom с гистерезисом ±0.04 и пишем в стор только смену.
+        const z = viewport.zoom;
+        const st = useStore.getState();
+        const cur = st.zoomBand;
+        let next = cur;
+        if (cur === 'near') next = z < 0.66 ? (z < 0.31 ? 'far' : 'mid') : 'near';
+        else if (cur === 'mid') next = z >= 0.74 ? 'near' : (z < 0.31 ? 'far' : 'mid');
+        else next = z >= 0.74 ? 'near' : (z >= 0.39 ? 'mid' : 'far');
+        if (next !== cur) st.setZoomBand(next);
+      }}
       onMoveEnd={(_event, viewport) => {
         window.dispatchEvent(new CustomEvent('netmap:viewport-changed', { detail: viewport }));
       }}
@@ -1445,6 +1466,7 @@ function CanvasInner() {
         фильтры. Показываем заметный чип с кнопкой в один клик, чтобы
         «пропавшие связи» больше не были загадкой. */}
     <HiddenEdgesChip linksTotal={doc.links.length} shown={displayedEdges.length} />
+    <ZoomBandChip />
 
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
         строка-вопрос с названием группы, «Да», «Отмена». */}
@@ -1491,6 +1513,30 @@ function HiddenEdgesChip({ linksTotal, shown }: { linksTotal: number; shown: num
       {hideEdges
         ? <button onClick={toggleHideEdges} style={chipBtn}>Показать связи</button>
         : <button onClick={resetFilters} style={chipBtn}>Сбросить фильтры</button>}
+    </div>
+  );
+}
+
+// v0.57: индикатор обзорной схемы — объясняет, куда делись оконечные,
+// и одним кликом возвращает читаемый зум.
+function ZoomBandChip() {
+  const zoomBand = useStore(s => s.zoomBand);
+  const viewMode = useStore(s => s.viewMode);
+  const rf = useReactFlow();
+  if (zoomBand !== 'far' || viewMode !== 'modern') return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1D4ED8',
+      borderRadius: 999, padding: '6px 8px 6px 14px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)', whiteSpace: 'nowrap',
+    }}>
+      <span>Обзорная схема — оконечные свернуты в хабы</span>
+      <button
+        onClick={() => { try { rf.zoomTo(0.75, { duration: 300 }); } catch {} }}
+        style={chipBtn}
+      >Приблизить</button>
     </div>
   );
 }

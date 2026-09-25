@@ -275,6 +275,15 @@ interface State {
   toggleCollapseEndpoints: () => void;
 
   /**
+   * v0.57: семантический зум — ступень детализации карты по текущему зуму
+   * канваса ('near' ≥0.7, 'mid' 0.35–0.7, 'far' <0.35, с гистерезисом).
+   * Пишет только Canvas.onMove и только при смене ступени — ре-рендеров
+   * на каждый кадр зума нет. Не персистится (сессионное).
+   */
+  zoomBand: 'near' | 'mid' | 'far';
+  setZoomBand: (b: 'near' | 'mid' | 'far') => void;
+
+  /**
    * v0.43.5: how many columns to use when auto-layout has to place many
    * "orphan" devices (no upstream switch link) — typical after a bulk
    * import from MikroTik/UniFi. 0 = auto (sqrt(N), capped by viewport).
@@ -1013,6 +1022,11 @@ export const useStore = create<State>((set, get) => ({
     try { localStorage.setItem('netmap:collapseEndpoints', next ? '1' : '0'); } catch {}
     return { collapseEndpoints: next };
   }),
+  // v0.57: см. zoomBand выше. Запись только при реальной смене ступени.
+  zoomBand: 'near',
+  setZoomBand: (b) => {
+    if (useStore.getState().zoomBand !== b) useStore.setState({ zoomBand: b });
+  },
   // v0.43.5 — orphan-grid columns for auto-layout of unlinked bulk imports.
   orphanGridCols: (() => {
     if (typeof window === 'undefined') return 0;

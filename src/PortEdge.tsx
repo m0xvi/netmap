@@ -41,6 +41,8 @@ export function PortEdge(props: EdgeProps) {
   } = props;
 
   const d = (data || {}) as PortEdgeData;
+  // v0.57: на дальней ступени лейблы кабеля не рисуем (каша из точек).
+  const zoomBand = useStore(s => s.zoomBand);
   const selectedEdgeId = useStore(s => s.selectedEdgeId);
   const highlightLinkId = useStore(s => s.highlightLinkId);
   const traceLinkIds = useStore(s => s.hoveredTraceLinkIds);
@@ -198,54 +200,59 @@ export function PortEdge(props: EdgeProps) {
       />
 
       <EdgeLabelRenderer>
-        {d.sourcePort && (
-          <PortBubble
-            x={sourceX} y={sourceY} side={sourcePosition}
-            label={d.sourcePort} color={strokeColor} dimmed={isSelected || isDimmed}
-          />
-        )}
-        {d.targetPort && (
-          <PortBubble
-            x={targetX} y={targetY} side={targetPosition}
-            label={d.targetPort} color={strokeColor} dimmed={isSelected || isDimmed}
-          />
-        )}
+        {/* v0.57: на дальней ступени — только линия, без лейблов. */}
+        {zoomBand !== 'far' && (
+          <>
+            {d.sourcePort && (
+              <PortBubble
+                x={sourceX} y={sourceY} side={sourcePosition}
+                label={d.sourcePort} color={strokeColor} dimmed={isSelected || isDimmed}
+              />
+            )}
+            {d.targetPort && (
+              <PortBubble
+                x={targetX} y={targetY} side={targetPosition}
+                label={d.targetPort} color={strokeColor} dimmed={isSelected || isDimmed}
+              />
+            )}
 
-        {/* VLAN badge — pill with VLAN ID + name in project color */}
-        {primaryVlan != null && !isSelected && (
-          <div style={{ opacity: isDimmed ? 0.2 : 1, transition: 'opacity 0.15s' }}>
-            <VlanBadgeOnCable x={labelX} y={labelY}
-                              vlanId={primaryVlan}
-                              vlan={vlansById.get(primaryVlan)}
-                              extra={extraTrunkVlans}
-                              extraVlans={extraTrunkVlans.map(v => vlansById.get(v))}
-                              onFilter={(vid) => useStore.getState().setVlanFilter(vid)} />
-          </div>
-        )}
+            {/* VLAN badge — pill with VLAN ID + name in project color */}
+            {primaryVlan != null && !isSelected && (
+              <div style={{ opacity: isDimmed ? 0.2 : 1, transition: 'opacity 0.15s' }}>
+                <VlanBadgeOnCable x={labelX} y={labelY}
+                                  vlanId={primaryVlan}
+                                  vlan={vlansById.get(primaryVlan)}
+                                  extra={extraTrunkVlans}
+                                  extraVlans={extraTrunkVlans.map(v => vlansById.get(v))}
+                                  onFilter={(vid) => useStore.getState().setVlanFilter(vid)} />
+              </div>
+            )}
 
-        {/* Center label (speed etc.) — only when there is no VLAN badge.
-            v0.42: reference-style metric badge — colored capsule matching
-            the speed. Uses `centerBadgeColor` if set, otherwise falls back
-            to the edge stroke color. */}
-        {d.centerLabel && !isSelected && primaryVlan == null && (
-          <div style={{
-            position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            background: d.centerBadgeColor || '#2563EB',
-            color: '#FFFFFF',
-            padding: '3px 10px', borderRadius: 999,
-            fontSize: 10, fontWeight: 700,
-            border: `1px solid ${d.centerBadgeColor || strokeColor}`,
-            boxShadow: `0 2px 6px ${(d.centerBadgeColor || '#2563EB')}55`,
-            pointerEvents: 'none', zIndex: 10,
-            whiteSpace: 'nowrap',
-            fontFamily: 'ui-monospace, monospace',
-            opacity: isDimmed ? 0.25 : 1,
-            transition: 'opacity 0.15s',
-            letterSpacing: 0.2,
-          }}>
-            {d.centerLabel}
-          </div>
+            {/* Center label (speed etc.) — only when there is no VLAN badge.
+                v0.42: reference-style metric badge — colored capsule matching
+                the speed. Uses `centerBadgeColor` if set, otherwise falls back
+                to the edge stroke color. */}
+            {d.centerLabel && !isSelected && primaryVlan == null && (
+              <div style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+                background: d.centerBadgeColor || '#2563EB',
+                color: '#FFFFFF',
+                padding: '3px 10px', borderRadius: 999,
+                fontSize: 10, fontWeight: 700,
+                border: `1px solid ${d.centerBadgeColor || strokeColor}`,
+                boxShadow: `0 2px 6px ${(d.centerBadgeColor || '#2563EB')}55`,
+                pointerEvents: 'none', zIndex: 10,
+                whiteSpace: 'nowrap',
+                fontFamily: 'ui-monospace, monospace',
+                opacity: isDimmed ? 0.25 : 1,
+                transition: 'opacity 0.15s',
+                letterSpacing: 0.2,
+              }}>
+                {d.centerLabel}
+              </div>
+            )}
+          </>
         )}
 
         {/* Delete button when selected */}
