@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DialogShell, DlgBtn } from './DialogTheme';
 import { useStore } from './store';
 import {
   hasMikrotikBackend, scanMikrotik, guessVendorAndKind, debugMikrotik,
@@ -715,38 +715,40 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
     />;
   }
 
-  return createPortal(
-    <div onClick={onClose}
-         style={{
-           position: 'fixed', inset: 0,
-           background: 'rgba(0,0,0,0.7)',
-           backdropFilter: 'blur(4px)',
-           zIndex: 4000,
-           display: 'flex', alignItems: 'center', justifyContent: 'center',
-           padding: 24,
-         }}>
-      <div onClick={e => e.stopPropagation()}
-           style={{
-             width: 'min(800px, calc(100vw - 32px))', maxHeight: 'min(720px, calc(100vh - 32px))',
-             background: '#FFFFFF', border: '1px solid #D1D5DB', borderRadius: 12,
-             color: '#111827', display: 'flex', flexDirection: 'column',
-             boxShadow: '0 20px 60px rgba(0,0,0,0.8)', overflow: 'hidden',
-           }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #E5E7EB',
-                      display: 'flex', alignItems: 'center', gap: 10 }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8"
-               strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 12a10 10 0 0 1 20 0"/><path d="M5 12a7 7 0 0 1 14 0"/>
-            <path d="M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="12" r="1" fill="#38bdf8"/>
-          </svg>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Импорт устройств из MikroTik</div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>
-              {transport === 'ssh' ? 'SSH · RouterOS CLI' : 'REST API v7+'} · DHCP · ARP · VLAN · подсети
-            </div>
-          </div>
-          <button onClick={onClose} style={closeBtn}>✕</button>
-        </div>
+  return (
+    <DialogShell
+      title="Импорт устройств из MikroTik"
+      subtitle={`${transport === 'ssh' ? 'SSH · RouterOS CLI' : 'REST API v7+'} · DHCP · ARP · VLAN · подсети`}
+      icon="router"
+      width={800}
+      onClose={onClose}
+      footer={(
+        <>
+          <span className="f-pill">
+            Выделено: <b>{effectiveSelected.size}</b> из {filtered.length}
+            {selected.size > effectiveSelected.size && (
+              <span style={{ marginLeft: 6, color: '#B45309' }}
+                    title="Отфильтровано подсетями/поиском">
+                ({selected.size - effectiveSelected.size} скрыто фильтром)
+              </span>
+            )}
+          </span>
+          {(importPreview.total + importPreview.toSkip) > 0 && (
+            <span className="f-pill" style={{ display: 'inline-flex', gap: 8 }}>
+              {importPreview.toAdd > 0 && <span style={{ color: '#059669' }}>+{importPreview.toAdd} новых</span>}
+              {importPreview.toUpdate > 0 && <span style={{ color: '#B45309' }}>↻{importPreview.toUpdate} обновить</span>}
+              {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>↯{importPreview.toReplace} заменить</span>}
+              {importPreview.toSkip > 0 && <span style={{ color: '#6B7280' }}>⊘{importPreview.toSkip} пропустить</span>}
+            </span>
+          )}
+          <span className="f-spacer" />
+          <DlgBtn kind="ghost" onClick={onClose}>Отмена</DlgBtn>
+          <DlgBtn kind="primary" onClick={doImport} disabled={importPreview.total === 0}>
+            Импортировать {importPreview.total}
+          </DlgBtn>
+        </>
+      )}
+    >
 
         {!hasMikrotikBackend ? (
           <div style={{ padding: 24, textAlign: 'center', color: '#fbbf24', fontSize: 13 }}>
@@ -1147,40 +1149,11 @@ export function MikrotikImportDialog({ open, onClose }: Props) {
                   )}
                 </div>
 
-                <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB',
-                              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  {/* v0.38: honest counter — effective selection AND import preview */}
-                  <span style={{ fontSize: 11, opacity: 0.75 }}>
-                    Выделено: <b>{effectiveSelected.size}</b> из {filtered.length}
-                    {selected.size > effectiveSelected.size && (
-                      <span style={{ marginLeft: 6, color: '#B45309' }}
-                            title="Отфильтровано подсетями/поиском">
-                        ({selected.size - effectiveSelected.size} скрыто фильтром)
-                      </span>
-                    )}
-                  </span>
-                  {(importPreview.total + importPreview.toSkip) > 0 && (
-                    <span style={{ fontSize: 11, display: 'inline-flex', gap: 8 }}>
-                      {importPreview.toAdd > 0 && <span style={{ color: '#059669' }}>+{importPreview.toAdd} новых</span>}
-                      {importPreview.toUpdate > 0 && <span style={{ color: '#B45309' }}>↻{importPreview.toUpdate} обновить</span>}
-                      {importPreview.toReplace > 0 && <span style={{ color: '#DC2626' }}>↯{importPreview.toReplace} заменить</span>}
-                      {importPreview.toSkip > 0 && <span style={{ color: '#6B7280' }}>⊘{importPreview.toSkip} пропустить</span>}
-                    </span>
-                  )}
-                  <div style={{ flex: 1 }} />
-                  <button onClick={onClose} style={smallBtn}>Отмена</button>
-                  <button onClick={doImport} disabled={importPreview.total === 0}
-                          style={{ ...primaryBtn, opacity: importPreview.total === 0 ? 0.5 : 1 }}>
-                    ⤓ Импортировать {importPreview.total}
-                  </button>
-                </div>
               </>
             )}
           </>
         )}
-      </div>
-    </div>,
-    document.body
+    </DialogShell>
   );
 }
 
@@ -1197,17 +1170,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// v0.62.0: значения кнопок/полей — из единой темы (DialogTheme).
 const inputStyle: React.CSSProperties = {
-  background: '#F9FAFB', border: '1px solid #D1D5DB', color: '#111827',
-  padding: '6px 8px', borderRadius: 5, fontSize: 12, outline: 'none', width: '100%',
+  background: '#fff', border: '1.5px solid #E4E9F2', color: '#0F172A',
+  padding: '8px 10px', borderRadius: 9, fontSize: 13, outline: 'none', width: '100%',
 };
 const primaryBtn: React.CSSProperties = {
-  background: '#2563EB', border: '1px solid #2563EB', color: '#fff',
-  padding: '7px 14px', borderRadius: 5, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+  background: 'linear-gradient(135deg,#4361ee,#5a3ee6)', border: 'none', color: '#fff',
+  padding: '9px 18px', borderRadius: 11, cursor: 'pointer', fontSize: 13.5, fontWeight: 700,
 };
 const smallBtn: React.CSSProperties = {
-  background: '#E5E7EB', border: '1px solid #D1D5DB', color: '#111827',
-  padding: '5px 10px', borderRadius: 5, cursor: 'pointer', fontSize: 11,
+  background: '#fff', border: '1.5px solid #E4E9F2', color: '#475569',
+  padding: '8px 14px', borderRadius: 11, cursor: 'pointer', fontSize: 13, fontWeight: 700,
 };
 const closeBtn: React.CSSProperties = {
   background: 'transparent', border: '1px solid #D1D5DB', color: '#111827',
@@ -1297,10 +1271,23 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
   };
   const toggleField = (field: MatchField) => set({ matchFields: config.matchFields.includes(field)
     ? config.matchFields.filter(x => x !== field) : [...config.matchFields, field] });
-  return createPortal(<div style={reviewOverlay}>
-    <div style={reviewCard}>
-      <div style={reviewHeader}><div><b>Настройка импорта MikroTik</b><div style={reviewMuted}>Проверьте объединение, совпадения и подключения до добавления на карту.</div></div><button onClick={onCancel} style={closeBtn}>Закрыть</button></div>
-      <div style={reviewBody}>
+  return (
+    <DialogShell
+      title="Настройка импорта MikroTik"
+      subtitle="Проверьте объединение, совпадения и подключения до добавления на карту."
+      icon="router"
+      width={900}
+      level="top"
+      onClose={onCancel}
+      footer={(
+        <>
+          <span className="f-pill">{rows.length} хостов · {matchedCount} совпадений · {linkedCount} подключений</span>
+          <span className="f-spacer" />
+          <DlgBtn kind="ghost" onClick={onCancel}>Назад</DlgBtn>
+          <DlgBtn kind="primary" onClick={() => onConfirm(config)}>Применить настройки и импортировать</DlgBtn>
+        </>
+      )}
+    >
         <div style={profileBar}><b>Профиль импорта</b><select value={profileName} onChange={e => loadProfile(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Текущие настройки (не сохранены)</option>{profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.name}</option>)}</select><button onClick={saveProfile} style={smallBtn}>Сохранить профиль</button><button onClick={deleteProfile} disabled={!profileName} style={{ ...smallBtn, opacity: profileName ? 1 : .5 }}>Удалить</button></div>
         <div style={reviewGrid}>
           <Field label="Группировка">
@@ -1314,26 +1301,20 @@ function ImportReviewDialog({ rows, doc, config, onChange, onCancel, onConfirm }
         </div>
         <div style={reviewSection}><b>Поля для поиска совпадений</b><div style={reviewChecks}>{(['name','mac','ip'] as MatchField[]).map(field => <label key={field} style={checkLabel}><input type="checkbox" checked={config.matchFields.includes(field)} onChange={() => toggleField(field)} />{field === 'name' ? 'имя' : field.toUpperCase()}</label>)}</div></div>
         <div style={reviewSection}><b>Подключить импортируемые хосты к существующей карте</b><div style={reviewMuted}>Можно назначить устройство каждому хосту отдельно или применить один router/switch ко всему списку. Связь будет создана без выбора конкретного порта, его можно уточнить позже в инспекторе.</div><div style={bulkBar}><select value={bulkAnchor} onChange={e => setBulkAnchor(e.target.value)} style={{ ...inputStyle, flex: 1 }}><option value="">Выберите router/switch для всех хостов</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select><button onClick={applyBulkAnchor} disabled={!bulkAnchor} style={{ ...smallBtn, opacity: bulkAnchor ? 1 : .5 }}>Применить всем</button><button onClick={clearLinks} style={smallBtn}>Очистить</button></div><div style={reviewRows}>{rows.map(row => <div key={row.mac} style={reviewRow}><span style={{ flex: 1, minWidth: 0 }}><b>{row.hostname || row.ip || row.mac}</b><small>{row.ip || row.mac}</small></span><select value={config.linkTargets[row.mac] || ''} onChange={e => set({ linkTargets: { ...config.linkTargets, [row.mac]: e.target.value }, linkPorts: { ...config.linkPorts, [row.mac]: '' } })} style={{ ...inputStyle, width: 210 }}><option value="">Не подключать</option>{anchors.map(a => <option key={a.id} value={a.id}>{a.name}{a.ip ? ` · ${a.ip}` : ''}</option>)}</select>{config.linkTargets[row.mac] && <select value={config.linkPorts[row.mac] || ''} onChange={e => set({ linkPorts: { ...config.linkPorts, [row.mac]: e.target.value } })} style={{ ...inputStyle, width: 150 }}><option value="">Порт: авто</option>{freePorts(config.linkTargets[row.mac], doc).map(port => <option key={port.id} value={port.id}>{port.label || port.id}{port.speed ? ` · ${port.speed}` : ''}</option>)}</select>}</div>)}</div></div>
-      </div>
-      <div style={reviewFooter}><span style={reviewMuted}>{rows.length} хостов · {matchedCount} совпадений · {linkedCount} подключений</span><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}><button onClick={onCancel} style={smallBtn}>Назад</button><button onClick={() => onConfirm(config)} style={primaryBtn}>Применить настройки и импортировать</button></div></div>
-    </div>
-  </div>, document.body);
+    </DialogShell>
+  );
 }
 
 type DeviceDoc = { devices: Device[]; links?: Array<{ fromDeviceId: string; fromPortId?: string; toDeviceId: string; toPortId?: string }> };
-const reviewOverlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 4100, background: 'rgba(15,23,42,.68)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 };
-const reviewCard: React.CSSProperties = { width: 'min(900px, calc(100vw - 32px))', maxHeight: 'min(720px, calc(100vh - 32px))', background: '#fff', borderRadius: 12, color: '#111827', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 70px rgba(0,0,0,.35)' };
-const reviewHeader: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
-const reviewBody: React.CSSProperties = { padding: 18, overflowY: 'auto' };
-const profileBar: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: 8, marginBottom: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 11 };
+// v0.62.0: каркас review-окна — DialogShell (level top); значения — из темы.
+const profileBar: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: 10, marginBottom: 12, background: '#fff', border: '1px solid #E4E9F2', borderRadius: 10, fontSize: 11 };
 const reviewGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr', gap: 10 };
-const reviewSection: React.CSSProperties = { marginTop: 16, paddingTop: 12, borderTop: '1px solid #E5E7EB', display: 'grid', gap: 8 };
+const reviewSection: React.CSSProperties = { marginTop: 16, paddingTop: 12, borderTop: '1px solid #E4E9F2', display: 'grid', gap: 8 };
 const reviewChecks: React.CSSProperties = { display: 'flex', gap: 12 };
-const bulkBar: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6 };
+const bulkBar: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#EDF1FF', border: '1px solid #C9D4FB', borderRadius: 8 };
 const reviewRows: React.CSSProperties = { display: 'grid', gap: 4, maxHeight: 230, overflowY: 'auto' };
-const reviewRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#F8FAFC', borderRadius: 6 };
+const reviewRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#fff', border: '1px solid #E4E9F2', borderRadius: 8 };
 const reviewMuted: React.CSSProperties = { color: '#64748B', fontSize: 11 };
-const reviewFooter: React.CSSProperties = { padding: '10px 18px', borderTop: '1px solid #E5E7EB', display: 'flex', alignItems: 'center' };
 
 // -----------------------------------------------------------------------------
 // VlanImportSection — reads MikroTik VLANs (v0.19) and lets the user pick which

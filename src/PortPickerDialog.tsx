@@ -22,10 +22,13 @@
  *
  * `replaceLinks` = ids of existing links that must be deleted BEFORE the new
  * link is created (used when the user picks a port already in use).
+ *
+ * v0.62.0: каркас переведён на DialogShell (единая тема окон).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Device, Port, Link } from './types';
+import { DialogShell, DlgBtn, DlgIcon } from './DialogTheme';
 
 export interface PortOption {
   port: Port;
@@ -191,68 +194,63 @@ function Card({ spec, onClose }: { spec: DialogSpec; onClose: (v: PortPickerResu
   const willReplace = activeReplaces.length > 0;
 
   return (
-    <div style={overlay} onClick={() => onClose(null)}>
-      <div style={card} onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          <div style={headerBadge}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 9V3h6v6M9 15v6h6v-6M3 9h6M15 9h6M3 15h6M15 15h6"/>
-            </svg>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: '#0F172A' }}>Соединить устройства</div>
-            <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-              <b>{source.device.name}</b> ({source.device.kind}) → <b>{target.device.name}</b> ({target.device.kind})
-            </div>
-          </div>
-          <button style={closeBtn} onClick={() => onClose(null)} title="Отмена (Esc)">✕</button>
-        </div>
+    <DialogShell
+      title="Соединить устройства"
+      subtitle={`${source.device.name} (${source.device.kind}) → ${target.device.name} (${target.device.kind})`}
+      icon="route"
+      width={720}
+      level="top"
+      onClose={() => onClose(null)}
+      closeOnEscape={false}
+      footer={(
+        <>
+          <span className="f-spacer" />
+          <DlgBtn kind="ghost" onClick={() => onClose(null)}>Отмена</DlgBtn>
+          <DlgBtn
+            kind={willReplace ? 'danger' : 'primary'}
+            disabled={!canOk}
+            onClick={() => onClose({ sourcePortId: srcPortId, targetPortId: tgtPortId, cable, replaceLinks: activeReplaces })}
+          >
+            {willReplace ? 'Заменить связь' : 'Соединить'}
+          </DlgBtn>
+        </>
+      )}
+    >
+      {/* Two panels */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <SidePanel
+          title={source.device.name}
+          deviceKind={source.device.kind}
+          options={source.options}
+          selectedId={srcPortId}
+          onPick={(o) => chooseSide('src', o)}
+        />
+        <SidePanel
+          title={target.device.name}
+          deviceKind={target.device.kind}
+          options={target.options}
+          selectedId={tgtPortId}
+          onPick={(o) => chooseSide('tgt', o)}
+        />
+      </div>
 
-        {/* Two panels */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <SidePanel
-            title={source.device.name}
-            deviceKind={source.device.kind}
-            options={source.options}
-            selectedId={srcPortId}
-            onPick={(o) => chooseSide('src', o)}
-          />
-          <SidePanel
-            title={target.device.name}
-            deviceKind={target.device.kind}
-            options={target.options}
-            selectedId={tgtPortId}
-            onPick={(o) => chooseSide('tgt', o)}
-          />
+      {/* Cable type */}
+      <div>
+        <div style={labelStyle}>Тип кабеля</div>
+        <div className="seg" style={{ width: '100%', marginTop: 6 }}>
+          {(['copper', 'fiber', 'wifi'] as const).map(c => (
+            <button key={c} onClick={() => setCable(c)}
+              className={cable === c ? 'on' : ''} style={{ flex: 1 }}>
+              {c === 'copper' ? 'Медь RJ-45' : c === 'fiber' ? 'Оптика (SFP)' : 'Wi-Fi'}
+            </button>
+          ))}
         </div>
+      </div>
 
-        {/* Cable type */}
-        <div style={{ marginTop: 14 }}>
-          <div style={labelStyle}>Тип кабеля</div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-            {(['copper', 'fiber', 'wifi'] as const).map(c => (
-              <button key={c} onClick={() => setCable(c)}
-                style={{
-                  flex: 1, padding: '6px 10px', borderRadius: 6,
-                  border: cable === c ? '1.5px solid #2563EB' : '1px solid #D1D5DB',
-                  background: cable === c ? '#EFF6FF' : '#FFFFFF',
-                  color: cable === c ? '#1D4ED8' : '#374151',
-                  cursor: 'pointer', fontSize: 12, fontWeight: cable === c ? 600 : 400,
-                }}>
-                {c === 'copper' ? 'Медь RJ-45' : c === 'fiber' ? 'Оптика (SFP)' : 'Wi-Fi'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Replace warning */}
-        {willReplace && (
-          <div style={{
-            marginTop: 12, padding: '10px 12px', borderRadius: 8,
-            background: '#FEF3C7', border: '1px solid #FDE68A', color: '#92400E',
-            fontSize: 11, display: 'flex', alignItems: 'flex-start', gap: 8,
-          }}>
+      {/* Replace warning */}
+      {willReplace && (
+        <div className="infobox warn">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
               <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
               <line x1="12" y1="9" x2="12" y2="13"/>
@@ -278,23 +276,9 @@ function Card({ spec, onClose }: { spec: DialogSpec; onClose: (v: PortPickerResu
               </div>
             </div>
           </div>
-        )}
-
-        {/* Actions */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <button onClick={() => onClose(null)} style={btnSecondary}>Отмена</button>
-          <button disabled={!canOk}
-                  onClick={() => onClose({ sourcePortId: srcPortId, targetPortId: tgtPortId, cable, replaceLinks: activeReplaces })}
-                  style={{
-                    ...(willReplace ? btnDanger : btnPrimary),
-                    opacity: canOk ? 1 : 0.5,
-                    cursor: canOk ? 'pointer' : 'not-allowed',
-                  }}>
-            {willReplace ? 'Заменить связь' : 'Соединить'}
-          </button>
         </div>
-      </div>
-    </div>
+      )}
+    </DialogShell>
   );
 }
 
@@ -340,12 +324,14 @@ function SidePanel({
       </div>
 
       {showSearch && (
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Поиск порта…"
-          style={searchInput}
-        />
+        <div className="search" style={{ flex: 'none', width: '100%', maxWidth: 'none', minWidth: 0, marginBottom: 8 }}>
+          <DlgIcon n="search" size={14} />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Поиск порта…"
+          />
+        </div>
       )}
 
       <div style={portGrid}>
@@ -465,38 +451,10 @@ function speedTint(speed?: string): { bg: string; fg: string } {
 }
 
 // ---- styles ----
-const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  zIndex: 200000, backdropFilter: 'blur(2px)',
-};
-const card: React.CSSProperties = {
-  background: '#FFFFFF', borderRadius: 12, padding: 18,
-  width: 720, maxWidth: 'calc(100vw - 32px)', maxHeight: '92vh',
-  boxShadow: '0 20px 40px rgba(15,23,42,0.28)',
-  border: '1px solid #E5E7EB', color: '#111827',
-  fontFamily: 'system-ui, sans-serif',
-  display: 'flex', flexDirection: 'column', overflow: 'hidden',
-};
-const headerBadge: React.CSSProperties = {
-  width: 34, height: 34, borderRadius: 8,
-  background: 'linear-gradient(135deg, #3B82F6, #6366F1)',
-  color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  flexShrink: 0,
-};
-const closeBtn: React.CSSProperties = {
-  width: 28, height: 28, borderRadius: 6, border: '1px solid #E2E8F0',
-  background: '#fff', color: '#64748B', cursor: 'pointer',
-  fontSize: 14, lineHeight: 1,
-};
 const panelBox: React.CSSProperties = {
-  background: '#F8FAFC', border: '1px solid #E2E8F0',
-  borderRadius: 8, padding: 10, minHeight: 200, maxHeight: '48vh',
+  background: '#FFFFFF', border: '1px solid #E4E9F2',
+  borderRadius: 10, padding: 10, minHeight: 200, maxHeight: '48vh',
   display: 'flex', flexDirection: 'column', overflow: 'hidden',
-};
-const searchInput: React.CSSProperties = {
-  padding: '4px 8px', border: '1px solid #CBD5E1', borderRadius: 4,
-  fontSize: 11, marginBottom: 6, background: '#fff',
 };
 const portGrid: React.CSSProperties = {
   display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 4,
@@ -505,19 +463,4 @@ const portGrid: React.CSSProperties = {
 const labelStyle: React.CSSProperties = {
   fontSize: 10, fontWeight: 700, color: '#6B7280',
   textTransform: 'uppercase', letterSpacing: 0.4,
-};
-const btnSecondary: React.CSSProperties = {
-  background: '#FFFFFF', border: '1px solid #D1D5DB',
-  color: '#374151', padding: '7px 14px', borderRadius: 6,
-  cursor: 'pointer', fontSize: 12, fontWeight: 500,
-};
-const btnPrimary: React.CSSProperties = {
-  background: '#2563EB', border: 'none', color: '#FFFFFF',
-  padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
-  fontSize: 12, fontWeight: 600,
-};
-const btnDanger: React.CSSProperties = {
-  background: '#DC2626', border: 'none', color: '#FFFFFF',
-  padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
-  fontSize: 12, fontWeight: 600,
 };

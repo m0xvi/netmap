@@ -9,11 +9,11 @@
  *   • Мигратор — сканирует device.credential.password и предлагает перенести
  *                в vault (auto-bind по device.credentialId).
  *
- * createPortal(body) чтобы не перекрывалось LayoutFAB / LayerLegend.
+ * Каркас — DialogShell (портал в body), чтобы не перекрывалось LayoutFAB / LayerLegend.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DialogShell, DlgBtn } from './DialogTheme';
 import { useStore } from './store';
 import { alertDialog, confirmDialog } from './Modal';
 import {
@@ -46,46 +46,35 @@ export function VaultImportExportDialog({ open, onClose, initialTab = 'import' }
 
   const locked = status && (!status.initialized || !status.unlocked);
 
-  return createPortal(
-    <div style={backdrop}>
-      <div style={dialog}>
-        <div style={header}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Vault — Импорт / Экспорт / Миграция</div>
-            <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-              KeePass (.kdbx) · Bitwarden JSON · CSV · перенос паролей из устройств
-            </div>
-          </div>
-          <button style={closeBtn} onClick={onClose}>✕</button>
+  return (
+    <DialogShell
+      title="Vault — Импорт / Экспорт / Миграция"
+      subtitle="KeePass (.kdbx) · Bitwarden JSON · CSV · перенос паролей из устройств"
+      icon="swap"
+      width={780}
+      onClose={onClose}
+      footer={(
+        <>
+          <span className="f-spacer" />
+          <DlgBtn kind="ghost" onClick={onClose}>Закрыть</DlgBtn>
+        </>
+      )}
+    >
+      <div className="seg">
+        <button className={tab === 'import' ? 'on' : ''} onClick={() => setTab('import')}>Импорт</button>
+        <button className={tab === 'export' ? 'on' : ''} onClick={() => setTab('export')}>Экспорт</button>
+        <button className={tab === 'migrate' ? 'on' : ''} onClick={() => setTab('migrate')}>Мигратор из устройств</button>
+      </div>
+      {locked && (
+        <div className="infobox warn">
+          Vault {status?.initialized ? 'заблокирован' : 'не создан'}. Откройте панель Vault слева
+          и {status?.initialized ? 'введите мастер-пароль' : 'создайте'}, чтобы продолжить.
         </div>
-
-        <div style={{ display: 'flex', gap: 4, padding: '8px 16px', borderBottom: '1px solid #E5E7EB' }}>
-          <TabBtn active={tab === 'import'}  onClick={() => setTab('import')}  label="⤒ Импорт" />
-          <TabBtn active={tab === 'export'}  onClick={() => setTab('export')}  label="⤓ Экспорт" />
-          <TabBtn active={tab === 'migrate'} onClick={() => setTab('migrate')} label="⇄ Мигратор из устройств" />
-        </div>
-
-        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-          {locked && (
-            <div style={{
-              padding: 12, borderRadius: 8, background: '#FEF3C7', border: '1px solid #FCD34D',
-              color: '#92400E', fontSize: 12, marginBottom: 12,
-            }}>
-              ⚠ Vault {status?.initialized ? 'заблокирован' : 'не создан'}. Откройте панель Vault слева
-              и {status?.initialized ? 'введите мастер-пароль' : 'создайте'}, чтобы продолжить.
-            </div>
-          )}
+      )}
           {tab === 'import'  && <ImportTab onDone={onClose} disabled={locked} />}
           {tab === 'export'  && <ExportTab disabled={locked} />}
           {tab === 'migrate' && <MigrateTab onDone={onClose} disabled={locked} />}
-        </div>
-
-        <div style={footer}>
-          <button style={smallBtn} onClick={onClose}>Закрыть</button>
-        </div>
-      </div>
-    </div>,
-    document.body
+    </DialogShell>
   );
 }
 
@@ -550,25 +539,14 @@ function MigrateTab({ onDone, disabled }: { onDone: () => void; disabled: boolea
 // ===========================================================================
 // UI atoms
 
-function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button onClick={onClick} style={{
-      padding: '6px 12px', border: 'none', borderRadius: 6,
-      background: active ? '#EFF6FF' : 'transparent',
-      color: active ? '#1D4ED8' : '#475569',
-      fontSize: 12, fontWeight: active ? 700 : 500,
-      cursor: 'pointer',
-    }}>{label}</button>
-  );
-}
-
+// v0.62.0: табы — сегмент-контрол темы (класс .seg), TabBtn удалён.
 function RadioPill({ checked, onClick, label }: { checked: boolean; onClick: () => void; label: string }) {
   return (
     <button onClick={onClick} style={{
       padding: '4px 12px', borderRadius: 999, fontSize: 11, cursor: 'pointer',
-      border: '1px solid ' + (checked ? '#2563EB' : '#CBD5E1'),
-      background: checked ? '#DBEAFE' : 'white',
-      color: checked ? '#1E40AF' : '#334155',
+      border: '1.5px solid ' + (checked ? '#4361EE' : '#E4E9F2'),
+      background: checked ? '#EDF1FF' : 'white',
+      color: checked ? '#3550D4' : '#475569',
       fontWeight: checked ? 700 : 500,
     }}>{label}</button>
   );
@@ -584,42 +562,21 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
-// Styles
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)',
-  zIndex: 100005, display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-const dialog: React.CSSProperties = {
-  background: 'white', width: '90vw', maxWidth: 780, maxHeight: '85vh',
-  borderRadius: 12, boxShadow: '0 20px 60px rgba(15, 23, 42, 0.25)',
-  display: 'flex', flexDirection: 'column',
-};
-const header: React.CSSProperties = {
-  padding: '14px 16px', borderBottom: '1px solid #E2E8F0',
-  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-};
-const footer: React.CSSProperties = {
-  padding: '10px 16px', borderTop: '1px solid #E2E8F0', background: '#F8FAFC',
-  display: 'flex', justifyContent: 'flex-end', gap: 8,
-};
-const closeBtn: React.CSSProperties = {
-  border: 'none', background: 'transparent', fontSize: 18, color: '#64748B',
-  cursor: 'pointer', padding: 4, lineHeight: 1,
-};
+// v0.62.0: значения кнопок/полей — из единой темы (DialogTheme).
 const inputStyle: React.CSSProperties = {
-  padding: '6px 10px', border: '1px solid #CBD5E1', borderRadius: 6,
-  fontSize: 12, background: 'white', width: '100%', boxSizing: 'border-box',
+  padding: '8px 10px', border: '1.5px solid #E4E9F2', borderRadius: 9,
+  fontSize: 13, background: '#fff', color: '#0F172A', width: '100%', boxSizing: 'border-box',
 };
 const primaryBtn: React.CSSProperties = {
-  padding: '8px 16px', border: 'none', borderRadius: 6, background: '#2563EB',
-  color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  padding: '9px 18px', border: 'none', borderRadius: 11, background: 'linear-gradient(135deg,#4361ee,#5a3ee6)',
+  color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
 };
 const smallBtn: React.CSSProperties = {
-  padding: '6px 12px', border: '1px solid #CBD5E1', borderRadius: 6, background: 'white',
-  fontSize: 12, cursor: 'pointer', color: '#334155',
+  padding: '8px 14px', border: '1.5px solid #E4E9F2', borderRadius: 11, background: '#fff',
+  fontSize: 13, fontWeight: 700, cursor: 'pointer', color: '#475569',
 };
 const fieldLabel: React.CSSProperties = {
-  display: 'block', fontSize: 11, color: '#475569', marginBottom: 4, fontWeight: 600,
+  display: 'block', fontSize: 11.5, color: '#475569', marginBottom: 4, fontWeight: 700,
 };
 const th: React.CSSProperties = {
   padding: '6px 8px', textAlign: 'left', fontSize: 10, fontWeight: 700,

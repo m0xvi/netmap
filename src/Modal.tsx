@@ -6,10 +6,14 @@
  *   const name = await promptText('Новое имя:', currentName);
  *   const ok   = await confirmDialog('Удалить N устройств?');
  *   await alertDialog('Готово');
+ *
+ * v0.62.0: карточка приведена к единой теме окон (DialogTheme, zIndex 100000
+ * оставлен — примитивы поверх всех диалогов).
  */
 
 import { useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { ensureDialogTheme } from './DialogTheme';
 
 // -----------------------------------------------------------------------------
 // Public API — imperative helpers backed by a single mounted root
@@ -69,6 +73,7 @@ export function alertDialog(title: string, message?: string): Promise<void> {
 function ModalHost({ onReady }: { onReady: (setSpec: (spec: DialogSpec | null) => void) => void }) {
   const [spec, setSpec] = useState<DialogSpec | null>(null);
   useEffect(() => { onReady(setSpec); }, [onReady]);
+  ensureDialogTheme();
   if (!spec) return null;
   return (
     <ModalCard
@@ -112,28 +117,27 @@ function ModalCard({ spec, onClose }: { spec: DialogSpec; onClose: (value: any) 
       onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}
       style={{
         position: 'fixed', inset: 0,
-        background: 'rgba(0,0,0,0.55)',
+        background: 'rgba(15,23,42,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 100000,
         backdropFilter: 'blur(2px)',
       }}
     >
       <div
+        className="nm-dlg"
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          background: '#F9FAFB',
-          border: '1px solid #D1D5DB',
-          borderRadius: 10,
-          minWidth: 360, maxWidth: 500,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
-          color: '#111827',
+          background: '#fff',
+          borderRadius: 14,
+          minWidth: 380, maxWidth: 520,
+          boxShadow: '0 30px 60px -20px rgba(15,23,42,0.4)',
           padding: 20,
           display: 'flex', flexDirection: 'column', gap: 14,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 600 }}>{spec.title}</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A' }}>{spec.title}</div>
         {spec.message && (
-          <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>{spec.message}</div>
+          <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.55 }}>{spec.message}</div>
         )}
         {spec.kind === 'prompt' && (
           <input
@@ -142,31 +146,22 @@ function ModalCard({ spec, onClose }: { spec: DialogSpec; onClose: (value: any) 
             onChange={e => setValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
             style={{
-              background: '#FFFFFF', border: '1px solid #D1D5DB', color: '#111827',
-              padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none',
+              background: '#fff', border: '1.5px solid #E4E9F2', color: '#0F172A',
+              padding: '8px 10px', borderRadius: 9, fontSize: 13, outline: 'none',
+              width: '100%', boxSizing: 'border-box',
             }}
           />
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
           {spec.kind !== 'alert' && (
-            <button
-              onClick={cancel}
-              style={{
-                background: '#E5E7EB', border: '1px solid #D1D5DB', color: '#111827',
-                padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
-              }}
-            >{spec.cancelText || 'Отмена'}</button>
+            <button className="btn ghost" onClick={cancel}>
+              {spec.cancelText || 'Отмена'}
+            </button>
           )}
           <button
+            className={`btn ${spec.danger ? 'danger' : 'primary'}`}
             onClick={submit}
             autoFocus={spec.kind !== 'prompt'}
-            style={{
-              background: spec.danger ? '#FCA5A5' : '#059669',
-              border: `1px solid ${spec.danger ? '#f87171' : '#10B981'}`,
-              color: '#fff',
-              padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
-              fontWeight: 500,
-            }}
           >{spec.okText || 'OK'}</button>
         </div>
       </div>
