@@ -22,10 +22,14 @@ export function GroupNode({ id, data, selected }: NodeProps<any>) {
         width: d.width,
         height: d.collapsed ? 44 : d.height,
         borderRadius: 12,
-        border: `2px ${selected ? 'solid' : 'dashed'} ${color}`,
+        // v0.65 (макет A): контейнер — спокойная сплошная граница 35% (вместо
+        // кричащей пунктирной); выделенная группа — полный цвет. Заливка 5%.
+        border: selected
+          ? `2px solid ${color}`
+          : `1.5px solid ${hexToRgba(color, 0.35)}`,
         background: d.collapsed
           ? `${hexToRgba(color, 0.18)}`
-          : `${hexToRgba(color, 0.06)}`,
+          : `${hexToRgba(color, 0.05)}`,
         boxShadow: selected ? `0 0 0 3px ${hexToRgba(color, 0.25)}` : 'none',
         transition: d.collapsed ? 'height 0.2s, background 0.15s' : 'background 0.15s, box-shadow 0.15s',
         position: 'relative',
@@ -77,10 +81,17 @@ export function GroupNode({ id, data, selected }: NodeProps<any>) {
         >
           {d.collapsed ? '▶' : '▼'}
         </button>
-        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {d.label}
+        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 7 }}>
+          {/* v0.65 (макет A): цветная точка-маркер контейнера. */}
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+          <span style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</span>
         </span>
-        <span style={{ fontSize: 11, opacity: 0.65, fontWeight: 400 }}>
+        <span style={{
+          fontSize: 10.5, fontWeight: 800, color: '#374151',
+          background: 'rgba(255,255,255,0.75)',
+          border: `1px solid ${hexToRgba(color, 0.3)}`,
+          borderRadius: 999, padding: '1px 8px', flexShrink: 0,
+        }}>
           {d.subtitle || `${d.childCount} устр.`}
         </span>
       </div>

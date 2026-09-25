@@ -14,6 +14,8 @@ interface PortEdgeData {
   arrowAtTarget?: boolean;
   arrowAtSource?: boolean;
   isInterGroup?: boolean;
+  /** v0.65: магистраль (хаб↔хаб) — рисуется двойным штрихом (макет A). */
+  trunk?: boolean;
   /** Access/native VLAN on this link (rendered as a colored badge in the middle). */
   vlan?: number;
   /** Trunk VLANs (allowed) — rendered as smaller chips clustered near the badge. */
@@ -191,6 +193,24 @@ export function PortEdge(props: EdgeProps) {
 
   return (
     <>
+      {/* v0.65 (макет A): двойной штрих магистрали — толстая полупрозрачная
+          подложка под обычной сердцевиной. Чистый SVG, pointer-events выключены,
+          клики/нож работают по основному пути. */}
+      {d.trunk && (
+        <path
+          d={path}
+          fill="none"
+          stroke={isOnTrace ? '#F59E0B' : strokeColor}
+          strokeWidth={Math.min(5 + baseWidth * 2, 12)}
+          strokeOpacity={0.14}
+          strokeLinecap="round"
+          style={{
+            pointerEvents: 'none',
+            opacity: isDimmed ? 0.12 : 1,
+            transition: 'opacity 0.18s, stroke 0.15s',
+          }}
+        />
+      )}
       <BaseEdge id={id} path={path} style={finalStyle} />
 
       {/* Wider transparent hit-path — makes it easier to click a thin cable */}

@@ -80,6 +80,39 @@ function CanvasInner() {
   const zoomBand = useStore(s => s.zoomBand);
   // v0.60: раскраска связей по подсетям.
   const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
+
+  // v0.65 (макет A): ховер-подсветка соседей — карточки, не связанные с
+  // наведённым устройством, затемняются. Никаких ре-рендеров React: opacity
+  // ставится напрямую на DOM-обёртки узлов (переход — CSS в index.html).
+  // Рёбра затемняет сам PortEdge (focusRelated + hoveredDeviceId).
+  const nodeDimCleanup = useRef<(() => void) | null>(null);
+  const clearNodeDim = useCallback(() => {
+    nodeDimCleanup.current?.();
+    nodeDimCleanup.current = null;
+  }, []);
+  const applyNodeDim = useCallback((nodeId: string) => {
+    const st = useStore.getState();
+    if (!st.focusRelated) return; // тумблер «Фокус связанных при hover» выключен
+    const keep = new Set<string>([nodeId]);
+    for (const l of st.doc.links) {
+      if (l.fromDeviceId === nodeId) keep.add(l.toDeviceId);
+      else if (l.toDeviceId === nodeId) keep.add(l.fromDeviceId);
+    }
+    const root = document.querySelector('.react-flow');
+    if (!root) return;
+    nodeDimCleanup.current?.();
+    root.querySelectorAll<HTMLElement>('.react-flow__node').forEach((el) => {
+      const id = el.getAttribute('data-id');
+      el.style.opacity = id && keep.has(id) ? '' : '0.22';
+    });
+    nodeDimCleanup.current = () => {
+      root.querySelectorAll<HTMLElement>('.react-flow__node').forEach((el) => {
+        el.style.opacity = '';
+      });
+    };
+  }, []);
+  // Смена ступени зума пересоздаёт карточки (маяки/листы) — сбросить затемнение.
+  useEffect(() => { clearNodeDim(); }, [zoomBand, clearNodeDim]);
   const select = useStore(s => s.select);
   const selectGroup = useStore(s => s.selectGroup);
   const setPosition = useStore(s => s.setPosition);
@@ -450,6 +483,13 @@ function CanvasInner() {
           && (srcDev.groupId || tgtDev.groupId)
           && srcDev.groupId !== tgtDev.groupId);
 
+        // v0.65 (макет A): магистраль = связь двух «хабов» (роутер/свитч/
+        // патч-панель/сервер/облако/VPS). PortEdge рисует её двойным штрихом:
+        // толстая полупрозрачная подложка + обычная сердцевина.
+        const isTrunk = !!(srcDev && tgtDev
+          && !ENDPOINT_KINDS.includes(srcDev.kind) && srcDev.kind !== 'vm'
+          && !ENDPOINT_KINDS.includes(tgtDev.kind) && tgtDev.kind !== 'vm');
+
         // Uplink detection: does either endpoint sit on a port flagged as uplink?
         // Also, direction — the "uplink" side is the destination (arrow points there).
         const srcPort = srcDev?.ports.find(p => p.id === l.fromPortId);
@@ -526,6 +566,7 @@ function CanvasInner() {
             centerBadgeColor: speedColor,
             isUplink,
             isInterGroup,
+            trunk: isTrunk, // v0.65: двойной штрих магистрали
             vlan:  l.vlan,
             vlans: l.vlans,
             // v0.23: bundle info for parallel-cable offset
@@ -867,6 +908,15 @@ function CanvasInner() {
   const selectEdge = useStore(s => s.selectEdge);
   const knifeMode  = useStore(s => s.knifeMode);
   const toggleKnife = useStore(s => s.toggleKnifeMode);
+
+  // v0.65 (макет A): на близком зуме связи уходят ПОД карточки — кабели не
+  // режут текст. На mid/far (обзор) и в режиме «нож» остаются поверх
+  // (иначе кабель не порезать). Класс разбирается правилом в index.html.
+  useEffect(() => {
+    const root = document.querySelector('.react-flow');
+    if (!root) return;
+    root.classList.toggle('nm-edges-below', zoomBand === 'near' && !knifeMode);
+  }, [zoomBand, knifeMode]);
   const onEdgeClick = useCallback((_: any, edge: Edge) => {
     if (knifeMode) {
       // Knife mode: instantly cut
@@ -965,8 +1015,9 @@ function CanvasInner() {
     if (node.type === 'group') return;
     const dev = useStore.getState().doc.devices.find(d => d.id === node.id);
     if (!dev) return;
+    clearNodeDim(); // v0.65: во время перетаскивания затемнение не нужно
     dragOrigins.current.set(node.id, { x: dev.x, y: dev.y, groupId: dev.groupId ?? null });
-  }, []);
+  }, [clearNodeDim]);
 
   // v0.51.19: контекстное меню «сменить группу?» в точке дропа.
   // Вместо центрированного диалога — меню прямо там, куда отпустили
@@ -1595,12 +1646,19 @@ function CanvasInner() {
         select(null); selectGroup(null); selectEdge(null);
         useStore.getState().setPortHighlight(null, null);
         useStore.getState().setHoveredDevice(null);
+        clearNodeDim(); // v0.65
       }}
       onNodeMouseEnter={(_e, n) => {
         // Only devices (not groups) trigger the "focus related" dim effect.
-        if (n.type !== 'group') useStore.getState().setHoveredDevice(n.id);
+        if (n.type !== 'group') {
+          useStore.getState().setHoveredDevice(n.id);
+          applyNodeDim(n.id); // v0.65: затемнение не-соседей
+        }
       }}
-      onNodeMouseLeave={() => useStore.getState().setHoveredDevice(null)}
+      onNodeMouseLeave={() => {
+        useStore.getState().setHoveredDevice(null);
+        clearNodeDim();
+      }}
       selectionOnDrag
       panOnDrag={[1, 2]}
       selectionMode={'partial' as any}

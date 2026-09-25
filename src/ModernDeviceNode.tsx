@@ -139,7 +139,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           </div>
           {/* v0.57: на средней ступени лист — только имя (IP/статус не читаются). */}
           {zoomBand !== 'mid' && (
-            <div style={{ fontSize: 10, color: '#64748B', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ fontSize: 11, color: '#64748B', display: 'flex', gap: 6, alignItems: 'center' }}>
               {device.ip && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{device.ip}</span>}
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, display: 'inline-block' }} />
             </div>
@@ -217,7 +217,8 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
             {device.name}
           </div>
           <div style={{
-            fontSize: 10, color: '#64748B', marginTop: 2,
+            // v0.65: кегль 10 → 11 px — второстепенная строка читается на 1080p.
+            fontSize: 11, color: '#64748B', marginTop: 2,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {device.model && <span>{device.model}</span>}
