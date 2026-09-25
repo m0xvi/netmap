@@ -17,9 +17,13 @@
  *   netmap:update-download  → начать скачивание (auto=false кейс)
  *   netmap:update-install   → quitAndInstall (закрывает app)
  *
- *   → renderer: netmap:update-status ({ state, info?, progress?, error? })
+ *   → renderer: netmap:update-status ({ state, info?, progress?, error?, origin? })
  *     state: 'checking' | 'available' | 'not-available' | 'downloading'
  *          | 'downloaded' | 'error' | 'disabled'
+ *     origin: 'auto' (фоновая проверка при старте) | 'manual' (пункт меню).
+ *       v0.62.2: renderer молча глотает СЕТЕВЫЕ ошибки фоновой проверки
+ *       (GitHub недотянулся — обычное дело), плашка только для ручной
+ *       проверки и не-сетевых ошибок.
  *
  * publishConfig (в package.json → build.publish) должен указывать на GitHub
  * repo. Если поле не задано (dev билд) — updater тихо переходит в 'disabled'.
@@ -30,6 +34,9 @@ const { app } = require('electron');
 let autoUpdater = null;
 let mainWindowRef = null;
 let disabled = false;
+// v0.62.2: чья проверка сейчас летит — фоновая (старт) или ручная (меню).
+// Проверки идут последовательно, одного флага хватает.
+let pendingOrigin = 'auto';
 
 // В деве electron-updater не работает — просто nop.
 function isDevMode() {
@@ -80,6 +87,7 @@ function wireEvents(updater) {
   updater.on('update-downloaded',   (info) => sendStatus({ state: 'downloaded', info }));
   updater.on('error',               (err)  => sendStatus({
     state: 'error',
+    origin: pendingOrigin,
     error: String(err?.stack || err?.message || err),
   }));
 }
@@ -98,8 +106,9 @@ function init(mainWindow) {
   wireEvents(u);
   // Автопроверка через 5 сек после запуска — чтобы не тормозить UX первых кадров.
   setTimeout(() => {
+    pendingOrigin = 'auto';
     try { u.checkForUpdates(); }
-    catch (e) { sendStatus({ state: 'error', error: String(e?.message || e) }); }
+    catch (e) { sendStatus({ state: 'error', origin: 'auto', error: String(e?.message || e) }); }
   }, 5000);
 }
 
@@ -107,6 +116,7 @@ async function checkNow() {
   if (isDevMode()) return { ok: false, disabled: true, error: 'dev mode' };
   const u = safeRequireUpdater();
   if (!u) return { ok: false, disabled: true };
+  pendingOrigin = 'manual';
   try {
     const r = await u.checkForUpdates();
     return { ok: true, updateInfo: r?.updateInfo || null };

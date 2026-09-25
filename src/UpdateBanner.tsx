@@ -28,6 +28,13 @@ export function UpdateBanner() {
 
   useEffect(() => {
     const off = onUpdateStatus((s) => {
+      // v0.62.2: сетевой сбой ФОНОВОЙ проверки (старт программы) — молча в
+      // консоль. Красная плашка + алерт только для ручной проверки из меню
+      // или не-сетевых ошибок (404/403/конфиг релиза).
+      if (s.state === 'error' && s.origin !== 'manual' && isNetworkUpdateError(s.error || '')) {
+        console.warn('[updater] background check network failure (silent):', s.error);
+        return;
+      }
       setStatus(s);
       setDismissed(false);
 
@@ -180,6 +187,23 @@ function formatSpeed(bps: number) {
 }
 
 /**
+ * v0.62.2 — true для транспортных сбоев (виновато окружение, а не настройка):
+ * Node errnos + Chromium net::ERRORS, которые electron-updater отдаёт
+ * текстом (ERR_TIMED_OUT, ERR_INTERNET_DISCONNECTED, …).
+ */
+function isNetworkUpdateError(raw: string): boolean {
+  const s = (raw || '').toLowerCase();
+  return (
+    s.includes('enotfound') || s.includes('etimedout') || s.includes('econnrefused') ||
+    s.includes('econnreset') || s.includes('eai_again') || s.includes('enotreachable') ||
+    s.includes('err_timed_out') || s.includes('err_connection_') ||
+    s.includes('err_internet_disconnected') || s.includes('err_network_') ||
+    s.includes('err_name_not_resolved') || s.includes('err_proxy_') ||
+    s.includes('socket hang up') || s.includes('network timeout') || s.includes('net::')
+  );
+}
+
+/**
  * v0.39.1 — Convert raw electron-updater errors into actionable Russian text.
  * Most common failure modes we've seen:
  *   - 404 releases.atom  → repo is private (or has no published release yet)
@@ -198,7 +222,7 @@ function explainUpdateError(raw: string): string {
   if (s.includes('403')) {
     return 'GitHub отклонил запрос (HTTP 403). Если репозиторий приватный — нужен GH_TOKEN. Обычно проще сделать репозиторий публичным.';
   }
-  if (s.includes('enotfound') || s.includes('etimedout') || s.includes('econnrefused') || s.includes('econnreset')) {
+  if (isNetworkUpdateError(raw)) {
     return 'Нет соединения с GitHub. Проверьте интернет / прокси / файрвол компании.';
   }
   if (s.includes('cannot find latest.yml') || s.includes('no such file')) {

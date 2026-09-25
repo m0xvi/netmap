@@ -28,6 +28,8 @@ export interface UpdateStatus {
   info?: UpdateInfo;
   progress?: UpdateProgress;
   error?: string;
+  /** v0.62.2: чья проверка — фоновая при старте или ручная из меню. */
+  origin?: 'auto' | 'manual';
 }
 
 export function onUpdateStatus(cb: (s: UpdateStatus) => void): () => void {
