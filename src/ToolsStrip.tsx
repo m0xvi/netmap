@@ -175,7 +175,7 @@ function SmartSplit({ def, menuOpen, onToggleMenu }: {
         <TIcon>{def.icon}</TIcon>
       </button>
       <button
-        title="Стратегия группировки: локации / VLAN / подсети"
+        title="Стратегия раскладки: локации / VLAN / подсети / радиальная"
         onClick={onToggleMenu}
         onMouseEnter={() => setHovCaret(true)}
         onMouseLeave={() => setHovCaret(false)}
@@ -197,11 +197,13 @@ function SmartSplit({ def, menuOpen, onToggleMenu }: {
 
 /** Меню стратегий. position: fixed — потому что полоса имеет overflow-x: auto
  *  и absolute-поповер внутри неё обрезался бы по вертикали. */
-function SmartMenu({ pos, onPick }: {
+function SmartMenu({ pos, onPick, onRadial }: {
   pos: { top: number; left: number };
   onPick: (g: GroupStrategy) => void;
+  onRadial: () => void;
 }) {
   const [hov, setHov] = useState<GroupStrategy | null>(null);
+  const [hovRadial, setHovRadial] = useState(false);
   return (
     <div data-netmap-overlay="true" style={{
       position: 'fixed', top: pos.top, left: pos.left, zIndex: 9000,
@@ -230,6 +232,21 @@ function SmartMenu({ pos, onPick }: {
           <div style={{ fontSize: 10, color: '#64748B', marginTop: 1 }}>{s.subtitle}</div>
         </button>
       ))}
+      {/* v0.66.0: радиальная геометрия — не группировка, поэтому отделена. */}
+      <div style={{ borderTop: '1px solid #F1F5F9', margin: '4px 6px 2px' }} />
+      <button
+        onClick={onRadial}
+        onMouseEnter={() => setHovRadial(true)}
+        onMouseLeave={() => setHovRadial(false)}
+        style={{
+          display: 'block', width: '100%', textAlign: 'left', border: 'none',
+          background: hovRadial ? '#F1F5F9' : 'transparent',
+          borderRadius: 8, padding: '7px 8px', cursor: 'pointer',
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>Радиальная · «радуга»</div>
+        <div style={{ fontSize: 10, color: '#64748B', marginTop: 1 }}>Ядро в центре, хабы по орбите, клиенты дугами</div>
+      </button>
       <div style={{
         borderTop: '1px solid #F1F5F9', marginTop: 4, padding: '7px 8px 3px',
         fontSize: 10, color: '#94A3B8', lineHeight: 1.45,
@@ -283,6 +300,27 @@ export function ToolsStrip() {
     requestAnimationFrame(() => {
       try {
         autoLayout(dir, groupBy ? { groupBy } : undefined);
+        markLayoutDone(activeId);
+      } finally {
+        window.dispatchEvent(new CustomEvent('netmap:progress-end',
+          { detail: { id: 'auto-layout' } }));
+      }
+    });
+  };
+
+  // v0.66.0: радиальная раскладка «радуга» (макет C) — отдельная геометрия,
+  // не группировка: ядро в центре, хабы по орбите, клиенты дугами.
+  const doRadial = () => {
+    window.dispatchEvent(new CustomEvent('netmap:progress-start', {
+      detail: {
+        id: 'auto-layout',
+        title: 'Радиальная раскладка',
+        message: 'Ядро — в центр, хабы — по орбите…',
+      },
+    }));
+    requestAnimationFrame(() => {
+      try {
+        useStore.getState().radialLayout();
         markLayoutDone(activeId);
       } finally {
         window.dispatchEvent(new CustomEvent('netmap:progress-end',
@@ -493,7 +531,13 @@ export function ToolsStrip() {
           <TIcon>{P.chevUp}</TIcon>
         </button>
       </div>
-      {smartMenu && smartPos && <SmartMenu pos={smartPos} onPick={pickStrategy} />}
+      {smartMenu && smartPos && (
+        <SmartMenu
+          pos={smartPos}
+          onPick={pickStrategy}
+          onRadial={() => { doRadial(); closeSmartMenu(); }}
+        />
+      )}
     </>
   );
 }

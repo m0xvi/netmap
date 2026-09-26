@@ -67,6 +67,7 @@ import {
 } from './persistence';
 import { computeAutoLayout, type LayoutDirection } from './autoLayout';
 import { autoGroupDevices, type GroupingStrategy } from './smartLayout';
+import { computeRadialLayout } from './radialLayout';
 // v0.32: when a device's display flips between compact ↔ rack its size can
 // jump by 200+ px — nearby siblings suddenly overlap and cards may spill
 // past the group border. Reflow after the update commits.
@@ -352,6 +353,9 @@ interface State {
 
   /** Auto-arrange devices via dagre. Direction TB or LR. Writes to history. */
   autoLayout: (direction?: LayoutDirection, opts?: { preserveDisplay?: boolean; groupBy?: GroupingStrategy }) => void;
+  /** v0.66.0: радиальная раскладка «радуга» (ядро в центре, хабы по орбите,
+   *  оконечные дугами вокруг хабов). Приём макета C (map-variants.html). */
+  radialLayout: () => void;
   /** v0.31: expand/collapse EVERY rack-capable device at once.
    *  `mode='rack'`  → open every switch / router / patchpanel / server in rack view
    *  `mode='compact'` → collapse all of them back to compact cards */
@@ -1345,6 +1349,47 @@ export const useStore = create<State>((set, get) => ({
     const doc = { ...compacted, devices, groups };
     persist(doc);
     // Notify Canvas to fit-view after react-flow has re-rendered the new positions
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent('netmap:layout-applied'))
+      ));
+    }
+    return { ...historyPush(s), doc };
+  }),
+
+  // v0.66.0: «радуга» — радиальная раскладка (макет C). Ядро в центре,
+  // хабы по орбите, оконечные — дугами вокруг своего хаба. Группы остаются
+  // рамками (состав раскладывается сеткой внутри). Как и autoLayout:
+  // компакт перед раскладкой, safeFinite, история (Ctrl+Z), fit-view.
+  radialLayout: () => set((s) => {
+    const withDisplay = {
+      ...s.doc,
+      devices: s.doc.devices.map(d =>
+        (d.kind === 'switch' || d.kind === 'router' || d.kind === 'patchpanel' || d.kind === 'server')
+          && d.display === 'rack'
+          ? { ...d, display: 'compact' as const }
+          : d
+      ),
+    };
+    const { positions, groupPositions } = computeRadialLayout(withDisplay);
+    if (positions.size === 0 && groupPositions.size === 0) return {};
+    const safeFinite = (v: number, fallback: number) => Number.isFinite(v) ? v : fallback;
+    const devices = withDisplay.devices.map(d => {
+      const p = positions.get(d.id);
+      if (!p) return d;
+      return { ...d, x: safeFinite(p.x, d.x), y: safeFinite(p.y, d.y) };
+    });
+    const groups = (withDisplay.groups || []).map(g => {
+      const p = groupPositions.get(g.id);
+      if (!p) return g;
+      return {
+        ...g,
+        x: safeFinite(p.x, g.x), y: safeFinite(p.y, g.y),
+        width: safeFinite(p.width, g.width), height: safeFinite(p.height, g.height),
+      };
+    });
+    const doc = { ...withDisplay, devices, groups };
+    persist(doc);
     if (typeof window !== 'undefined') {
       requestAnimationFrame(() => requestAnimationFrame(() =>
         window.dispatchEvent(new CustomEvent('netmap:layout-applied'))

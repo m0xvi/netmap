@@ -309,6 +309,14 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
                 setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
               } catch (e: any) { await alertDialog('Ошибка', e?.message || 'smart-layout failed'); }
             }} />
+      <Item label="Радиальная раскладка (ядро в центре)" shortcut=""
+            onClick={async () => {
+              onClose();
+              try {
+                useStore.getState().radialLayout();
+                setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
+              } catch (e: any) { await alertDialog('Ошибка', e?.message || 'radial-layout failed'); }
+            }} />
       <Item label="Разложить заново (без группировки)" shortcut=""
             onClick={async () => {
               onClose();

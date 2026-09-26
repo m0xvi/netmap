@@ -113,6 +113,15 @@ function CanvasInner() {
   }, []);
   // Смена ступени зума пересоздаёт карточки (маяки/листы) — сбросить затемнение.
   useEffect(() => { clearNodeDim(); }, [zoomBand, clearNodeDim]);
+
+  // v0.66: затемнение следует за hoveredDeviceId из стора. Его ставят и карта
+  // (onNodeMouseEnter), и список «Подключённые устройства» в правой панели —
+  // так работает синхрон «список ↔ карта» из макета D.
+  const hoveredDeviceId = useStore(s => s.hoveredDeviceId);
+  useEffect(() => {
+    if (hoveredDeviceId) applyNodeDim(hoveredDeviceId);
+    else clearNodeDim();
+  }, [hoveredDeviceId, applyNodeDim, clearNodeDim]);
   const select = useStore(s => s.select);
   const selectGroup = useStore(s => s.selectGroup);
   const setPosition = useStore(s => s.setPosition);
@@ -1645,20 +1654,15 @@ function CanvasInner() {
       onPaneClick={() => {
         select(null); selectGroup(null); selectEdge(null);
         useStore.getState().setPortHighlight(null, null);
-        useStore.getState().setHoveredDevice(null);
-        clearNodeDim(); // v0.65
+        useStore.getState().setHoveredDevice(null); // v0.66: эффект снимет затемнение
       }}
       onNodeMouseEnter={(_e, n) => {
         // Only devices (not groups) trigger the "focus related" dim effect.
-        if (n.type !== 'group') {
-          useStore.getState().setHoveredDevice(n.id);
-          applyNodeDim(n.id); // v0.65: затемнение не-соседей
-        }
+        // v0.66: само затемнение навешено на hoveredDeviceId эффектом выше —
+        // тот же путь использует список устройств в правой панели.
+        if (n.type !== 'group') useStore.getState().setHoveredDevice(n.id);
       }}
-      onNodeMouseLeave={() => {
-        useStore.getState().setHoveredDevice(null);
-        clearNodeDim();
-      }}
+      onNodeMouseLeave={() => useStore.getState().setHoveredDevice(null)}
       selectionOnDrag
       panOnDrag={[1, 2]}
       selectionMode={'partial' as any}
