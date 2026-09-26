@@ -11,6 +11,8 @@ import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
 import { KIND_META } from './icons';
 import { ENDPOINT_KINDS, exposesPortAnchors } from './ModernDeviceNode';
+import { computeScenePlan } from './scenePlan';
+import { BundleEdge } from './BundleEdge';
 
 // v0.67: боковой якорь (_top/_right/_bottom/_left) по геометрии «кто где».
 // Используется, когда портовые якоря не отрендерены (mid/far) или у связи
@@ -72,6 +74,8 @@ const nodeTypes: any = {
 
 const edgeTypes: any = {
   portEdge: PortEdge,
+  // v0.68: агрегированный пучок «×N» на обзоре (far).
+  bundleEdge: BundleEdge,
 };
 
 export function Canvas() {
@@ -87,6 +91,8 @@ function CanvasInner() {
   // v0.41: reference redesign — switches the node component and endpoint folding.
   const viewMode = useStore(s => s.viewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
+
+
   // v0.57: ступень семантического зума — влияет на видимость оконечных и рёбра.
   const zoomBand = useStore(s => s.zoomBand);
   // v0.60: раскраска связей по подсетям.
@@ -192,6 +198,28 @@ function CanvasInner() {
       return true;
     };
   }, [filters, doc.links]);
+
+  // v0.68: контракт сцены — единые правила LOD и фасовки (docs/display-logic.md).
+  // Один чистый расчёт на изменение входов; initialNodes/initialEdges берут план отсюда.
+  const scenePlan = useMemo(
+    () => computeScenePlan(doc, {
+      zoomBand, collapseEndpoints, viewMode,
+      linkVisible: (l) => {
+        const cable = l.cable || 'copper';
+        if (filters.hiddenCables.has(cable)) return false;
+        if (filters.vlan != null) {
+          const carries = l.vlan === filters.vlan || l.vlans?.includes(filters.vlan);
+          if (!carries) return false;
+        }
+        const a = doc.devices.find(d => d.id === l.fromDeviceId);
+        const b = doc.devices.find(d => d.id === l.toDeviceId);
+        if (a && !isDeviceVisible(a)) return false;
+        if (b && !isDeviceVisible(b)) return false;
+        return true;
+      },
+    }),
+    [doc, zoomBand, collapseEndpoints, viewMode, filters, isDeviceVisible],
+  );
 
   // v0.58: ориентиры дальней ступени — пилюли в ЭКРАННЫХ координатах
   // (читаются при любом зуме): ядро, группы, серверы. Список стабилен
@@ -319,11 +347,10 @@ function CanvasInner() {
       if (d.groupId) childCounts.set(d.groupId, (childCounts.get(d.groupId) || 0) + 1);
     });
 
-    // v0.67: пользовательские группы, из которых стратегия временно забрала
-    // устройства («спящие»), не рисуем пустыми рамками. Группу с подгруппами
-    // оставляем, даже если своих устройств нет.
+    // v0.68: план сцены решает, какие группы видимы: «спящие» скрыты,
+    // на обзоре (far) и при ручном коллапсе группа — пилюля 44px.
     const groupNodes: Node[] = groups
-      .filter(g => (childCounts.get(g.id) || 0) > 0 || groups.some(x => x.parentId === g.id))
+      .filter(g => scenePlan.groupMode.get(g.id) !== 'hidden')
       .map(g => ({
       id: g.id,
       type: 'group',
@@ -334,50 +361,36 @@ function CanvasInner() {
         label: g.name,
         subtitle: g.subtitle,
         color: g.color,
-        collapsed: !!g.collapsed,
+        collapsed: scenePlan.groupMode.get(g.id) === 'pill' || !!g.collapsed,
         childCount: childCounts.get(g.id) || 0,
         width: g.width,
         height: g.height,
       },
-      style: { width: g.width, height: g.collapsed ? 44 : g.height },
+      style: {
+        width: g.width,
+        height: (scenePlan.groupMode.get(g.id) === 'pill' || g.collapsed) ? 44 : g.height,
+      },
       selectable: true,
       draggable: true,
     }));
 
-    const collapsedIds = new Set(groups.filter(g => g.collapsed).map(g => g.id));
+    const collapsedIds = new Set(
+      groups.filter(g => g.collapsed || scenePlan.groupMode.get(g.id) === 'pill').map(g => g.id)
+    );
 
     // Which servers are currently expanded → their VMs will be rendered INSIDE the server card, not on canvas
     const expandedServerIds = new Set(
       doc.devices.filter(d => d.kind === 'server' && d.display === 'rack').map(d => d.id)
     );
 
-    // v0.41: which endpoint kinds get hidden from the canvas when
-    // collapseEndpoints is on (their info lives in the parent hub's chip list).
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
-    const hideAsEndpoint = (d: Device): boolean => {
-      // v0.57: на дальней ступени оконечные прячутся в хабы всегда,
-      // независимо от ручного тумблера collapseEndpoints.
-      if (viewMode !== 'modern') return false;
-      if (!collapseEndpoints && zoomBand !== 'far') return false;
-      if (!ENDPOINT_KINDS.includes(d.kind)) return false;
-      // Only hide when this endpoint IS actually connected to a switch/router —
-      // orphan endpoints stay visible so the user can still see + wire them.
-      return doc.links.some(l =>
-        (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
-        doc.devices.some(x =>
-          (x.id === l.fromDeviceId || x.id === l.toDeviceId) &&
-          x.id !== d.id &&
-          (x.kind === 'switch' || x.kind === 'router')
-        )
-      );
-    };
-
+    // v0.68: фасовка — план сцены помечает 'folded' (оконечное с одним хабом
+    // уходит в хаб на обзоре/при collapseEndpoints; состав группы уходит в
+    // пилюлю). Заменило прежнюю локальную эвристику hideAsEndpoint.
     const deviceNodes: Node[] = doc.devices
       .filter(d => !d.groupId || !collapsedIds.has(d.groupId))
       // Hide VMs whose host is expanded (they are shown inside the server card)
       .filter(d => !(d.kind === 'vm' && d.hostDeviceId && expandedServerIds.has(d.hostDeviceId)))
-      // v0.41: hide endpoint devices when they're folded into a hub's chip list
-      .filter(d => !hideAsEndpoint(d))
+      .filter(d => scenePlan.deviceMode.get(d.id) !== 'folded')
       // Layer filters
       .filter(isDeviceVisible)
       .map(d => {
@@ -404,38 +417,37 @@ function CanvasInner() {
     // + collapseEndpoints is active (that's the only path that needs it).
     // Otherwise we skip the dep so the node list doesn't churn on every
     // link add/remove/update — was causing full node remount storms.
-  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
-      // Only depend on links when they actually influence node visibility.
-      // v0.57: дальняя ступень тоже прячет оконечные — ей links нужны.
-      (viewMode === 'modern' && (collapseEndpoints || zoomBand === 'far')) ? doc.links : null]);
+      // v0.68: видимость узлов целиком определяет scenePlan (внутри — links,
+      // zoomBand, collapseEndpoints, viewMode), потому deps сокращены до него.
+  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, scenePlan]);
 
   const initialEdges: Edge[] = useMemo(() => {
-    const collapsedIds = new Set((doc.groups || []).filter(g => g.collapsed).map(g => g.id));
+    // v0.68: пилюли (обзор/коллапс) и «спящие» группы — из плана сцены.
+    const collapsedIds = new Set(
+      (doc.groups || [])
+        .filter(g => g.collapsed || scenePlan.groupMode.get(g.id) === 'pill')
+        .map(g => g.id)
+    );
     const deviceById = new Map(doc.devices.map(d => [d.id, d]));
-    // when a device's group is collapsed, its node disappears; we redirect edges to the group node
+    // when a device's group is collapsed/pilled, its node disappears; we redirect edges to the group node
     const resolve = (deviceId: string): string => {
       const dev = deviceById.get(deviceId);
       if (dev?.groupId && collapsedIds.has(dev.groupId)) return dev.groupId;
       return deviceId;
     };
 
-    // v0.41: same "hide endpoints" heuristic as in initialNodes.
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
-    const hideAsEndpoint = (d: Device | undefined): boolean => {
-      if (!d) return false;
-      // v0.57: на дальней ступени прячем и рёбра к свернутым оконечным.
-      if (viewMode !== 'modern') return false;
-      if (!collapseEndpoints && zoomBand !== 'far') return false;
-      if (!ENDPOINT_KINDS.includes(d.kind)) return false;
-      return doc.links.some(l =>
-        (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
-        doc.devices.some(x =>
-          (x.id === l.fromDeviceId || x.id === l.toDeviceId) &&
-          x.id !== d.id &&
-          (x.kind === 'switch' || x.kind === 'router')
-        )
-      );
-    };
+    // v0.68: ОБЗОР — вместо сотен индивидуальных кабелей рисуем агрегированные
+    // пучки «×N» между видимыми сущностями (маяк/пилюля). Фасовка и агрегация
+    // считаются в scenePlan; здесь только отображение.
+    if (viewMode === 'modern' && zoomBand === 'far') {
+      return scenePlan.bundles.map(b => ({
+        id: b.id,
+        source: b.a,
+        target: b.b,
+        type: 'bundleEdge',
+        data: { count: b.count, trunk: b.trunk },
+      } as Edge));
+    }
 
     const visibleLinks = doc.links.filter(l => {
       // Cable-type filter
@@ -446,8 +458,10 @@ function CanvasInner() {
       const tgtD = deviceById.get(l.toDeviceId);
       if (srcD && !isDeviceVisible(srcD)) return false;
       if (tgtD && !isDeviceVisible(tgtD)) return false;
-      // v0.41: hide edges to endpoints that are folded into their hub.
-      if (hideAsEndpoint(srcD) || hideAsEndpoint(tgtD)) return false;
+      // v0.68: связи к фасованным (folded) оконечным скрыты — их показывает
+      // счётчик в хабе, а на обзоре они вошли в пучки.
+      if (scenePlan.deviceMode.get(l.fromDeviceId) === 'folded'
+        || scenePlan.deviceMode.get(l.toDeviceId) === 'folded') return false;
       // VLAN filter on the link itself — the link carries the VLAN if
       // it's the access VLAN OR listed in trunk allowed vlans.
       if (filters.vlan != null) {
@@ -615,10 +629,12 @@ function CanvasInner() {
       })
       .filter(Boolean) as Edge[];
    }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
-       colorLinksBySubnet, subnetPalette, selectedId, hoveredDeviceId]);
+       colorLinksBySubnet, subnetPalette, selectedId, hoveredDeviceId, scenePlan]);
 
   // Additional "host" edges for VMs (skip VMs already rendered inside expanded server card)
   const hostEdges: Edge[] = useMemo(() => {
+    // v0.68: на обзоре синтетические VM↔host рёбра не рисуем (обзор = пучки).
+    if (viewMode === 'modern' && zoomBand === 'far') return [] as Edge[];
     const collapsedIds = new Set((doc.groups || []).filter(g => g.collapsed).map(g => g.id));
     const deviceById = new Map(doc.devices.map(d => [d.id, d]));
     const expandedServerIds = new Set(
@@ -707,6 +723,32 @@ function CanvasInner() {
     };
     window.addEventListener('netmap:layout-applied', onLayout);
     return () => window.removeEventListener('netmap:layout-applied', onLayout);
+  }, [rf]);
+
+  // v0.68: двойной клик по группе (в т.ч. по «пилюле» обзора) — приблизить
+  // сцену к её прямоугольнику («нырок» в фасовку).
+  useEffect(() => {
+    const onZoom = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      const g = (useStore.getState().doc.groups || []).find(x => x.id === id);
+      if (!g) return;
+      try {
+        const el = document.querySelector('.react-flow') as HTMLElement | null;
+        const cw = el?.clientWidth || 1200;
+        const ch = el?.clientHeight || 800;
+        const pad = 120;
+        const zoom = Math.min(2, Math.max(0.25, Math.min(
+          cw / (g.width + pad * 2), ch / ((g.collapsed ? 44 : g.height) + pad * 2),
+        )));
+        rf.setViewport({
+          zoom,
+          x: cw / 2 - zoom * (g.x + g.width / 2),
+          y: ch / 2 - zoom * (g.y + (g.collapsed ? 44 : g.height) / 2),
+        }, { duration: 400 });
+      } catch { /* rf may not be ready */ }
+    };
+    window.addEventListener('netmap:focus-group', onZoom);
+    return () => window.removeEventListener('netmap:focus-group', onZoom);
   }, [rf]);
 
   // v0.41.1: safety net for "empty canvas" bug — when the project is loaded

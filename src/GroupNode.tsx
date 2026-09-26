@@ -18,6 +18,13 @@ export function GroupNode({ id, data, selected }: NodeProps<any>) {
 
   return (
     <div
+      // v0.68: двойной клик по контейнеру (в т.ч. по «пилюле» обзора) —
+      // приблизить сцену к этой группе («нырок» в фасовку).
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('netmap:focus-group', { detail: { id } }));
+      }}
+      title="Двойной клик — приблизить группу"
       style={{
         width: d.width,
         height: d.collapsed ? 44 : d.height,

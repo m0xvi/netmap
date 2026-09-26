@@ -11,9 +11,9 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.67.0 поверх v0.66.0 (радуга/синхрон) поверх v0.65/v0.64; история: мерж `15de20f` + da2c |
-| Версия | `0.67.0` (package.json), тег `v0.67.0` запушен |
-| Релиз | v0.67.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.67.0.exe`, `NetMap-Portable-0.67.0.exe`, `latest.yml` |
+| HEAD | v0.68.0 (контракт сцены) поверх v0.67/v0.66/v0.65/v0.64; история: мерж `15de20f` + da2c |
+| Версия | `0.68.0` (package.json), тег `v0.68.0` запушен |
+| Релиз | v0.68.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.68.0.exe`, `NetMap-Portable-0.68.0.exe`, `latest.yml` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
 
 ## 2. Где остановились
@@ -52,6 +52,13 @@
   предикат в мемо рёбер). Стенд 37/37.
 Кандидаты дальше (из `docs/map-baseline.md` §5): тултипы на дальнем зуме,
 разгрузка верхней полосы баннеров (якоря оптимизированы в v0.67).
+- **v0.68.0 «контракт сцены»** по запросу пользователя «грамотно разложить
+  логику отображения/фасовки/расположения»: `src/scenePlan.ts` — чистый план
+  (deviceMode card/beacon/folded, groupMode frame/pill/hidden, foldedInto,
+  bundles «×N» на far, linkVisible-фильтры); Canvas initialNodes/initialEdges
+  берут план (эвристики hideAsEndpoint удалены); `src/BundleEdge.tsx`;
+  даблклик по группе — нырок (`netmap:focus-group` → setViewport); спецификация
+  `docs/display-logic.md`. Юнит 17/17; регрессии radial 8/8, strat 29/29.
 Снапшот в этой сессии сбрасывался в начале каждого хода — лечение: fetch +
 `reset --mixed origin/arena/01a0da42-netmap` (дерево не трогать!).
 
@@ -210,3 +217,7 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
   takeover-перегруппировка всей карты (`takeOverUserGroups` + `userGroupId` +
   `restoreUserGroups`), скрытие спящих групп, pushAlert-итог раскладки, оптимизация
   портовых якорей (exposesPortAnchors + geoSide). Стенд 37/37. Тег `v0.67.0`, CI.
+- 2026-09-26: та же сессия — выпущен **v0.68.0** по запросу «выстроить логику
+  отображения/фасовки больших карт»: контракт сцены `src/scenePlan.ts` +
+  `docs/display-logic.md`, пучки «×N» (`BundleEdge`), пилюли групп с нырком,
+  единый план для узлов и рёбер. Юнит 17/17 + регрессии. Тег `v0.68.0`, CI.
