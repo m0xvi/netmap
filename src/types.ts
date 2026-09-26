@@ -76,6 +76,10 @@ export interface Device {
   x: number;                 // canvas position (absolute if no group, else RELATIVE to parent group)
   y: number;
   groupId?: string | null;   // parent group id, if any
+  /** v0.67: «домашняя» пользовательская группа устройства. Запоминается, когда
+   *  стратегия раскладки временно выводит устройство из пользовательской
+   *  группы в автогруппу; восстанавливается раскладкой «без группировки». */
+  userGroupId?: string;
   /** For kind='vm': the physical host device id */
   hostDeviceId?: string | null;
   /** For kind='vm': vCPU / RAM / OS metadata */

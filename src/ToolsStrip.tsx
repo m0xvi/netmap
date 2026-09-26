@@ -23,6 +23,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { alertDialog } from './Modal';
+import { summarizeAutoGrouping } from './smartLayout';
 import { exportPng, exportSvg, exportJson } from './exportCanvas';
 
 /** Иконка 16×16 в стиле feather (stroke = currentColor). Только SVG, без emoji. */
@@ -299,7 +300,17 @@ export function ToolsStrip() {
     }));
     requestAnimationFrame(() => {
       try {
+        // v0.67: честная обратная связь — что стратегия фактически сделала.
+        const before = useStore.getState().doc;
         autoLayout(dir, groupBy ? { groupBy } : undefined);
+        const after = useStore.getState().doc;
+        if (isSmart) {
+          const grouped = after.devices.filter(d => (d.groupId || '').startsWith('auto-')).length;
+          const msg = grouped > 0
+            ? summarizeAutoGrouping(before, after)
+            : 'Не нашлось данных для группировки (локации / VLAN / IP) — карта разложена без групп.';
+          useStore.getState().pushAlert({ severity: 'info', origin: 'user', title: 'Умная раскладка', message: msg });
+        }
         markLayoutDone(activeId);
       } finally {
         window.dispatchEvent(new CustomEvent('netmap:progress-end',

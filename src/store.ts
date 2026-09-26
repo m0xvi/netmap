@@ -66,7 +66,7 @@ import {
   persistLoadFilters, persistSaveFilters,
 } from './persistence';
 import { computeAutoLayout, type LayoutDirection } from './autoLayout';
-import { autoGroupDevices, type GroupingStrategy } from './smartLayout';
+import { autoGroupDevices, restoreUserGroups, type GroupingStrategy } from './smartLayout';
 import { computeRadialLayout } from './radialLayout';
 // v0.32: when a device's display flips between compact ↔ rack its size can
 // jump by 200+ px — nearby siblings suddenly overlap and cards may spill
@@ -1319,7 +1319,13 @@ export const useStore = create<State>((set, get) => ({
               : d
           ),
         };
-    const compacted = groupBy === 'none' ? withDisplay : autoGroupDevices(withDisplay, { groupBy });
+    // v0.67: стратегия переорганизует ВСЮ карту (takeOverUserGroups) — иначе
+    // на карте с пользовательскими группами режимы выглядели «мёртвыми»:
+    // устройства уже были в группах, и автогруппировке доставались нули.
+    // «Без группировки» возвращает устройства в их «домашние» группы.
+    const compacted = groupBy === 'none'
+      ? restoreUserGroups(withDisplay)
+      : autoGroupDevices(withDisplay, { groupBy, takeOverUserGroups: true });
     const { positions, groupPositions } = computeAutoLayout(compacted, { direction });
     if (positions.size === 0 && groupPositions.size === 0) return {};
     // v0.35.8: NEVER commit non-finite coords from autoLayout — a corner-case

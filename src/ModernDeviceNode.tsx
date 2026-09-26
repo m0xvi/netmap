@@ -149,7 +149,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
             handles so React Flow can route edges to the exact port defined
             in the link, or fall back to a side handle when there's no
             port id (matches DeviceNode behaviour). */}
-        <PortHandles device={device} />
+        <PortHandles device={device} selected={selected} />
       </div>
     );
   }
@@ -244,7 +244,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
       {/* Endpoint groups (Connected Devices section) */}
       {isHub && collapseEndpoints && <HubEndpoints hubId={id} />}
 
-      <PortHandles device={device} />
+      <PortHandles device={device} selected={selected} />
     </div>
   );
 }
@@ -390,13 +390,23 @@ function EndpointDot({ devId }: { devId: string }) {
 // v0.42.1: reusable port-handles renderer (same logic as DeviceNode's
 // CompactHandles — invisible handles per port, positioned by portSides).
 
-function PortHandles({ device }: { device: Device }) {
+/** v0.67: когда устройство держит невидимые портовые якоря (2 DOM-узла на порт).
+ *  near-зум, выделение или ховер — да; mid/far в покое — нет (оптимизация DOM,
+ *  рёбра на этих ступенях цепляются к боковым якорям по геометрии). */
+export const exposesPortAnchors = (band: string, selected: boolean, hovered: boolean) =>
+  band === 'near' || selected || hovered;
+
+function PortHandles({ device, selected }: { device: Device; selected?: boolean }) {
   const invisible: React.CSSProperties = {
     width: 6, height: 6, background: 'transparent', border: 'none', opacity: 0,
   };
   // Bump-based subscription so we re-render when portSides recompute.
   const psVersion = useStore(s => s.portSidesVersion);
   void psVersion;
+  // v0.67: на mid/far портовые якоря не рендерим — это 40–57% DOM схемы.
+  const band = useStore(s => s.zoomBand);
+  const hovered = useStore(s => s.hoveredDeviceId === device.id);
+  const exposePorts = exposesPortAnchors(band, !!selected, hovered);
 
   const posStyleFor = (s: Position, pct: number): React.CSSProperties =>
     (s === Position.Left || s === Position.Right)
@@ -411,7 +421,7 @@ function PortHandles({ device }: { device: Device }) {
 
   return (
     <>
-      {ports.map((port, idx) => {
+      {exposePorts && ports.map((port, idx) => {
         const dynSide = portSides.getSide(device.id, port.id);
         const dynPct  = portSides.getOffsetPct(device.id, port.id);
         const effSide = dynSide ?? defaultSide;
@@ -541,7 +551,7 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
       </div>
 
       <FarEndpointStrip hubId={id} />
-      <PortHandles device={device} />
+      <PortHandles device={device} selected={selected} />
     </div>
   );
 }

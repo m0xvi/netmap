@@ -11,9 +11,9 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.66.0 поверх v0.65.0 поверх v0.64.0; история: мерж `15de20f` (main: «add makets») + da2c (v0.63.0+docs) |
-| Версия | `0.66.0` (package.json), тег `v0.66.0` запушен |
-| Релиз | v0.66.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.66.0.exe`, `NetMap-Portable-0.66.0.exe`, `latest.yml` |
+| HEAD | v0.67.0 поверх v0.66.0 (радуга/синхрон) поверх v0.65/v0.64; история: мерж `15de20f` + da2c |
+| Версия | `0.67.0` (package.json), тег `v0.67.0` запушен |
+| Релиз | v0.67.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.67.0.exe`, `NetMap-Portable-0.67.0.exe`, `latest.yml` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
 
 ## 2. Где остановились
@@ -36,9 +36,22 @@
   — раздел «Подключённые устройства» в InfoTab DevicePanel с двусторонним синхроном
   через `hoveredDeviceId` (затемнение карты в Canvas теперь effect на hoveredDeviceId —
   единый источник для карты и панели). Юнит radial 16/16 + jsdom peers 9/9.
-Следующих задач из макетов нет. Кандидаты дальше (из `docs/map-baseline.md` §5):
-оптимизация невидимых портовых якорей (40–57% DOM), тултипы на дальнем зуме,
-разгрузка верхней полосы баннеров.
+Следующих задач из макетов нет.
+- **v0.67.0 «режимы на любой карте + оптимизация»**: пользователь пожаловался, что
+  меню стратегий «мёртвое». Причина (воспроизведено стендом на реальном store):
+  `autoGroupDevices` не трогал устройства в пользовательских группах → на
+  сгруппированной карте все стратегии давали одну картину. Фикс: опция
+  `takeOverUserGroups` (smartLayout) — стратегия переорганизует всю карту, «дом»
+  помнится в `device.userGroupId`; `restoreUserGroups()` для groupBy='none'
+  (store.autoLayout); пустые «спящие» группы не рендерятся (Canvas initialNodes);
+  pushAlert с итогом группировки после умной раскладки (ToolsStrip doLayout,
+  summarizeAutoGrouping; при отсутствии данных — честное сообщение).
+  Оптимизация DOM: портовые якоря (2 DOM/порт) рендерятся только near/selected/
+  hovered (`exposesPortAnchors` в ModernDeviceNode), на mid/far рёбра цепляются к
+  боковым `_top/_right/_bottom/_left` по геометрии (geoSide в Canvas, тот же
+  предикат в мемо рёбер). Стенд 37/37.
+Кандидаты дальше (из `docs/map-baseline.md` §5): тултипы на дальнем зуме,
+разгрузка верхней полосы баннеров (якоря оптимизированы в v0.67).
 Снапшот в этой сессии сбрасывался в начале каждого хода — лечение: fetch +
 `reset --mixed origin/arena/01a0da42-netmap` (дерево не трогать!).
 
@@ -193,3 +206,7 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
   синхронный список «Подключённые устройства» (`src/HubPeersList.tsx` в InfoTab),
   затемнение не-соседей переведено на эффект `hoveredDeviceId`. Юнит radial 16/16 +
   jsdom peers 9/9. Тег `v0.66.0` запушен, сборка в CI. План гибрида закрыт.
+- 2026-09-26: та же сессия — выпущен **v0.67.0** по жалобе «меню стратегий мёртвое»:
+  takeover-перегруппировка всей карты (`takeOverUserGroups` + `userGroupId` +
+  `restoreUserGroups`), скрытие спящих групп, pushAlert-итог раскладки, оптимизация
+  портовых якорей (exposesPortAnchors + geoSide). Стенд 37/37. Тег `v0.67.0`, CI.

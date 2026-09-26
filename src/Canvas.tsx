@@ -10,7 +10,18 @@ import { BUILT_IN_TEMPLATES, loadCustomTemplates, makeDeviceFromTemplate } from 
 import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
 import { KIND_META } from './icons';
-import { ENDPOINT_KINDS } from './ModernDeviceNode';
+import { ENDPOINT_KINDS, exposesPortAnchors } from './ModernDeviceNode';
+
+// v0.67: боковой якорь (_top/_right/_bottom/_left) по геометрии «кто где».
+// Используется, когда портовые якоря не отрендерены (mid/far) или у связи
+// нет порта — ребро уходит с той стороны карточки, куда идёт кабель.
+const geoSide = (a: { x: number; y: number }, b: { x: number; y: number }): string => {
+  const dx = (b.x || 0) - (a.x || 0);
+  const dy = (b.y || 0) - (a.y || 0);
+  return Math.abs(dy) >= Math.abs(dx)
+    ? (dy >= 0 ? '_bottom' : '_top')
+    : (dx >= 0 ? '_right' : '_left');
+};
 
 import '@xyflow/react/dist/style.css';
 import { useStore } from './store';
@@ -308,7 +319,12 @@ function CanvasInner() {
       if (d.groupId) childCounts.set(d.groupId, (childCounts.get(d.groupId) || 0) + 1);
     });
 
-    const groupNodes: Node[] = groups.map(g => ({
+    // v0.67: пользовательские группы, из которых стратегия временно забрала
+    // устройства («спящие»), не рисуем пустыми рамками. Группу с подгруппами
+    // оставляем, даже если своих устройств нет.
+    const groupNodes: Node[] = groups
+      .filter(g => (childCounts.get(g.id) || 0) > 0 || groups.some(x => x.parentId === g.id))
+      .map(g => ({
       id: g.id,
       type: 'group',
       position: { x: g.x, y: g.y },
@@ -474,18 +490,20 @@ function CanvasInner() {
         const tgtDev = deviceById.get(l.toDeviceId);
         const srcVisible = src === l.fromDeviceId; // not redirected to a collapsed group
         const tgtVisible = tgt === l.toDeviceId;
-        // A device shows port handles when:
-        //  - it's a switch/router (BOTH compact and rack — v0.31 fix: compact
-        //    now exposes per-port handles distributed across all 4 edges), OR
-        //  - it's a patch panel (both compact and expanded expose handles), OR
-        //  - it's a normal device (AP/camera/PC/…): our new DeviceNode always draws port dots
-        const srcExposesPorts = srcVisible && srcDev;
-        const tgtExposesPorts = tgtVisible && tgtDev;
+        // v0.67: портовые якоря отрендерены только на near / при выделении /
+        // ховере (exposesPortAnchors — тот же предикат, что в PortHandles).
+        // На mid/far рёбра цепляются к боковым якорям по геометрии.
+        const srcExposesPorts = srcVisible && srcDev
+          && exposesPortAnchors(zoomBand, selectedId === l.fromDeviceId, hoveredDeviceId === l.fromDeviceId);
+        const tgtExposesPorts = tgtVisible && tgtDev
+          && exposesPortAnchors(zoomBand, selectedId === l.toDeviceId, hoveredDeviceId === l.toDeviceId);
 
-        const sourceHandle = srcExposesPorts && l.fromPortId && srcDev?.ports.some(p => p.id === l.fromPortId)
+        let sourceHandle = srcExposesPorts && l.fromPortId && srcDev?.ports.some(p => p.id === l.fromPortId)
           ? l.fromPortId : undefined;
-        const targetHandle = tgtExposesPorts && l.toPortId && tgtDev?.ports.some(p => p.id === l.toPortId)
+        let targetHandle = tgtExposesPorts && l.toPortId && tgtDev?.ports.some(p => p.id === l.toPortId)
           ? l.toPortId : undefined;
+        if (!sourceHandle && srcDev && tgtDev) sourceHandle = geoSide(srcDev, tgtDev);
+        if (!targetHandle && srcDev && tgtDev) targetHandle = geoSide(tgtDev, srcDev);
 
         // Distinguish inter-group backbone links from intra-group / local ones.
         const isInterGroup = !!(srcDev && tgtDev
@@ -597,7 +615,7 @@ function CanvasInner() {
       })
       .filter(Boolean) as Edge[];
    }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
-       colorLinksBySubnet, subnetPalette]);
+       colorLinksBySubnet, subnetPalette, selectedId, hoveredDeviceId]);
 
   // Additional "host" edges for VMs (skip VMs already rendered inside expanded server card)
   const hostEdges: Edge[] = useMemo(() => {
