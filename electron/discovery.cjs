@@ -959,9 +959,26 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       if (!remoteRef) continue;
       // Skip self-links
       if (remoteRef.existingId && selfDeviceRef.existingId && remoteRef.existingId === selfDeviceRef.existingId) continue;
+      // v0.70: имя порта-хинта часто содержит имя нижестоящего свитча
+      // («2G-SW_RoomOO-1-3»): эндпоинт физически за ним — связь строим от
+      // свитча, а не от цели скана, иначе от шлюза растёт звезда-«волосня».
+      // (Тот же план ремонта для готовых доков — src/topoRepair.ts в UI.)
+      let fdbFromRef = selfDeviceRef;
+      const ifn70 = String(f.onIface || '').toLowerCase();
+      if (ifn70 && doc && Array.isArray(doc.devices)) {
+        let best70 = null;
+        for (const dd of doc.devices) {
+          if (dd.kind !== 'switch') continue;
+          const nm70 = String(dd.name || '').toLowerCase();
+          if (nm70.length < 5 || !ifn70.includes(nm70)) continue;
+          if (dd.id === (selfDeviceRef.existingId || '') || dd.id === (remoteRef.existingId || '')) continue;
+          if (!best70 || nm70.length > best70.nm.length) best70 = { id: dd.id, nm: nm70 };
+        }
+        if (best70) fdbFromRef = { existingId: best70.id };
+      }
       proposedLinks.push({
         tempId: 'lnk_' + RID(),
-        fromRef: selfDeviceRef,
+        fromRef: fdbFromRef,
         fromPort: f.onIface,
         toRef: remoteRef,
         toPort: '',

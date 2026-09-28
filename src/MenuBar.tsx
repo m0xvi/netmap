@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { alertDialog, confirmDialog } from './Modal';
+import { planHintRepairs } from './topoRepair';
 import { MikrotikImportDialog } from './MikrotikImportDialog';
 import { ImportDialog } from './ImportDialog';
 import { DiscoveryDialog } from './DiscoveryDialog';
@@ -325,6 +326,24 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
               onClose();
               try { useStore.getState().autoLayout('TB'); setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400); }
               catch (e: any) { await alertDialog('Ошибка', e?.message || 'auto-layout failed'); }
+            }} />
+      {/* v0.70: ремонт звезды FDB-хинтов (шлюз → свитч по имени порта в хинте). */}
+      <Item label="Починить связи по FDB-хинтам" shortcut=""
+            onClick={async () => {
+              onClose();
+              try {
+                const plan = planHintRepairs(useStore.getState().doc);
+                if (plan.length === 0) {
+                  await alertDialog('Ремонт топологии', 'Не нашлось связей, которые можно перестроить по FDB-хинтам (имя свитча в порту шлюза не узнаётся).');
+                  return;
+                }
+                const sw = [...new Set(plan.map(p => p.switchName))].join(', ');
+                const yes = await confirmDialog('Ремонт топологии',
+                  `Переставить ${plan.length} связей со шлюза на свитчи: ${sw}? Откат — Ctrl+Z.`);
+                if (!yes) return;
+                useStore.getState().applyHintRepairs();
+                setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
+              } catch (e: any) { await alertDialog('Ошибка', e?.message || 'hint-repair failed'); }
             }} />
       {/* v0.43.5: сколько колонок для «орфанов» без uplink-свитча. */}
       <OrphanGridInline />

@@ -68,6 +68,7 @@ import {
 import { computeAutoLayout, type LayoutDirection } from './autoLayout';
 import { autoGroupDevices, restoreUserGroups, type GroupingStrategy } from './smartLayout';
 import { computeRadialLayout } from './radialLayout';
+import { planHintRepairs, applyHintRepairsToDoc } from './topoRepair';
 // v0.32: when a device's display flips between compact ↔ rack its size can
 // jump by 200+ px — nearby siblings suddenly overlap and cards may spill
 // past the group border. Reflow after the update commits.
@@ -360,6 +361,9 @@ interface State {
   /** v0.66.0: радиальная раскладка «радуга» (ядро в центре, хабы по орбите,
    *  оконечные дугами вокруг хабов). Приём макета C (map-variants.html). */
   radialLayout: () => void;
+  /** v0.70.0: best-effort ремонт звезды FDB-хинтов: концы связей со шлюза на
+   *  узнаваемый в хинте свитч. Возвращает число переставленных связей. */
+  applyHintRepairs: () => number;
   /** v0.31: expand/collapse EVERY rack-capable device at once.
    *  `mode='rack'`  → open every switch / router / patchpanel / server in rack view
    *  `mode='compact'` → collapse all of them back to compact cards */
@@ -1413,6 +1417,24 @@ export const useStore = create<State>((set, get) => ({
     }
     return { ...historyPush(s), doc };
   }),
+
+  // v0.70.0: ремонт топологии по FDB-хинтам (topoRepair.ts): конец связи
+  // со шлюза переставляется на свитч, узнаваемый в имени порта-хинта.
+  applyHintRepairs: () => {
+    const s = get();
+    const repairs = planHintRepairs(s.doc);
+    if (repairs.length === 0) return 0;
+    const doc = applyHintRepairsToDoc(s.doc, repairs);
+    persist(doc);
+    const perSwitch = new Map<string, number>();
+    repairs.forEach(r => perSwitch.set(r.switchName, (perSwitch.get(r.switchName) || 0) + 1));
+    s.pushAlert({
+      severity: 'success', origin: 'user', title: 'Ремонт топологии по FDB',
+      message: `Перестроено связей: ${repairs.length} → ${[...perSwitch.entries()].map(([n, c]) => `${n} (+${c})`).join(', ')}`,
+    });
+    set(st => ({ ...historyPush(st), doc }));
+    return repairs.length;
+  },
   setPosition: (id, x, y, parentId) => set((s) => {
     // v0.35.4: reject NaN / Infinity outright — otherwise a garbage coord
     // sneaks into `doc.devices`, React Flow's `extent:'parent'` clips the
