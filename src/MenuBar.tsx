@@ -282,6 +282,8 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   const toggleShowMinimap = useStore(s => s.toggleShowMinimap);
   const preferOverviewBig = useStore(s => s.preferOverviewBig);
   const togglePreferOverviewBig = useStore(s => s.togglePreferOverviewBig);
+  const focusMode = useStore(s => s.focusMode);
+  const toggleFocusMode = useStore(s => s.toggleFocusMode);
   const snap = useStore(s => s.snapToGrid);
   const toggleSnap = useStore(s => s.toggleSnap);
 
@@ -366,6 +368,9 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { toggleShowMinimap(); onClose(); }} />
       <Item checked={preferOverviewBig} label="Большие карты стартуют в обзоре" shortcut=""
             onClick={() => { togglePreferOverviewBig(); onClose(); }} />
+      {/* v0.72: focus-first — старт с ядра, раскрытие по «+N». */}
+      <Item checked={focusMode} label="Фокус: старт с ядра (большие карты)" shortcut=""
+            onClick={() => { toggleFocusMode(); onClose(); }} />
       <Item checked={focusRelated} label="Фокус связанных при hover" shortcut=""
             onClick={() => { toggleFocusRelated(); onClose(); }} />
     </>

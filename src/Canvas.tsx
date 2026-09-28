@@ -11,7 +11,7 @@ import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
 import { KIND_META } from './icons';
 import { ENDPOINT_KINDS, exposesPortAnchors } from './ModernDeviceNode';
-import { computeScenePlan, overviewZoomCap } from './scenePlan';
+import { computeScenePlan, overviewZoomCap, BIG_MAP_DEVICES } from './scenePlan';
 import { shouldAggregate } from './edgeBundling';
 import { BundleEdge } from './BundleEdge';
 
@@ -202,11 +202,18 @@ function CanvasInner() {
     };
   }, [filters, doc.links]);
 
+  // v0.72: focus-first — пересчёт видимого множества при смене дока/режима.
+  const focusMode = useStore(s => s.focusMode);
+  const focusVisible = useStore(s => s.focusVisible);
+  useEffect(() => { useStore.getState().syncFocus(); }, [doc, focusMode]);
+  const focusVisibleSet = focusMode && (doc.devices || []).length >= BIG_MAP_DEVICES
+    ? focusVisible : null;
+
   // v0.68: контракт сцены — единые правила LOD и фасовки (docs/display-logic.md).
   // Один чистый расчёт на изменение входов; initialNodes/initialEdges берут план отсюда.
   const scenePlan = useMemo(
     () => computeScenePlan(doc, {
-      zoomBand, collapseEndpoints, viewMode,
+      zoomBand, collapseEndpoints, viewMode, focus: focusVisibleSet,
       linkVisible: (l) => {
         const cable = l.cable || 'copper';
         if (filters.hiddenCables.has(cable)) return false;
@@ -221,7 +228,7 @@ function CanvasInner() {
         return true;
       },
     }),
-    [doc, zoomBand, collapseEndpoints, viewMode, filters, isDeviceVisible],
+    [doc, zoomBand, collapseEndpoints, viewMode, filters, isDeviceVisible, focusVisibleSet],
   );
 
   // v0.58: ориентиры дальней ступени — пилюли в ЭКРАННЫХ координатах
@@ -396,6 +403,8 @@ function CanvasInner() {
       // Hide VMs whose host is expanded (they are shown inside the server card)
       .filter(d => !(d.kind === 'vm' && d.hostDeviceId && expandedServerIds.has(d.hostDeviceId)))
       .filter(d => scenePlan.deviceMode.get(d.id) !== 'folded')
+      // v0.72: вне фокуса — не рисуем вовсе.
+      .filter(d => scenePlan.deviceMode.get(d.id) !== 'hidden')
       // Layer filters
       .filter(isDeviceVisible)
       .map(d => {
@@ -413,7 +422,11 @@ function CanvasInner() {
           // Do not constrain children to the parent rectangle: a device must
           // be draggable out of a group and re-parented into another one.
           ...(d.groupId ? { parentId: d.groupId } : {}),
-          data: { device: d, highlighted: highlightIds.has(d.id) }
+          data: {
+            device: d, highlighted: highlightIds.has(d.id),
+            // v0.72: «+N» скрытых фокусом соседей — чип раскрытия на хабе.
+            hiddenExtra: scenePlan.hiddenExtra.get(d.id) || 0,
+          },
         };
       });
 
@@ -465,8 +478,11 @@ function CanvasInner() {
       if (tgtD && !isDeviceVisible(tgtD)) return false;
       // v0.68: связи к фасованным (folded) оконечным скрыты — их показывает
       // счётчик в хабе, а на обзоре они вошли в пучки.
+      // v0.72: связи со скрытым фокусом концом тоже не рисуем.
       if (scenePlan.deviceMode.get(l.fromDeviceId) === 'folded'
-        || scenePlan.deviceMode.get(l.toDeviceId) === 'folded') return false;
+        || scenePlan.deviceMode.get(l.toDeviceId) === 'folded'
+        || scenePlan.deviceMode.get(l.fromDeviceId) === 'hidden'
+        || scenePlan.deviceMode.get(l.toDeviceId) === 'hidden') return false;
       // VLAN filter on the link itself — the link carries the VLAN if
       // it's the access VLAN OR listed in trunk allowed vlans.
       if (filters.vlan != null) {
@@ -1823,6 +1839,7 @@ function CanvasInner() {
     <ZoomBandChip />
     <FarLandmarks marks={farMarks} moveRef={landmarkMoveRef} />
     <EndpointsFoldedChip />
+    <FocusChip />
     <SubnetLegend palette={subnetPalette} />
 
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
@@ -1852,6 +1869,36 @@ const chipBtn: React.CSSProperties = {
   borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
   cursor: 'pointer', whiteSpace: 'nowrap',
 };
+
+// v0.72: focus-first — чип «Фокус: X из Y» в верхней полосе. Кнопки:
+// «Показать всё» (раскрыть до всей карты) и «Сбросить» (вернуть к ядру).
+function FocusChip() {
+  const focusMode = useStore(s => s.focusMode);
+  const focusVisible = useStore(s => s.focusVisible);
+  const total = useStore(s => s.doc.devices.length);
+  const big = total >= BIG_MAP_DEVICES;
+  if (!focusMode || !big) return null;
+  const shownN = focusVisible.size;
+  const hiddenN = total - shownN;
+  if (hiddenN <= 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1D4ED8',
+      borderRadius: 8, padding: '6px 8px 6px 12px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)', whiteSpace: 'nowrap',
+    }}>
+      <span>Фокус: {shownN} из {total} · скрыто {hiddenN}</span>
+      <button onClick={() => useStore.getState().revealAllFocus()} style={chipBtnBlue}>
+        Показать всё
+      </button>
+      <button onClick={() => useStore.getState().resetFocus()} style={chipBtnBlue}>
+        Сбросить
+      </button>
+    </div>
+  );
+}
 
 function HiddenEdgesChip({ linksTotal, shown }: { linksTotal: number; shown: number }) {
   const hideEdges = useStore(s => s.hideEdges);
@@ -1983,8 +2030,11 @@ function EndpointsFoldedChip() {
   const zoomBand = useStore(s => s.zoomBand);
   const devices = useStore(s => s.doc.devices);
   const links = useStore(s => s.doc.links);
+  // v0.72: под focus-first раскрытием управляет чип «Фокус» и «+N» на хабах —
+  // этот чип был бы вторым противоречивым каналом управления.
+  const focusMode = useStore(s => s.focusMode);
   const folded = useMemo(() => {
-    if (viewMode !== 'modern' || !collapseEndpoints || zoomBand === 'far') return 0;
+    if (viewMode !== 'modern' || !collapseEndpoints || zoomBand === 'far' || focusMode) return 0;
     const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     let n = 0;
     for (const d of devices) {
@@ -2000,7 +2050,7 @@ function EndpointsFoldedChip() {
       if (wired) n++;
     }
     return n;
-  }, [devices, links, viewMode, collapseEndpoints, zoomBand]);
+  }, [devices, links, viewMode, collapseEndpoints, zoomBand, focusMode]);
   if (folded === 0) return null;
   return (
     <div data-netmap-overlay="true" style={{

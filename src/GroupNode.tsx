@@ -1,5 +1,6 @@
 import { useStore } from './store';
 import { NodeResizer, type NodeProps } from '@xyflow/react';
+import { showGroupTip, hideGroupTip } from './DeviceTooltip';
 
 interface Data {
   label: string;
@@ -24,6 +25,11 @@ export function GroupNode({ id, data, selected }: NodeProps<any>) {
         e.stopPropagation();
         window.dispatchEvent(new CustomEvent('netmap:focus-group', { detail: { id } }));
       }}
+      // v0.72: тултип состава группы — особенно нужен на дальнем зуме,
+      // когда группа свёрнута в пилюлю.
+      onMouseEnter={d.collapsed ? (e) => showGroupTip(id, e.clientX, e.clientY) : undefined}
+      onMouseMove={d.collapsed ? (e) => showGroupTip(id, e.clientX, e.clientY) : undefined}
+      onMouseLeave={d.collapsed ? () => hideGroupTip() : undefined}
       title="Двойной клик — приблизить группу"
       style={{
         width: d.width,

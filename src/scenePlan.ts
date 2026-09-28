@@ -22,10 +22,11 @@
  */
 
 import type { Device, DeviceKind, NetMapDoc } from './types';
+import { inferLayer } from './layers';
 
 export const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
 
-export type DeviceMode = 'card' | 'beacon' | 'folded';
+export type DeviceMode = 'card' | 'beacon' | 'folded' | 'hidden';
 export type GroupMode = 'frame' | 'pill' | 'hidden';
 
 export interface BundleSpec {
@@ -43,6 +44,8 @@ export interface ScenePlan {
   foldedInto: Map<string, string>;
   /** агрегированные связи обзора (пусто на near/mid). */
   bundles: BundleSpec[];
+  /** v0.72: для видимых хабов — число скрытых фокусом соседей («+N»). */
+  hiddenExtra: Map<string, number>;
 }
 
 export interface ScenePlanInput {
@@ -51,6 +54,10 @@ export interface ScenePlanInput {
   viewMode: 'modern' | 'legacy';
   /** Необязательный предикат видимости связи (фильтры кабелей/VLAN/слоёв). */
   linkVisible?: (l: NetMapDoc['links'][number]) => boolean;
+  /** v0.72 focus-first (progressive disclosure): множество видимых устройств;
+   *  null/undefined — показываем всё. Остальные — 'hidden', а на видимых
+   *  хабах считается hiddenExtra («+N» скрытых соседей для раскрытия). */
+  focus?: Set<string> | null;
 }
 
 const isEndpoint = (d: Device) => ENDPOINT_KINDS.includes(d.kind);
@@ -61,10 +68,15 @@ export function computeScenePlan(doc: NetMapDoc, input: ScenePlanInput): ScenePl
   const groupMode = new Map<string, GroupMode>();
   const foldedInto = new Map<string, string>();
   const bundles: BundleSpec[] = [];
+  const hiddenExtra = new Map<string, number>();
 
   const groups = doc.groups || [];
   const devices = doc.devices;
   const byId = new Map(devices.map(d => [d.id, d]));
+
+  // v0.72 focus-first: null — показываем всё; иначе видимы только из focus.
+  const focus = input.focus ?? null;
+  const isHidden = (id: string) => !!focus && !focus.has(id);
 
   // Соседи-хабы каждого устройства (для фасовки оконечных).
   const hubNeighbor = new Map<string, string[]>();
@@ -77,10 +89,16 @@ export function computeScenePlan(doc: NetMapDoc, input: ScenePlanInput): ScenePl
   }
 
   // --- Группы: hidden / pill / frame -------------------------------------
+  // v0.72: под фокусом считаем только ВИДИМЫХ детей — опустевшая группа
+  // скрывается целиком, вместо пустой рамки/пилюли.
   const childCount = new Map<string, number>();
-  for (const d of devices) if (d.groupId) childCount.set(d.groupId, (childCount.get(d.groupId) || 0) + 1);
+  for (const d of devices) {
+    if (!d.groupId || isHidden(d.id)) continue;
+    childCount.set(d.groupId, (childCount.get(d.groupId) || 0) + 1);
+  }
   for (const g of groups) {
-    const hasKids = (childCount.get(g.id) || 0) > 0 || groups.some(x => x.parentId === g.id);
+    const hasKids = (childCount.get(g.id) || 0) > 0
+      || groups.some(x => x.parentId === g.id && groupMode.get(x.id) !== 'hidden');
     if (!hasKids) { groupMode.set(g.id, 'hidden'); continue; }      // «спящие» не рисуем
     if (input.viewMode === 'modern' && (input.zoomBand === 'far' || g.collapsed)) {
       groupMode.set(g.id, 'pill');                                  // обзор и ручной коллапс
@@ -89,18 +107,22 @@ export function computeScenePlan(doc: NetMapDoc, input: ScenePlanInput): ScenePl
     }
   }
 
-  // --- Устройства: card / beacon / folded ---------------------------------
+  // --- Устройства: card / beacon / folded / hidden ------------------------
   const far = input.viewMode === 'modern' && input.zoomBand === 'far';
   const foldEndpoints = input.viewMode === 'modern' && (far || input.collapseEndpoints);
   for (const d of devices) {
+    // v0.72: вне фокуса устройство не рисуется вовсе.
+    if (isHidden(d.id)) { deviceMode.set(d.id, 'hidden'); continue; }
     // Обзор: состав пилюли фасуется в пилюлю.
     if (far && d.groupId && groupMode.get(d.groupId) === 'pill') {
       deviceMode.set(d.id, 'folded'); foldedInto.set(d.id, d.groupId); continue;
     }
     // Оконечное с ровно одним видимым хабом фасуется в него (обзор всегда;
     // на mid/near — при включённом collapseEndpoints, как раньше).
+    // Под фокусом хаб тоже должен быть видим — иначе устройство исчезло бы
+    // бесследно (его «+N» живёт на хабе).
     if (isEndpoint(d) && foldEndpoints) {
-      const hubs = (hubNeighbor.get(d.id) || []).filter(h => byId.has(h)
+      const hubs = (hubNeighbor.get(d.id) || []).filter(h => byId.has(h) && !isHidden(h)
         && !(byId.get(h)!.groupId && groupMode.get(byId.get(h)!.groupId!) === 'pill'));
       if (hubs.length === 1) { deviceMode.set(d.id, 'folded'); foldedInto.set(d.id, hubs[0]); continue; }
     }
@@ -129,6 +151,9 @@ export function computeScenePlan(doc: NetMapDoc, input: ScenePlanInput): ScenePl
     };
     const agg = new Map<string, { a: string; b: string; count: number; trunk: boolean }>();
     for (const l of links) {
+      // v0.72: связь со скрытым фокусом концом не рисуется — иначе «пучок»
+      // висел бы в пустоту.
+      if (isHidden(l.fromDeviceId) || isHidden(l.toDeviceId)) continue;
       const ra = rep(l.fromDeviceId), rb = rep(l.toDeviceId);
       if (ra === rb) continue;                          // всё внутри одной сущности
       const key = ra < rb ? `${ra}|${rb}` : `${rb}|${ra}`;
@@ -142,15 +167,33 @@ export function computeScenePlan(doc: NetMapDoc, input: ScenePlanInput): ScenePl
     }
   }
 
-  return { deviceMode, groupMode, foldedInto, bundles };
+  // --- v0.72: «+N» скрытых соседей на видимых хабах ------------------------
+  if (focus) {
+    for (const l of links) {
+      const a = byId.get(l.fromDeviceId), b = byId.get(l.toDeviceId);
+      if (!a || !b) continue;
+      if (focus.has(a.id) && isHubKind(a.kind) && !focus.has(b.id)) {
+        hiddenExtra.set(a.id, (hiddenExtra.get(a.id) || 0) + 1);
+      }
+      if (focus.has(b.id) && isHubKind(b.kind) && !focus.has(a.id)) {
+        hiddenExtra.set(b.id, (hiddenExtra.get(b.id) || 0) + 1);
+      }
+    }
+  }
+
+  return { deviceMode, groupMode, foldedInto, bundles, hiddenExtra };
 }
 
 /** Человекочитаемая сводка плана — для отладки и будущих тултипов обзора. */
 export function summarizePlan(p: ScenePlan): string {
-  let cards = 0, beacons = 0, folded = 0, frames = 0, pills = 0, hidden = 0;
-  p.deviceMode.forEach(m => { if (m === 'card') cards++; else if (m === 'beacon') beacons++; else folded++; });
+  let cards = 0, beacons = 0, folded = 0, hiddenDev = 0, frames = 0, pills = 0, hidden = 0;
+  p.deviceMode.forEach(m => {
+    if (m === 'card') cards++; else if (m === 'beacon') beacons++;
+    else if (m === 'folded') folded++; else hiddenDev++;
+  });
   p.groupMode.forEach(m => { if (m === 'frame') frames++; else if (m === 'pill') pills++; else hidden++; });
-  return `карточек ${cards} · маяков ${beacons} · фасовано ${folded} · рамок ${frames} · пилюль ${pills} · скрыто групп ${hidden} · пучков ${p.bundles.length}`;
+  const extra = hiddenDev > 0 ? ` · вне фокуса ${hiddenDev}` : '';
+  return `карточек ${cards} · маяков ${beacons} · фасовано ${folded}${extra} · рамок ${frames} · пилюль ${pills} · скрыто групп ${hidden} · пучков ${p.bundles.length}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,4 +222,47 @@ export function downCountsByHub(doc: NetMapDoc): Map<string, number> {
     if (hubKind(b.kind) && a.liveStatus === 'down') out.set(b.id, (out.get(b.id) || 0) + 1);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// v0.72.0 — focus-first (progressive disclosure по образцу yFiles/NetBrain).
+
+/** Кольцо раскрытия от ядра по умолчанию (ядро + 2 кольца соседей). */
+export const FOCUS_RINGS = 2;
+
+/** Начальный фокус: BFS от ядра сети на N колец.
+ *  Ядро — устройства слоя core (интернет-шлюз/роутеры); если таких нет,
+ *  берём устройство с максимальной степенью. Детерминированно (сортировка
+ *  id), поэтому один и тот же документ всегда даёт один и тот же старт. */
+export function computeFocusSet(doc: NetMapDoc, rings: number = FOCUS_RINGS): Set<string> {
+  const devices = doc.devices || [];
+  if (devices.length === 0) return new Set();
+  const degree = new Map<string, number>();
+  const adj = new Map<string, string[]>();
+  const add = (a: string, b: string) => {
+    degree.set(a, (degree.get(a) || 0) + 1);
+    (adj.get(a) || adj.set(a, []).get(a)!).push(b);
+  };
+  for (const l of doc.links || []) {
+    add(l.fromDeviceId, l.toDeviceId);
+    add(l.toDeviceId, l.fromDeviceId);
+  }
+  const cores = devices.filter(d => inferLayer(d) === 'core');
+  const seeds: string[] = cores.length
+    ? cores.map(d => d.id).sort()
+    : [devices.slice().sort((a, b) =>
+        (degree.get(b.id) || 0) - (degree.get(a.id) || 0) || a.id.localeCompare(b.id))[0].id];
+
+  const seen = new Set<string>(seeds);
+  let frontier = [...seeds];
+  for (let ring = 0; ring < rings; ring++) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const nb of adj.get(id) || []) {
+        if (!seen.has(nb)) { seen.add(nb); next.push(nb); }
+      }
+    }
+    frontier = next;
+  }
+  return seen;
 }

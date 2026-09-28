@@ -145,3 +145,94 @@ function TipCard({ id, x, y }: { id: string; x: number; y: number }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// v0.72 — тултип группы/пилюли на дальнем зуме: состав по типам + «N down».
+
+export const GRTIP_SHOW = 'netmap:grtip';
+export const GRTIP_HIDE = 'netmap:grtip-hide';
+
+/** Показать/передвинуть тултип группы (вызывать из onMouseEnter/Move). */
+export function showGroupTip(id: string, x: number, y: number) {
+  window.dispatchEvent(new CustomEvent(GRTIP_SHOW, { detail: { id, x, y } }));
+}
+
+/** Скрыть тултип группы. */
+export function hideGroupTip() {
+  window.dispatchEvent(new CustomEvent(GRTIP_HIDE));
+}
+
+export function GroupTooltipHost() {
+  const [tip, setTip] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const show = (e: Event) => {
+      const d = (e as CustomEvent).detail as { id: string; x: number; y: number };
+      if (d && typeof d.id === 'string') setTip({ id: d.id, x: d.x, y: d.y });
+    };
+    const hide = () => setTip(null);
+    window.addEventListener(GRTIP_SHOW, show as EventListener);
+    window.addEventListener(GRTIP_HIDE, hide);
+    window.addEventListener('pointerdown', hide, true);
+    return () => {
+      window.removeEventListener(GRTIP_SHOW, show as EventListener);
+      window.removeEventListener(GRTIP_HIDE, hide);
+      window.removeEventListener('pointerdown', hide, true);
+    };
+  }, []);
+
+  if (!tip) return null;
+  return <GroupTipCard id={tip.id} x={tip.x} y={tip.y} />;
+}
+
+function GroupTipCard({ id, x, y }: { id: string; x: number; y: number }) {
+  const g = useStore(useShallow((s) => {
+    const grp = s.doc.groups.find(z => z.id === id);
+    if (!grp) return null;
+    const kids = s.doc.devices.filter(d => d.groupId === id);
+    const byKind = new Map<string, number>();
+    let down = 0;
+    for (const d of kids) {
+      byKind.set(d.kind, (byKind.get(d.kind) || 0) + 1);
+      if (d.liveStatus === 'down') down++;
+    }
+    const rows = [...byKind.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([kind, n]) => `${KIND_META[kind as keyof typeof KIND_META]?.label || kind}: ${n}`);
+    return { name: grp.name, total: kids.length, rows, down };
+  }));
+  if (!g) return null;
+
+  const W = 236;
+  const left = Math.max(8, Math.min(x + 16, window.innerWidth - W - 8));
+  const top = Math.max(8, Math.min(y + 14, window.innerHeight - 200));
+
+  return (
+    <div
+      style={{
+        position: 'fixed', left, top, width: W, zIndex: 950,
+        pointerEvents: 'none',
+        background: '#1D2939', color: '#EAECF0',
+        borderRadius: 10, padding: '9px 12px',
+        boxShadow: '0 12px 30px -8px rgba(15,23,42,0.5)',
+      }}
+    >
+      <div style={{ fontWeight: 800, fontSize: 12.5, color: '#FFFFFF' }}>{g.name}</div>
+      <div style={{
+        color: '#98A2B3', fontSize: 9.5, fontWeight: 700,
+        textTransform: 'uppercase', letterSpacing: 0.5, margin: '1px 0 5px',
+      }}>
+        Группа · {g.total} устр.
+      </div>
+      {g.rows.map(r => (
+        <div key={r} style={rowStyle}><span>{r}</span></div>
+      ))}
+      {g.down > 0 && (
+        <div style={{ ...rowStyle, color: '#FCA5A5', fontWeight: 700, marginTop: 3 }}>
+          <span>Недоступно</span><span style={{ color: '#FCA5A5' }}>{g.down}</span>
+        </div>
+      )}
+    </div>
+  );
+}

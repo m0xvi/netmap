@@ -101,6 +101,9 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
   const isHubKind71 = device.kind === 'switch' || device.kind === 'router';
   const downCount = useStore(s => (isHubKind71 ? downCountsByHub(s.doc).get(id) || 0 : 0));
 
+  // v0.72: focus-first — сколько соседей скрыто фокусом («+N» чип).
+  const hiddenExtra = Number((data as { hiddenExtra?: number }).hiddenExtra || 0);
+
   // ---------- LEAF (small) rendering ----------
   if (isEndpoint) {
     return (
@@ -162,7 +165,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
 
   // v0.57: дальняя ступень — хаб рисуется «маяком»: крупно, читаемо издалека.
   if (isHub && zoomBand === 'far') {
-    return <FarBeacon id={id} device={device} selected={selected} />;
+    return <FarBeacon id={id} device={device} selected={selected} hiddenExtra={hiddenExtra} />;
   }
 
   // ---------- HUB (big card with optional endpoints) rendering ----------
@@ -195,6 +198,21 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
         >
           {downCount} down
         </span>
+      )}
+      {/* v0.72: focus-first — синяя пилюля «+N» скрытых соседей (клик — раскрыть). */}
+      {hiddenExtra > 0 && (
+        <button
+          onClick={e => { e.stopPropagation(); useStore.getState().expandFocus(id); }}
+          title={`Раскрыть ещё ${hiddenExtra} сосед(ей) этого хаба`}
+          style={{
+            position: 'absolute', top: 8, right: downCount > 0 ? 62 : 8, zIndex: 3,
+            background: '#2563EB', color: '#fff', border: 'none', borderRadius: 999,
+            fontSize: 10, fontWeight: 800, lineHeight: '16px', padding: '0 8px',
+            boxShadow: '0 1px 5px rgba(37,99,235,0.45)', cursor: 'pointer',
+          }}
+        >
+          +{hiddenExtra}
+        </button>
       )}
       {/* Header */}
       <div
@@ -488,7 +506,9 @@ const ENDPOINT_LABEL: Partial<Record<DeviceKind, string>> = {
 // контрастная карточка: имя читается издалека, оконечные — счётчиками
 // по типам. Ядро (inferLayer === 'core') — с синим кольцом и плашкой CORE.
 
-function FarBeacon({ id, device, selected }: { id: string; device: Device; selected?: boolean }) {
+function FarBeacon({ id, device, selected, hiddenExtra = 0 }: {
+  id: string; device: Device; selected?: boolean; hiddenExtra?: number;
+}) {
   const meta = KIND_META[device.kind];
   const Icon = ICONS[device.kind];
   const setFocus = useStore(s => s.focusDevice);
@@ -573,6 +593,21 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
               >
                 {downCount} down
               </span>
+            )}
+            {hiddenExtra > 0 && (
+              <button
+                onClick={e => { e.stopPropagation(); useStore.getState().expandFocus(id); }}
+                title={`Раскрыть ещё ${hiddenExtra} сосед(ей) этого хаба`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  fontSize: 11, padding: '2px 10px', borderRadius: 999,
+                  background: '#2563EB', color: '#fff', fontWeight: 800,
+                  boxShadow: '0 1px 5px rgba(37,99,235,0.45)',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                +{hiddenExtra}
+              </button>
             )}
             {isCore && (
               <span style={{

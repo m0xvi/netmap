@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Device, Group, Link, NetMapDoc, StickyNote, StickyColor, Vlan } from './types';
 import { usadbaSeed, donaSeed, chaikovskySeed } from './seed';
+import { computeFocusSet, BIG_MAP_DEVICES } from './scenePlan';
 
 /** Single ping sample retained in the ring buffer for the sparkline. */
 export interface PingSample {
@@ -313,6 +314,22 @@ interface State {
   /** v0.71: большие карты (≥100 устройств) стартуют в обзоре (far-ступень). */
   preferOverviewBig: boolean;
   togglePreferOverviewBig: () => void;
+  /** v0.72: focus-first — большие карты стартуют с ядра + 2 кольца соседей,
+   *  остальное раскрывается кликом по «+N» на хабе. */
+  focusMode: boolean;
+  toggleFocusMode: () => void;
+  /** v0.72: видимое под фокусом множество (view-state; НЕ в history). */
+  focusVisible: Set<string>;
+  /** v0.72: документ, для которого focusVisible рассчитан (для пересчёта). */
+  focusBuiltFor: NetMapDoc | null;
+  /** Пересчитать фокус, если режим включён и карта большая. */
+  syncFocus: () => void;
+  /** Раскрыть устройство и его соседей (клик по «+N»). */
+  expandFocus: (id: string) => void;
+  /** Сбросить фокус к ядру + 2 кольца. */
+  resetFocus: () => void;
+  /** Показать всё (раскрыть фокус до всей карты, режим остаётся включён). */
+  revealAllFocus: () => void;
   /**
    * v0.41: UI chrome visibility. By default (first launch) sidebar and
    * right panel are HIDDEN so the map takes the whole screen. Toolbar
@@ -1097,6 +1114,42 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.preferOverviewBig;
     try { localStorage.setItem('netmap:preferOverviewBig', next ? '1' : '0'); } catch {}
     return { preferOverviewBig: next };
+  }),
+  // v0.72: focus-first. По умолчанию ВКЛ для больших карт.
+  focusMode: (typeof window === 'undefined' || localStorage.getItem('netmap:focusMode') !== '0'),
+  toggleFocusMode: () => set(s => {
+    const next = !s.focusMode;
+    try { localStorage.setItem('netmap:focusMode', next ? '1' : '0'); } catch {}
+    return { focusMode: next };
+  }),
+  focusVisible: new Set<string>(),
+  focusBuiltFor: null as unknown as NetMapDoc | null,
+  syncFocus: () => set(s => {
+    const big = (s.doc.devices || []).length >= BIG_MAP_DEVICES;
+    if (!s.focusMode || !big) {
+      return s.focusVisible.size === 0 && !s.focusBuiltFor ? {} : { focusVisible: new Set<string>(), focusBuiltFor: null };
+    }
+    // Пересчитываем, только если док сменился или множество ещё пустое.
+    if (s.focusBuiltFor === s.doc && s.focusVisible.size > 0) return {};
+    return { focusVisible: computeFocusSet(s.doc), focusBuiltFor: s.doc };
+  }),
+  expandFocus: (id: string) => set(s => {
+    if (!s.focusMode) return {};
+    const vis = new Set(s.focusVisible);
+    vis.add(id);
+    for (const l of s.doc.links || []) {
+      if (l.fromDeviceId === id) vis.add(l.toDeviceId);
+      if (l.toDeviceId === id) vis.add(l.fromDeviceId);
+    }
+    return { focusVisible: vis };
+  }),
+  resetFocus: () => set(s => {
+    if (!s.focusMode) return {};
+    return { focusVisible: computeFocusSet(s.doc), focusBuiltFor: s.doc };
+  }),
+  revealAllFocus: () => set(s => {
+    if (!s.focusMode) return {};
+    return { focusVisible: new Set(s.doc.devices.map(d => d.id)), focusBuiltFor: s.doc };
   }),
   // v0.41: sidebar & right-panel default to CLOSED (map takes whole viewport).
   // '0' = closed, '1' = open. Persisted in localStorage so user's choice sticks.
