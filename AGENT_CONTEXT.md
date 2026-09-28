@@ -11,9 +11,9 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.68.0 (контракт сцены) поверх v0.67/v0.66/v0.65/v0.64; история: мерж `15de20f` + da2c |
-| Версия | `0.68.0` (package.json), тег `v0.68.0` запушен |
-| Релиз | v0.68.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.68.0.exe`, `NetMap-Portable-0.68.0.exe`, `latest.yml` |
+| HEAD | v0.69.0 (чистая карта) поверх v0.68 (контракт сцены) поверх v0.67/v0.66/v0.65/v0.64 |
+| Версия | `0.69.0` (package.json), тег `v0.69.0` запушен |
+| Релиз | v0.69.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.69.0.exe`, `NetMap-Portable-0.69.0.exe`, `latest.yml` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
 
 ## 2. Где остановились
@@ -221,3 +221,11 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
   отображения/фасовки больших карт»: контракт сцены `src/scenePlan.ts` +
   `docs/display-logic.md`, пучки «×N» (`BundleEdge`), пилюли групп с нырком,
   единый план для узлов и рёбер. Юнит 17/17 + регрессии. Тег `v0.68.0`, CI.
+- 2026-09-28: та же сессия — выпущен **v0.69.0** по разбору реальной схемы
+  пользователя (скрины: «ленты» рёбер, сотни лейблов «bridge FDB», розовые
+  «рамки» веера, пустой обзор с полосами): non-scaling-stroke в PortEdge/
+  BundleEdge; `src/edgeBundling.ts` (fanOffset ±42px, агрегация пар >6 в ×N
+  на всех ступенях); лейблы только на активных рёбрах или тумблер
+  showLinkLabels (меню Вид); компактные пилюли ≤380px. Юнит 6/6 + регрессии.
+  ВАЖНО: .netmap.json пользователя в песочницу НЕ доехал (только скрины) —
+  выводы по коду+скринам.

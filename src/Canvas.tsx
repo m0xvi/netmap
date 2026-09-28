@@ -12,6 +12,7 @@ import { inferLayer } from './layers';
 import { KIND_META } from './icons';
 import { ENDPOINT_KINDS, exposesPortAnchors } from './ModernDeviceNode';
 import { computeScenePlan } from './scenePlan';
+import { shouldAggregate } from './edgeBundling';
 import { BundleEdge } from './BundleEdge';
 
 // v0.67: боковой якорь (_top/_right/_bottom/_left) по геометрии «кто где».
@@ -363,11 +364,13 @@ function CanvasInner() {
         color: g.color,
         collapsed: scenePlan.groupMode.get(g.id) === 'pill' || !!g.collapsed,
         childCount: childCounts.get(g.id) || 0,
-        width: g.width,
+        // v0.69: пилюля обзора компактна (иначе на реальных картах группа
+        // шириной в тысячи px превращалась в растянутую «полосу»).
+        width: scenePlan.groupMode.get(g.id) === 'pill' ? Math.min(g.width, 380) : g.width,
         height: g.height,
       },
       style: {
-        width: g.width,
+        width: scenePlan.groupMode.get(g.id) === 'pill' ? Math.min(g.width, 380) : g.width,
         height: (scenePlan.groupMode.get(g.id) === 'pill' || g.collapsed) ? 44 : g.height,
       },
       selectable: true,
@@ -502,6 +505,24 @@ function CanvasInner() {
         // Attach to specific port handle if both endpoints are visible and the port exists
         const srcDev = deviceById.get(l.fromDeviceId);
         const tgtDev = deviceById.get(l.toDeviceId);
+        // v0.69: пара с >N параллельных кабелей рисуется ОДНИМ пучком «×N»
+        // (edgeBundling.shouldAggregate) — десятки FDB-линков больше не
+        // строят частокол. Детали пары — во вкладке «Порты»/списке связей.
+        const bInfo = bundleIdx.get(l.id);
+        if (bInfo && shouldAggregate(bInfo.total) && srcDev && tgtDev) {
+          if (bInfo.index !== 0) return null;
+          const aggTrunk = !ENDPOINT_KINDS.includes(srcDev.kind) && srcDev.kind !== 'vm'
+            && !ENDPOINT_KINDS.includes(tgtDev.kind) && tgtDev.kind !== 'vm';
+          return {
+            id: 'agg:' + (src < tgt ? `${src}|${tgt}` : `${tgt}|${src}`),
+            source: src,
+            target: tgt,
+            type: 'bundleEdge',
+            sourceHandle: geoSide(srcDev, tgtDev),
+            targetHandle: geoSide(tgtDev, srcDev),
+            data: { count: bInfo.total, trunk: aggTrunk },
+          } as Edge;
+        }
         const srcVisible = src === l.fromDeviceId; // not redirected to a collapsed group
         const tgtVisible = tgt === l.toDeviceId;
         // v0.67: портовые якоря отрендерены только на near / при выделении /

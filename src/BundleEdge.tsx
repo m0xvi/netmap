@@ -22,9 +22,11 @@ export const BundleEdge = memo(function BundleEdge(props: EdgeProps) {
   return (
     <>
       {trunk && (
-        <path d={path} fill="none" stroke="#64748B55" strokeWidth={width + 4} strokeLinecap="round" />
+        <path d={path} fill="none" stroke="#64748B55" strokeWidth={width + 4} strokeLinecap="round"
+              vectorEffect="non-scaling-stroke" />
       )}
-      <BaseEdge id={id} path={path} style={{ stroke, strokeWidth: width, strokeDasharray: undefined }} />
+      {/* v0.69: толщина в экранных px на любом зуме. */}
+      <BaseEdge id={id} path={path} style={{ stroke, strokeWidth: width, strokeDasharray: undefined, vectorEffect: 'non-scaling-stroke' } as any} />
       <EdgeLabelRenderer>
         <div
           className="nodrag nopan"

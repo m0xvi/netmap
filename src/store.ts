@@ -302,6 +302,10 @@ interface State {
   /** v0.43.6: hide all edges on the canvas (useful for busy 200+ device maps). */
   hideEdges: boolean;
   toggleHideEdges: () => void;
+  /** v0.69: показывать центральные подписи связей (скорость/FDB/ARP) на всех
+   *  рёбрах; по умолчанию выключено — лейблы только на активных рёбрах. */
+  showLinkLabels: boolean;
+  toggleShowLinkLabels: () => void;
   /**
    * v0.41: UI chrome visibility. By default (first launch) sidebar and
    * right panel are HIDDEN so the map takes the whole screen. Toolbar
@@ -1064,6 +1068,12 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.hideEdges;
     try { localStorage.setItem('netmap:hideEdges', next ? '1' : '0'); } catch {}
     return { hideEdges: next };
+  }),
+  showLinkLabels: (typeof window !== 'undefined' && localStorage.getItem('netmap:showLinkLabels') === '1'),
+  toggleShowLinkLabels: () => set(s => {
+    const next = !s.showLinkLabels;
+    try { localStorage.setItem('netmap:showLinkLabels', next ? '1' : '0'); } catch {}
+    return { showLinkLabels: next };
   }),
   // v0.41: sidebar & right-panel default to CLOSED (map takes whole viewport).
   // '0' = closed, '1' = open. Persisted in localStorage so user's choice sticks.

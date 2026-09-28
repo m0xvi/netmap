@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, getBezierPath, type EdgeProps } from '@xyflow/react';
 import { useStore } from './store';
 import { edgeRouter } from './edgeRouter';
+import { fanOffset } from './edgeBundling';
 
 interface PortEdgeData {
   sourcePort?: string;
@@ -26,8 +27,7 @@ interface PortEdgeData {
   bundleTotal?: number;
 }
 
-/** Perpendicular pixel offset per parallel-cable index — separates the paths visually. */
-const BUNDLE_SPACING = 14;
+// v0.69: шаг и ограничение веера — в edgeBundling (fanOffset).
 
 /**
  * Edge renderer for NetMap cables. v0.15 additions:
@@ -68,6 +68,8 @@ export function PortEdge(props: EdgeProps) {
   // маршрутизатор отключается, рёбра считаются простыми built-in путями —
   // иначе O(E×N) пересчёт маршрутов на каждом чихе превращает карту в слайд-шоу.
   const perfMode = useStore(s => s.doc.devices.length > 150);
+  // v0.69: глобальный тумблер «Подписи связей» (меню Вид).
+  const showLinkLabels = useStore(s => s.showLinkLabels);
   // v0.26: on-trace = the port-hover cable-trace passes through this link.
   // Overrides normal dim/emphasise logic so the whole path lights up.
   const isOnTrace = traceLinkIds.has(id);
@@ -96,15 +98,15 @@ export function PortEdge(props: EdgeProps) {
   const bundleIndex = d.bundleIndex ?? 0;
   let sx = sourceX, sy = sourceY, tx = targetX, ty = targetY;
   if (bundleTotal > 1) {
-    // Signed offset: -1, 0, +1 for 3 cables; -1.5, -0.5, +0.5, +1.5 for 4
-    const offsetSteps = bundleIndex - (bundleTotal - 1) / 2;
+    // v0.69: веер ограничен ±MAX_FAN_PX — десятки параллелей больше не
+    // расползаются «рамками» на сотни пикселей (см. edgeBundling).
+    const off = fanOffset(bundleIndex, bundleTotal);
     const dx = targetX - sourceX;
     const dy = targetY - sourceY;
     const len = Math.hypot(dx, dy) || 1;
     // Unit perpendicular (rotate 90° clockwise: (dy, -dx) / len)
     const nx = dy / len;
     const ny = -dx / len;
-    const off = offsetSteps * BUNDLE_SPACING;
     sx = sourceX + nx * off;
     sy = sourceY + ny * off;
     tx = targetX + nx * off;
@@ -182,7 +184,10 @@ export function PortEdge(props: EdgeProps) {
     opacity: isDimmed ? 0.12 : 1,
     transition: 'opacity 0.18s, stroke-width 0.18s, filter 0.18s, stroke 0.15s',
     cursor: knifeMode ? 'crosshair' : 'pointer',
-  };
+    // v0.69: толщина линии постоянна в ЭКРАННЫХ px на любом зуме —
+    // раньше stroke масштабировался с зумом и вблизи превращался в «ленты».
+    vectorEffect: 'non-scaling-stroke',
+  } as React.CSSProperties;
 
   // v0.18: arrows removed — cables are clean lines like in the reference.
   void markerEnd;
@@ -204,6 +209,7 @@ export function PortEdge(props: EdgeProps) {
           strokeWidth={Math.min(5 + baseWidth * 2, 12)}
           strokeOpacity={0.14}
           strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
           style={{
             pointerEvents: 'none',
             opacity: isDimmed ? 0.12 : 1,
@@ -216,6 +222,7 @@ export function PortEdge(props: EdgeProps) {
       {/* Wider transparent hit-path — makes it easier to click a thin cable */}
       <path
         d={path} fill="none" stroke="transparent" strokeWidth={20}
+        vectorEffect="non-scaling-stroke"
         style={{ cursor: knifeMode ? 'crosshair' : 'pointer', pointerEvents: 'stroke' }}
       />
 
@@ -251,8 +258,13 @@ export function PortEdge(props: EdgeProps) {
             {/* Center label (speed etc.) — only when there is no VLAN badge.
                 v0.42: reference-style metric badge — colored capsule matching
                 the speed. Uses `centerBadgeColor` if set, otherwise falls back
-                to the edge stroke color. */}
-            {d.centerLabel && !isSelected && primaryVlan == null && (
+                to the edge stroke color.
+                v0.69: на реальной карте лейблы («bridge FDB … (ARP …)») на
+                КАЖДОМ кабеле превращались в сотни пилюль. По умолчанию лейбл
+                виден только на активном ребре (выделено/ховер-соседи/трейс)
+                или при включённом тумблере «Подписи связей» (меню Вид). */}
+            {d.centerLabel && primaryVlan == null
+              && (showLinkLabels || isSelected || isHighlighted || isEmphasised || isOnTrace) && (
               <div style={{
                 position: 'absolute',
                 transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,

@@ -273,6 +273,9 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   const toggleFocusRelated = useStore(s => s.toggleFocusRelated);
   const showGrid = useStore(s => s.showGrid);
   const toggleGrid = useStore(s => s.toggleGrid);
+  // v0.69: тумблер подписей связей (скорость/FDB/ARP на кабелях).
+  const showLinkLabels = useStore(s => s.showLinkLabels);
+  const toggleShowLinkLabels = useStore(s => s.toggleShowLinkLabels);
   const snap = useStore(s => s.snapToGrid);
   const toggleSnap = useStore(s => s.toggleSnap);
 
@@ -330,6 +333,10 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { toggleSnap(); onClose(); }} />
       <Item checked={showGrid} label="Показывать сетку" shortcut=""
             onClick={() => { toggleGrid(); onClose(); }} />
+      {/* v0.69: по умолчанию подписи только на активных рёбрах — на плотных
+          картах сотни пилюль «bridge FDB …» превращали схему в кашу. */}
+      <Item checked={showLinkLabels} label="Подписи связей на всех кабелях" shortcut=""
+            onClick={() => { toggleShowLinkLabels(); onClose(); }} />
       <Item checked={focusRelated} label="Фокус связанных при hover" shortcut=""
             onClick={() => { toggleFocusRelated(); onClose(); }} />
     </>
