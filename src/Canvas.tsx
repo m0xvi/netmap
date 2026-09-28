@@ -11,7 +11,7 @@ import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
 import { KIND_META } from './icons';
 import { ENDPOINT_KINDS, exposesPortAnchors } from './ModernDeviceNode';
-import { computeScenePlan } from './scenePlan';
+import { computeScenePlan, overviewZoomCap } from './scenePlan';
 import { shouldAggregate } from './edgeBundling';
 import { BundleEdge } from './BundleEdge';
 
@@ -92,6 +92,8 @@ function CanvasInner() {
   // v0.41: reference redesign — switches the node component and endpoint folding.
   const viewMode = useStore(s => s.viewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  // v0.71: миникарта-навигатор (тумблер в меню Вид, по умолчанию вкл).
+  const showMinimap = useStore(s => s.showMinimap);
 
 
   // v0.57: ступень семантического зума — влияет на видимость оконечных и рёбра.
@@ -792,9 +794,23 @@ function CanvasInner() {
       };
       requestAnimationFrame(tick);
     };
+    // v0.71: большие карты (≥BIG_MAP_DEVICES) стартуют в обзоре — потолок
+    // зума 0.28 (far-ступень): пилюли и маяки вместо стены карточек.
+    // Ручной fit-view (F, кнопка) остаётся без потолка.
+    const doInitialFit = () => {
+      const st = useStore.getState();
+      const cap = overviewZoomCap(st.doc.devices.length, st.preferOverviewBig);
+      let tries = 0;
+      const tick = () => {
+        try { rf.fitView({ padding: 0.15, duration: 300, maxZoom: cap }); } catch {}
+        tries++;
+        if (tries < 3) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    };
     const onHydrated = () => {
       // Wait a bit so React Flow has ingested the new nodes.
-      setTimeout(doFitView, 250);
+      setTimeout(doInitialFit, 250);
     };
     const onFit = () => doFitView();
     window.addEventListener('netmap:hydrated', onHydrated);
@@ -1760,6 +1776,21 @@ function CanvasInner() {
     >
       {showGrid && <Background gap={20} size={1} color="#E5E7EB" />}
       <Controls style={{ background: '#F9FAFB', border: '1px solid #D1D5DB' }} />
+      {/* v0.71: миникарта — «где я» на больших схемах; цвета по типам/группам. */}
+      {showMinimap && viewMode === 'modern' && (
+        <MiniMap
+          pannable
+          zoomable
+          position="bottom-right"
+          nodeStrokeWidth={3}
+          nodeColor={(n: any) =>
+            n.type === 'group'
+              ? (n.data?.color || '#94A3B8')
+              : (KIND_META[(n.data as any)?.device?.kind as DeviceKind]?.color || '#94A3B8')}
+          maskColor="rgba(248, 250, 252, 0.72)"
+          style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10 }}
+        />
+      )}
       {!heavyDoc && (
       <MiniMap
         style={{ background: '#FFFFFF', border: '1px solid #D1D5DB', cursor: 'crosshair' }}

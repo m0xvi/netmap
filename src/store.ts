@@ -307,6 +307,12 @@ interface State {
    *  рёбрах; по умолчанию выключено — лейблы только на активных рёбрах. */
   showLinkLabels: boolean;
   toggleShowLinkLabels: () => void;
+  /** v0.71: миникарта-навигатор (MiniMap) в углу схемы. */
+  showMinimap: boolean;
+  toggleShowMinimap: () => void;
+  /** v0.71: большие карты (≥100 устройств) стартуют в обзоре (far-ступень). */
+  preferOverviewBig: boolean;
+  togglePreferOverviewBig: () => void;
   /**
    * v0.41: UI chrome visibility. By default (first launch) sidebar and
    * right panel are HIDDEN so the map takes the whole screen. Toolbar
@@ -1078,6 +1084,19 @@ export const useStore = create<State>((set, get) => ({
     const next = !s.showLinkLabels;
     try { localStorage.setItem('netmap:showLinkLabels', next ? '1' : '0'); } catch {}
     return { showLinkLabels: next };
+  }),
+  // v0.71: по умолчанию ВКЛ (persist «0» выключает).
+  showMinimap: (typeof window === 'undefined' || localStorage.getItem('netmap:showMinimap') !== '0'),
+  toggleShowMinimap: () => set(s => {
+    const next = !s.showMinimap;
+    try { localStorage.setItem('netmap:showMinimap', next ? '1' : '0'); } catch {}
+    return { showMinimap: next };
+  }),
+  preferOverviewBig: (typeof window === 'undefined' || localStorage.getItem('netmap:preferOverviewBig') !== '0'),
+  togglePreferOverviewBig: () => set(s => {
+    const next = !s.preferOverviewBig;
+    try { localStorage.setItem('netmap:preferOverviewBig', next ? '1' : '0'); } catch {}
+    return { preferOverviewBig: next };
   }),
   // v0.41: sidebar & right-panel default to CLOSED (map takes whole viewport).
   // '0' = closed, '1' = open. Persisted in localStorage so user's choice sticks.

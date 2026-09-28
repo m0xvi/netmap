@@ -11,9 +11,9 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.70.0 (ремонт FDB) поверх v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.70.0` (package.json), тег `v0.70.0` запушен |
-| Релиз | v0.70.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.70.0.exe`, `NetMap-Portable-0.70.0.exe`, `latest.yml` |
+| HEAD | v0.71.0 (навигация/проблемность) поверх v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
+| Версия | `0.71.0` (package.json), тег `v0.71.0` запушен |
+| Релиз | v0.71.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.71.0.exe`, `NetMap-Portable-0.71.0.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
 
@@ -222,6 +222,12 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
   отображения/фасовки больших карт»: контракт сцены `src/scenePlan.ts` +
   `docs/display-logic.md`, пучки «×N» (`BundleEdge`), пилюли групп с нырком,
   единый план для узлов и рёбер. Юнит 17/17 + регрессии. Тег `v0.68.0`, CI.
+- 2026-09-28: та же сессия — выпущен **v0.71.0** («берём» из вариантов):
+  MiniMap (тумблер, по умолчанию вкл), старт больших карт (≥100 dev) в обзоре
+  (overviewZoomCap 0.28 на первичном fit, ручной fit без потолка), heatmap
+  проблемности `downCountsByHub` → пилюля «N down» на карточке хаба и маяке.
+  Юнит 7/7 + регрессия ремонта 4/4. Кандидаты дальше: focus-first
+  (progressive disclosure), тултипы на дальнем зуме, разгрузка баннеров.
 - 2026-09-28: та же сессия — файл `Новая_схема.netmap.json` доехал (корень
   `main`): числовой разбор (GW degree 122/129 — звезда FDB; параллельных пар
   нет; группы до 12504px; 106/109 оконечных foldable) → выпущен **v0.70.0**:

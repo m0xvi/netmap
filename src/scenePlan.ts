@@ -152,3 +152,31 @@ export function summarizePlan(p: ScenePlan): string {
   p.groupMode.forEach(m => { if (m === 'frame') frames++; else if (m === 'pill') pills++; else hidden++; });
   return `карточек ${cards} · маяков ${beacons} · фасовано ${folded} · рамок ${frames} · пилюль ${pills} · скрыто групп ${hidden} · пучков ${p.bundles.length}`;
 }
+
+// ---------------------------------------------------------------------------
+// v0.71.0 — навигация и проблемность.
+
+/** С скольких устройств карта считается большой (старт в обзоре). */
+export const BIG_MAP_DEVICES = 100;
+/** Потолок зума при старте большой карты в обзоре (far-ступень < 0.31). */
+export const OVERVIEW_START_ZOOM = 0.28;
+
+/** Потолок зума первичного fit-view: большие карты стартуют в обзоре. */
+export function overviewZoomCap(deviceCount: number, preferOverview: boolean): number {
+  return preferOverview && deviceCount >= BIG_MAP_DEVICES ? OVERVIEW_START_ZOOM : 1.5;
+}
+
+/** Heatmap проблемности: для каждого хаба — число недоступных соседей
+ *  (liveStatus 'down' по прямым связям). 0 = зелёный, >0 = красный бейдж. */
+export function downCountsByHub(doc: NetMapDoc): Map<string, number> {
+  const byId = new Map((doc.devices || []).map(d => [d.id, d]));
+  const hubKind = (k: DeviceKind | undefined) => k === 'switch' || k === 'router';
+  const out = new Map<string, number>();
+  for (const l of doc.links || []) {
+    const a = byId.get(l.fromDeviceId), b = byId.get(l.toDeviceId);
+    if (!a || !b) continue;
+    if (hubKind(a.kind) && b.liveStatus === 'down') out.set(a.id, (out.get(a.id) || 0) + 1);
+    if (hubKind(b.kind) && a.liveStatus === 'down') out.set(b.id, (out.get(b.id) || 0) + 1);
+  }
+  return out;
+}

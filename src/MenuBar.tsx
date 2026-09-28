@@ -277,6 +277,11 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   // v0.69: тумблер подписей связей (скорость/FDB/ARP на кабелях).
   const showLinkLabels = useStore(s => s.showLinkLabels);
   const toggleShowLinkLabels = useStore(s => s.toggleShowLinkLabels);
+  // v0.71: миникарта и старт больших карт в обзоре.
+  const showMinimap = useStore(s => s.showMinimap);
+  const toggleShowMinimap = useStore(s => s.toggleShowMinimap);
+  const preferOverviewBig = useStore(s => s.preferOverviewBig);
+  const togglePreferOverviewBig = useStore(s => s.togglePreferOverviewBig);
   const snap = useStore(s => s.snapToGrid);
   const toggleSnap = useStore(s => s.toggleSnap);
 
@@ -356,6 +361,11 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
           картах сотни пилюль «bridge FDB …» превращали схему в кашу. */}
       <Item checked={showLinkLabels} label="Подписи связей на всех кабелях" shortcut=""
             onClick={() => { toggleShowLinkLabels(); onClose(); }} />
+      {/* v0.71: навигация и старт в обзоре на больших схемах. */}
+      <Item checked={showMinimap} label="Миникарта" shortcut=""
+            onClick={() => { toggleShowMinimap(); onClose(); }} />
+      <Item checked={preferOverviewBig} label="Большие карты стартуют в обзоре" shortcut=""
+            onClick={() => { togglePreferOverviewBig(); onClose(); }} />
       <Item checked={focusRelated} label="Фокус связанных при hover" shortcut=""
             onClick={() => { toggleFocusRelated(); onClose(); }} />
     </>

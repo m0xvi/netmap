@@ -41,6 +41,7 @@ import { getFavicon } from './faviconClient';
 import { portSides } from './portSides';
 import { inferLayer } from './layers';
 import { showDeviceTip, hideDeviceTip } from './DeviceTooltip';
+import { downCountsByHub } from './scenePlan';
 
 interface Props {
   id: string;
@@ -94,6 +95,11 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
   const isOnline = device.liveStatus !== 'down';
   const statusColor = isOnline ? '#22C55E' : '#EF4444';
   const statusLabel = isOnline ? 'Online' : 'Offline';
+
+  // v0.71: heatmap проблемности — число недоступных соседей хаба (красный
+  // бейдж на карточке/маяке). Подписка узкая: селектор возвращает число.
+  const isHubKind71 = device.kind === 'switch' || device.kind === 'router';
+  const downCount = useStore(s => (isHubKind71 ? downCountsByHub(s.doc).get(id) || 0 : 0));
 
   // ---------- LEAF (small) rendering ----------
   if (isEndpoint) {
@@ -172,8 +178,24 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           : '0 2px 8px rgba(15,23,42,0.05)',
         overflow: 'hidden',
         transition: 'box-shadow 120ms, border-color 120ms',
+        position: 'relative',
       }}
     >
+      {/* v0.71: heatmap — красная пилюля «сколько соседей недоступно». */}
+      {downCount > 0 && (
+        <span
+          title={`Недоступно соседей: ${downCount}`}
+          style={{
+            position: 'absolute', top: 8, right: 8, zIndex: 2,
+            background: '#EF4444', color: '#fff', borderRadius: 999,
+            fontSize: 10, fontWeight: 800, lineHeight: '16px', padding: '0 7px',
+            boxShadow: '0 1px 5px rgba(239,68,68,0.45)',
+            pointerEvents: 'none',
+          }}
+        >
+          {downCount} down
+        </span>
+      )}
       {/* Header */}
       <div
         style={{
@@ -473,6 +495,8 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
   const isOnline = device.liveStatus !== 'down';
   const statusColor = isOnline ? '#22C55E' : '#EF4444';
   const isCore = inferLayer(device) === 'core';
+  // v0.71: проблемность на обзоре — маяк сразу показывает «N down».
+  const downCount = useStore(s => downCountsByHub(s.doc).get(id) || 0);
   return (
     <div
       style={{
@@ -537,6 +561,19 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
               {isOnline ? 'Online' : 'Offline'}
             </span>
+            {downCount > 0 && (
+              <span
+                title={`Недоступно соседей: ${downCount}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  fontSize: 11, padding: '2px 10px', borderRadius: 999,
+                  background: '#EF4444', color: '#fff', fontWeight: 800,
+                  boxShadow: '0 1px 5px rgba(239,68,68,0.45)',
+                }}
+              >
+                {downCount} down
+              </span>
+            )}
             {isCore && (
               <span style={{
                 fontSize: 10, fontWeight: 800, letterSpacing: 1,
