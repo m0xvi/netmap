@@ -41,7 +41,7 @@ import { getFavicon } from './faviconClient';
 import { portSides } from './portSides';
 import { inferLayer } from './layers';
 import { showDeviceTip, hideDeviceTip } from './DeviceTooltip';
-import { downCountsByHub } from './scenePlan';
+import { downCountsByHub, groupEndpointsForCard, type EndpointGroup } from './scenePlan';
 
 interface Props {
   id: string;
@@ -314,17 +314,16 @@ function HubEndpoints({ hubId }: { hubId: string }) {
   // v0.64: оконечные сортируются по типу (ENDPOINT_ORDER), внутри типа — по имени.
   // Каждая точка подписана на своё устройство отдельно (EndpointDot) — тик
   // мониторинга перерисовывает только изменившуюся точку.
-  const endpointIds = useMemo(() => {
-    return peers
-      .filter(d => ENDPOINT_KINDS.includes(d.kind))
-      .slice()
-      .sort((a, b) => {
-        const ka = ENDPOINT_ORDER.indexOf(a.kind);
-        const kb = ENDPOINT_ORDER.indexOf(b.kind);
-        return (ka - kb) || a.name.localeCompare(b.name);
-      })
-      .map(d => d.id);
-  }, [peers]);
+  // v0.73: агрегация по типам (groupEndpointsForCard): группы крупнее
+  // ENDPOINT_AGG_THRESHOLD сворачиваются в пилюлю «N × тип».
+  const endpointGroups = useMemo(
+    () => groupEndpointsForCard(peers, ENDPOINT_KINDS, ENDPOINT_ORDER),
+    [peers],
+  );
+  const endpointIds = useMemo(
+    () => endpointGroups.flatMap(g => g.ids),
+    [endpointGroups],
+  );
   const offlineCount = useMemo(
     () => peers.reduce((a, d) => a + (ENDPOINT_KINDS.includes(d.kind) && d.liveStatus === 'down' ? 1 : 0), 0),
     [peers],
@@ -351,7 +350,7 @@ function HubEndpoints({ hubId }: { hubId: string }) {
           <span>{endpointIds.length}</span>
         </span>
       </button>
-      {expanded && <EndpointDots ids={endpointIds} />}
+      {expanded && <EndpointDots groups={endpointGroups} />}
     </div>
   );
 }
@@ -365,10 +364,38 @@ function HubEndpoints({ hubId }: { hubId: string }) {
 // ховер — общий тултип (DeviceTooltip). «nodrag» не даёт клику превратиться
 // в перетаскивание хаба (конвенция React Flow).
 
-function EndpointDots({ ids }: { ids: string[] }) {
+function EndpointDots({ groups }: { groups: EndpointGroup[] }) {
+  // v0.73: крупные однотипные группы стартуют пилюлей «N × тип»;
+  // клик раскрывает точки той же группы (локально, без store).
+  const [opened, setOpened] = useState<Set<string>>(new Set());
   return (
-    <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-      {ids.map(devId => <EndpointDot key={devId} devId={devId} />)}
+    <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+      {groups.map(g => {
+        if (g.aggregated && !opened.has(g.kind)) {
+          const m = KIND_META[g.kind];
+          const I = ICONS[g.kind];
+          return (
+            <button
+              key={g.kind}
+              className="nodrag"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpened(v => new Set(v).add(g.kind));
+              }}
+              title={`Показать ${g.ids.length} × ${ENDPOINT_LABEL[g.kind] || m.label}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: m.bg, border: `1px solid ${m.color}35`, borderRadius: 999,
+                padding: '2px 10px 2px 6px', fontSize: 11, fontWeight: 800, color: m.color,
+                cursor: 'pointer',
+              }}
+            >
+              <I size={13} color={m.color} />{g.ids.length} × {ENDPOINT_LABEL[g.kind] || m.label}
+            </button>
+          );
+        }
+        return g.ids.map(devId => <EndpointDot key={devId} devId={devId} />);
+      })}
     </div>
   );
 }

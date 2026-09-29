@@ -266,3 +266,52 @@ export function computeFocusSet(doc: NetMapDoc, rings: number = FOCUS_RINGS): Se
   }
   return seen;
 }
+
+// ---------------------------------------------------------------------------
+// v0.73.0 — LOD-фейдинг подписей и агрегация оконечных на карточке хаба.
+
+/** Прозрачность подписей рёбер по ступени зума (yFiles-style label fading):
+ *  near — fully visible; mid — приглушены (не конкурируют со структурой);
+ *  far — не рендерятся вовсе (существующее правило v0.57). */
+export function labelFadeByBand(band: 'near' | 'mid' | 'far'): number {
+  if (band === 'near') return 1;
+  if (band === 'mid') return 0.55;
+  return 0;
+}
+
+/** С какого числа однотипных оконечных карточка хаба сворачивает их
+ *  в пилюлю «N × тип» (приём NetBrain/yFiles: счётчик вместо стены точек). */
+export const ENDPOINT_AGG_THRESHOLD = 8;
+
+export interface EndpointGroup {
+  kind: DeviceKind;
+  ids: string[];
+  /** true — группа свернута в пилюлю «N × тип». */
+  aggregated: boolean;
+}
+
+/** Группирует оконечных соседей хаба по типу (ENDPOINT_ORDER, внутри типа —
+ *  по имени). Группы крупнее порога помечаются aggregated. Чистая функция —
+ *  покрыта юнит-тестами на реальном доке. */
+export function groupEndpointsForCard(
+  peers: Device[],
+  endpointKinds: DeviceKind[],
+  order: DeviceKind[],
+  threshold: number = ENDPOINT_AGG_THRESHOLD,
+): EndpointGroup[] {
+  const byKind = new Map<DeviceKind, Device[]>();
+  for (const d of peers) {
+    if (!endpointKinds.includes(d.kind)) continue;
+    const arr = byKind.get(d.kind) || [];
+    arr.push(d);
+    byKind.set(d.kind, arr);
+  }
+  const out: EndpointGroup[] = [];
+  for (const kind of order) {
+    const arr = byKind.get(kind);
+    if (!arr || arr.length === 0) continue;
+    arr.sort((a, b) => a.name.localeCompare(b.name));
+    out.push({ kind, ids: arr.map(d => d.id), aggregated: arr.length > threshold });
+  }
+  return out;
+}

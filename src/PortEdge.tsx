@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, getBezierPath, type EdgeProps } from '@xyflow/react';
 import { useStore } from './store';
+import { labelFadeByBand } from './scenePlan';
 import { edgeRouter } from './edgeRouter';
 import { fanOffset } from './edgeBundling';
 
@@ -227,9 +228,11 @@ export function PortEdge(props: EdgeProps) {
       />
 
       <EdgeLabelRenderer>
-        {/* v0.57: на дальней ступени — только линия, без лейблов. */}
+        {/* v0.57: на дальней ступени — только линия, без лейблов.
+            v0.73: LOD-фейдинг подписей по ступени зума (labelFadeByBand):
+            на mid подписи приглушены и не спорят со структурой карты. */}
         {zoomBand !== 'far' && (
-          <>
+          <div style={{ opacity: labelFadeByBand(zoomBand), transition: 'opacity 0.2s' }}>
             {d.sourcePort && (
               <PortBubble
                 x={sourceX} y={sourceY} side={sourcePosition}
@@ -284,7 +287,7 @@ export function PortEdge(props: EdgeProps) {
                 {d.centerLabel}
               </div>
             )}
-          </>
+          </div>
         )}
 
         {/* Delete button when selected */}
