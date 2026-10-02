@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { useShallow } from 'zustand/shallow';
 import { KIND_META } from './icons';
+import type { NetMapDoc } from './types';
 
 export const DEVTIP_SHOW = 'netmap:devtip';
 export const DEVTIP_HIDE = 'netmap:devtip-hide';
@@ -185,23 +186,31 @@ export function GroupTooltipHost() {
   return <GroupTipCard id={tip.id} x={tip.x} y={tip.y} />;
 }
 
+/** v0.73.1: селектор тултипа группы — чистая функция, возвращает ТОЛЬКО
+ *  примитивы (rows — строка через «|»). useShallow сравнивает поля верхнего
+ *  уровня по ссылке (Object.is): прежний вариант возвращал свежий массив
+ *  rows на каждый вызов, снапшот считался «всегда изменившимся» и React
+ *  уходил в бесконечный ре-рендер (error #185 при ховере пилюли группы). */
+export function selectGroupTip(doc: NetMapDoc, id: string) {
+  const grp = doc.groups.find(z => z.id === id);
+  if (!grp) return null;
+  const kids = doc.devices.filter(d => d.groupId === id);
+  const byKind = new Map<string, number>();
+  let down = 0;
+  for (const d of kids) {
+    byKind.set(d.kind, (byKind.get(d.kind) || 0) + 1);
+    if (d.liveStatus === 'down') down++;
+  }
+  const rows = [...byKind.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([kind, n]) => `${KIND_META[kind as keyof typeof KIND_META]?.label || kind}: ${n}`)
+    .join('|');
+  return { name: grp.name, total: kids.length, rows, down };
+}
+
 function GroupTipCard({ id, x, y }: { id: string; x: number; y: number }) {
-  const g = useStore(useShallow((s) => {
-    const grp = s.doc.groups.find(z => z.id === id);
-    if (!grp) return null;
-    const kids = s.doc.devices.filter(d => d.groupId === id);
-    const byKind = new Map<string, number>();
-    let down = 0;
-    for (const d of kids) {
-      byKind.set(d.kind, (byKind.get(d.kind) || 0) + 1);
-      if (d.liveStatus === 'down') down++;
-    }
-    const rows = [...byKind.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([kind, n]) => `${KIND_META[kind as keyof typeof KIND_META]?.label || kind}: ${n}`);
-    return { name: grp.name, total: kids.length, rows, down };
-  }));
+  const g = useStore(useShallow((s) => selectGroupTip(s.doc, id)));
   if (!g) return null;
 
   const W = 236;
@@ -225,7 +234,7 @@ function GroupTipCard({ id, x, y }: { id: string; x: number; y: number }) {
       }}>
         Группа · {g.total} устр.
       </div>
-      {g.rows.map(r => (
+      {g.rows.split('|').map(r => (
         <div key={r} style={rowStyle}><span>{r}</span></div>
       ))}
       {g.down > 0 && (
