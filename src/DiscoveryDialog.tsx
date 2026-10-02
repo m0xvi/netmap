@@ -481,6 +481,12 @@ export function DiscoveryDialog({ open, onClose }: Props) {
         vendor: d.vendor,
         vlan: d.vlan ?? undefined,   // v0.55.0: VLAN едет в порт — smart-раскладка группирует по VLAN
         tags,
+        // v0.74: происхождение для аудита хабов. Устройство найдено при
+        // опросе (FDB/LLDP/neighbor — есть hint) — из скана (ssh, если
+        // источник MikroTik); иначе имя из DHCP-лизы — значит из DHCP.
+        origin: d.hint
+          ? (scan.source === 'mikrotik' ? 'ssh' : 'snmp')
+          : ((d.nameSource === 'dhcp' || d.dhcpHost || d.dhcpComment) ? 'dhcp' : 'snmp'),
       });
       finalIdByTemp.set(d.tempId, finalId);
     }
@@ -510,7 +516,11 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       });
     }
 
-    const report = applyDiscovery({ devices: devicesToCreate, links: linksToCreate });
+    const report = applyDiscovery({
+      devices: devicesToCreate, links: linksToCreate,
+      // v0.74: следы сканирований — в doc.scanMeta для аудита хабов.
+      scanMeta: (scan as any).scanMeta,
+    });
     setApplyReport({ dev: report.addedDevices, link: report.addedLinks });
     // v0.51.22: сразу раскладываем карту автоматически — иначе сетка из
     // сотен новых карточек остаётся налезать на существующие группы

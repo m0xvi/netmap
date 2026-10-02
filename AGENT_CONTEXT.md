@@ -11,9 +11,9 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.73.1 (хотфикс #185) поверх v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.73.1` (package.json), тег `v0.73.1` запушен |
-| Релиз | v0.73.1 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.73.1.exe`, `NetMap-Portable-0.73.1.exe`, `latest.yml` |
+| HEAD | v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
+| Версия | `0.74.0` (package.json), тег `v0.74.0` запушен |
+| Релиз | v0.74.0 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.74.0.exe`, `NetMap-Portable-0.74.0.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
 
@@ -251,6 +251,16 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
   группы. Фикс: `selectGroupTip` возвращает примитивы (rows — строка «|»).
   Правило: в useShallow-селекторах — только примитивы на верхнем уровне.
   Юнит 6/6 (стабильность на реальном доке + регрессия паттерна).
+- 2026-10-02: та же сессия — выпущен **v0.74.0** (пользователь: «snmp+ssh
+  проход по dhcp-серверу, все устройства видны, не знаю с чего начать
+  нормализацию»; варианты → выбрано: метаданные скана + отчёт с применением,
+  меню «Вид»). `doc.scanMeta` (ScannedHubMeta: host/name/via/fdbMacs/at) +
+  `device.origin` (dhcp|snmp|ssh|manual) пишет discovery при применении;
+  `src/topoAudit.ts` — auditHubs/planAuditFixes (move когда висит на одном
+  другом хабе, add когда без хабов, 2+ — не трогаем); AuditHubsDialog
+  (DialogShell) + «Вид → Аудит сканирования хабов…». Старые файлы без
+  scanMeta — «нет данных», план пуст. Юнит 15/15. Ждём новый экспорт
+  пользователя (после скана 0.74+) для проверки на живых данных.
 - 2026-09-28: та же сессия — файл `Новая_схема.netmap.json` доехал (корень
   `main`): числовой разбор (GW degree 122/129 — звезда FDB; параллельных пар
   нет; группы до 12504px; 106/109 оконечных foldable) → выпущен **v0.70.0**:

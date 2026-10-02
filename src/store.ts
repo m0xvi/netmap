@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Device, Group, Link, NetMapDoc, StickyNote, StickyColor, Vlan } from './types';
+import type { Device, Group, Link, NetMapDoc, ScannedHubMeta, StickyNote, StickyColor, Vlan } from './types';
 import { usadbaSeed, donaSeed, chaikovskySeed } from './seed';
 import { computeFocusSet, BIG_MAP_DEVICES } from './scenePlan';
 
@@ -70,6 +70,7 @@ import { computeAutoLayout, type LayoutDirection } from './autoLayout';
 import { autoGroupDevices, restoreUserGroups, type GroupingStrategy } from './smartLayout';
 import { computeRadialLayout } from './radialLayout';
 import { planHintRepairs, applyHintRepairsToDoc } from './topoRepair';
+import { planAuditFixes, type AuditFix } from './topoAudit';
 // v0.32: when a device's display flips between compact ↔ rack its size can
 // jump by 200+ px — nearby siblings suddenly overlap and cards may spill
 // past the group border. Reflow after the update commits.
@@ -424,7 +425,12 @@ interface State {
   applyDiscovery: (diff: {
     devices: Array<Partial<Device> & { id: string; name: string; kind: string }>;
     links: Array<Partial<Link> & { id: string; fromDeviceId: string; toDeviceId: string }>;
+    /** v0.74: следы SNMP/SSH-сканирований по хабам — в doc.scanMeta. */
+    scanMeta?: ScannedHubMeta[];
   }) => { addedDevices: number; addedLinks: number };
+  /** v0.74: аудит хабов — подключить устройства по FDB просканированных
+   *  свитчей (move/add). Откат Ctrl+Z. Возвращает число правок. */
+  applyAuditFixes: () => number;
   removeLink: (id: string) => void;
 
   // sticky notes
@@ -1507,6 +1513,46 @@ export const useStore = create<State>((set, get) => ({
     set(st => ({ ...historyPush(st), doc }));
     return repairs.length;
   },
+  // v0.74: подключение оконечных к просканированным хабам по FDB.
+  // move — переставляем конец существующей связи (DHCP-звезда → реальный
+  // свитч), add — создаём связь. Один шаг истории на весь пакет.
+  applyAuditFixes: () => {
+    const s = get();
+    const fixes = planAuditFixes(s.doc);
+    if (fixes.length === 0) return 0;
+    const links = [...s.doc.links];
+    const linkById = new Map(links.map(l => [l.id, l]));
+    let added = 0, moved = 0;
+    for (const f of fixes) {
+      if (f.action === 'move' && f.linkId && f.side) {
+        const l = linkById.get(f.linkId);
+        if (!l) continue;
+        const next = { ...l };
+        if (f.side === 'from') { next.fromDeviceId = f.hubId; next.fromPortId = undefined; }
+        else { next.toDeviceId = f.hubId; next.toPortId = undefined; }
+        if (next.fromDeviceId === next.toDeviceId) continue;
+        linkById.set(f.linkId, next);
+        moved++;
+      } else if (f.action === 'add') {
+        links.push({
+          id: `audit-${f.deviceId}-${f.hubId}`,
+          fromDeviceId: f.hubId, toDeviceId: f.deviceId,
+          cable: 'copper',
+          label: 'audit FDB → ' + f.hubName,
+        });
+        added++;
+      }
+    }
+    const nextLinks = [...linkById.values(), ...links.filter(l => !linkById.has(l.id))];
+    const doc = { ...s.doc, links: nextLinks };
+    persist(doc);
+    s.pushAlert({
+      severity: 'success', origin: 'user', title: 'Аудит хабов по FDB',
+      message: `Переставлено связей: ${moved}, добавлено: ${added}. Откат — Ctrl+Z.`,
+    });
+    set(st => ({ ...historyPush(st), doc }));
+    return moved + added;
+  },
   setPosition: (id, x, y, parentId) => set((s) => {
     // v0.35.4: reject NaN / Infinity outright — otherwise a garbage coord
     // sneaks into `doc.devices`, React Flow's `extent:'parent'` clips the
@@ -1577,6 +1623,8 @@ export const useStore = create<State>((set, get) => ({
               ...((dev as any).vlan != null ? { vlan: (dev as any).vlan } : {}) },
           ],
           tags: Array.isArray(dev.tags) ? [...dev.tags, 'discovered'] : ['discovered'],
+          // v0.74: откуда устройство (dhcp|snmp|ssh) — для аудита хабов.
+          ...((dev as any).origin ? { origin: (dev as any).origin } : {}),
           x: 40 + col * 220,
           y: startY + row * 160,
           display: 'compact',
@@ -1612,7 +1660,14 @@ export const useStore = create<State>((set, get) => ({
         addedLinks++;
       }
 
-      const doc = { ...s.doc, devices: nextDevices, links: nextLinks };
+      // v0.74: следы сканирований — мержим по host (свежие побеждают).
+      let scanMeta = s.doc.scanMeta;
+      if (Array.isArray(diff.scanMeta) && diff.scanMeta.length) {
+        const byHost = new Map((s.doc.scanMeta || []).map(m => [m.host, m]));
+        for (const m of diff.scanMeta) byHost.set(m.host, m);
+        scanMeta = [...byHost.values()];
+      }
+      const doc = { ...s.doc, devices: nextDevices, links: nextLinks, ...(scanMeta ? { scanMeta } : {}) };
       persist(doc);
       return { ...historyPush(s), doc };
     });

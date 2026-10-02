@@ -1275,6 +1275,19 @@ async function scan(cfg) {
     seeds: snmpResults.map(s => ({
       host: s.host, name: s.self.name, vendor: s.self.vendor, descr: s.self.descr, ok: s.ok,
     })),
+    // v0.74: следы сканирования по каждому опрошенному хабу — для аудита
+    // («был ли свитч просканирован, какие MAC'и видел в FDB»). Корневой
+    // MikroTik — ssh, остальные seeds — snmp.
+    scanMeta: [
+      ...(mt ? [{
+        host: rootHost, name: mt.self.name || '', via: 'ssh', ok: true,
+        fdbMacs: mt.fdb.map(f => f.mac).filter(Boolean), at: now(),
+      }] : []),
+      ...snmpResults.filter(s => s.ok).map(s => ({
+        host: s.host, name: s.self.name || '', via: 'snmp', ok: true,
+        fdbMacs: (s.fdb || []).map(f => f.mac).filter(Boolean), at: now(),
+      })),
+    ],
     proposedDevices: merged.proposedDevices,
     proposedLinks:   merged.proposedLinks,
     subnets: merged.subnets,   // v0.52.0: эталонные подсети роутера

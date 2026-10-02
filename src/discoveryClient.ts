@@ -65,6 +65,8 @@ export interface DiscoveryScanResult {
   rootHost?: string;
   source?: DiscoveryMode;
   seeds?: Array<{ host: string; name?: string; vendor?: string; descr?: string; ok?: boolean }>;
+  /** v0.74: следы сканирования по каждому опрошенному хабу (для аудита). */
+  scanMeta?: Array<{ host: string; name?: string; via: 'snmp' | 'ssh' | 'both'; ok?: boolean; fdbMacs: string[]; at?: number }>;
   proposedDevices: DiscoveryDeviceProposal[];
   proposedLinks: DiscoveryLinkProposal[];
   // v0.52.0: справочники для фильтров (подсети из /ip/address, VLAN с именами)

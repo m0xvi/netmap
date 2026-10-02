@@ -23,6 +23,7 @@ import { MikrotikImportDialog } from './MikrotikImportDialog';
 import { ImportDialog } from './ImportDialog';
 import { DiscoveryDialog } from './DiscoveryDialog';
 import { BackupsDialog } from './BackupsDialog';
+import { AuditHubsDialog } from './AuditHubsDialog';
 import type { ImportVendor } from './importClient';
 
 type RootKey = 'file' | 'view' | 'tools' | 'monitor' | 'help';
@@ -39,6 +40,8 @@ export function MenuBar() {
   const [importOpen, setImportOpen] = useState(false);
   const [importVendor, setImportVendor] = useState<ImportVendor | undefined>(undefined);
   const [backupsOpen, setBackupsOpen] = useState(false);
+  // v0.74: аудит сканирования хабов.
+  const [auditOpen, setAuditOpen] = useState(false);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
 
   useEffect(() => {
@@ -144,7 +147,7 @@ export function MenuBar() {
       )}
       {open === 'view' && (
         <Dropdown anchor={rootRefs.current.view}>
-          <ViewMenu onClose={() => setOpen(null)} />
+          <ViewMenu onClose={() => setOpen(null)} onAudit={() => { setOpen(null); setAuditOpen(true); }} />
         </Dropdown>
       )}
       {open === 'tools' && (
@@ -173,6 +176,7 @@ export function MenuBar() {
       <ImportDialog open={importOpen} initialVendor={importVendor} onClose={() => setImportOpen(false)} />
       <DiscoveryDialog open={discoveryOpen} onClose={() => setDiscoveryOpen(false)} />
       <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
+      {auditOpen && <AuditHubsDialog onClose={() => setAuditOpen(false)} />}
     </div>
   );
 }
@@ -257,7 +261,7 @@ function FileMenu({ onClose, onBackups }: { onClose: () => void; onBackups: () =
   );
 }
 
-function ViewMenu({ onClose }: { onClose: () => void }) {
+function ViewMenu({ onClose, onAudit }: { onClose: () => void; onAudit: () => void }) {
   const viewMode = useStore(s => s.viewMode);
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
@@ -352,6 +356,10 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
                 setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
               } catch (e: any) { await alertDialog('Ошибка', e?.message || 'hint-repair failed'); }
             }} />
+      {/* v0.74: аудит — кто из хабов просканирован (SNMP/SSH) и что по FDB
+          должно быть к ним подключено. */}
+      <Item label="Аудит сканирования хабов…" shortcut=""
+            onClick={() => { onAudit(); }} />
       {/* v0.43.5: сколько колонок для «орфанов» без uplink-свитча. */}
       <OrphanGridInline />
       <Separator />
