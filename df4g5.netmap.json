@@ -1,0 +1,4258 @@
+{
+  "version": 1,
+  "project": {
+    "id": "p-7szi4m",
+    "name": "Новая схема",
+    "doc": {
+      "version": 3,
+      "name": "Новая схема",
+      "groups": [
+        {
+          "id": "auto-4qpvkt",
+          "name": "192.168.11.0/24",
+          "subtitle": "24 устройств",
+          "x": 2980,
+          "y": 1000,
+          "width": 1670,
+          "height": 540,
+          "color": "#fef3c7"
+        },
+        {
+          "id": "auto-dgmmn9",
+          "name": "VLAN 2",
+          "subtitle": "6 устройств",
+          "x": 687,
+          "y": 1147,
+          "width": 1163.000122085209,
+          "height": 320,
+          "color": "#e0e7ff"
+        },
+        {
+          "id": "auto-99kcji",
+          "name": "VLAN 999",
+          "subtitle": "8 устройств",
+          "x": -800,
+          "y": 2200,
+          "width": 980,
+          "height": 320,
+          "color": "#e0e7ff"
+        },
+        {
+          "id": "auto-ceazoj",
+          "name": "10.11.99.0/24",
+          "subtitle": "26 устройств",
+          "x": 580,
+          "y": 1700,
+          "width": 1760,
+          "height": 599.3186797480234,
+          "color": "#fef3c7"
+        },
+        {
+          "id": "auto-nyuvim",
+          "name": "192.168.3.0/24",
+          "subtitle": "8 устройств",
+          "x": -960,
+          "y": 640,
+          "width": 980,
+          "height": 320,
+          "color": "#fef3c7"
+        },
+        {
+          "id": "auto-8zuhsc",
+          "name": "10.11.5.0/24",
+          "subtitle": "50 устройств",
+          "x": 740,
+          "y": -120,
+          "width": 2130,
+          "height": 1038.064475315922,
+          "color": "#fef3c7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "dsc-xawn404j",
+          "name": "GW_Usadba",
+          "kind": "router",
+          "vendor": "MikroTik",
+          "ip": "192.168.11.1",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "MikroTik seed",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-yenybgz0",
+          "name": "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++",
+          "kind": "switch",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.10",
+          "mac": "2C:C8:1B:12:E3:BF",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 2,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 2",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 48,
+          "display": "compact",
+          "groupId": "auto-dgmmn9"
+        },
+        {
+          "id": "dsc-4p9j493b",
+          "name": "AP_baket",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "192.168.11.163",
+          "mac": "78:9A:18:05:88:D6",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 2,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 2",
+            "discovered"
+          ],
+          "x": 174.99983379667378,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-dgmmn9"
+        },
+        {
+          "id": "dsc-5nu9sk6x",
+          "name": "AP_SKLAD",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "192.168.11.172",
+          "mac": "64:D1:54:88:BF:B3",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 2,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 2",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-dgmmn9"
+        },
+        {
+          "id": "dsc-6uevwc4i",
+          "name": "SW_RoomOO",
+          "kind": "switch",
+          "vendor": "MikroTik",
+          "ip": "192.168.11.173",
+          "mac": "48:8F:5A:5C:6B:27",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 2,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 2",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-dgmmn9"
+        },
+        {
+          "id": "dsc-50roo9br",
+          "name": "SW_U2_SKLAD",
+          "kind": "switch",
+          "vendor": "MikroTik",
+          "ip": "192.168.11.178",
+          "mac": "48:8F:5A:5C:71:D8",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 2,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 2",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 245.6773633071591,
+          "display": "compact",
+          "groupId": "auto-dgmmn9"
+        },
+        {
+          "id": "dsc-7t9m221j",
+          "name": "SW_U4_Core",
+          "kind": "switch",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.11",
+          "mac": "64:D1:54:61:81:91",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-xxgosfld",
+          "name": "SW_RCP",
+          "kind": "switch",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.12",
+          "mac": "64:D1:54:61:84:B5",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-zqcblfjn",
+          "name": "AP_letka",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.29",
+          "mac": "18:FD:74:F6:23:1C",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-zlcmincn",
+          "name": "AP_U2_R59",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.34",
+          "mac": "CC:2D:E0:67:08:42",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-m15ednb0",
+          "name": "AP_U4_2Fl",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.37",
+          "mac": "E4:8D:8C:CE:D9:4C",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-zboskmqe",
+          "name": "AP_U4_1Fl",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.38",
+          "mac": "CC:2D:E0:EC:FB:E1",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-4zy6tvg0",
+          "name": "AP_U2_Pool",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.39",
+          "mac": "B8:69:F4:F8:33:BD",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-16et3php",
+          "name": "AP_U2_Conf",
+          "kind": "ap",
+          "vendor": "MikroTik",
+          "ip": "10.11.99.44",
+          "mac": "2C:C8:1B:1A:4C:98",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 999,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via LLDP/neighbor from GW_Usadba",
+            "VLAN 999",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-99kcji"
+        },
+        {
+          "id": "dsc-lkhumvmf",
+          "name": "SALTO",
+          "kind": "lock",
+          "vendor": "",
+          "ip": "192.168.11.237",
+          "mac": "00:0A:83:00:31:1C",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-rr0vaohx",
+          "name": "salto",
+          "kind": "lock",
+          "vendor": "",
+          "ip": "192.168.11.22",
+          "mac": "00:0A:83:08:1F:38",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-wkplftmf",
+          "name": "SALTO",
+          "kind": "lock",
+          "vendor": "",
+          "ip": "192.168.11.238",
+          "mac": "00:0A:83:08:46:3E",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-bn5fehm3",
+          "name": "SATO",
+          "kind": "lock",
+          "vendor": "",
+          "ip": "192.168.11.233",
+          "mac": "00:0A:83:0C:26:7D",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-aynncbhf",
+          "name": "SoundTouch\\C2\\A020",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.11.16",
+          "mac": "00:0C:8A:B0:F8:5F",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 260,
+          "y": 460,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-ybdu203r",
+          "name": "AGAT",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.11.241",
+          "mac": "00:12:E3:04:02:C9",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-83r8sleq",
+          "name": "AGAT",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.11.234",
+          "mac": "00:12:E3:0C:04:76",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-r3h2svic",
+          "name": "AGAT",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.11.240",
+          "mac": "00:12:E3:14:36:5A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-vvf394ml",
+          "name": "SHELTER",
+          "kind": "server",
+          "vendor": "Microsoft HyperV",
+          "ip": "192.168.11.3",
+          "mac": "00:15:5D:52:36:02",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 35,
+          "y": 410,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-290364s3",
+          "name": "Usadba-V",
+          "kind": "server",
+          "vendor": "",
+          "ip": "192.168.11.188",
+          "mac": "00:25:90:63:1C:10",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-mh238g6m",
+          "name": "PC-RCP03-U",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.182",
+          "mac": "00:25:AB:65:11:1C",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-s4siz79e",
+          "name": "Canon",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.11.35",
+          "mac": "00:BB:C1:73:E1:04",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-a37j855h",
+          "name": "PC-SKLAD02-U",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.11",
+          "mac": "1C:83:41:19:E1:2A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-mnpw0n5a",
+          "name": "PC-RCP02-U",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.12",
+          "mac": "30:24:A9:7F:0A:5B",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-5487w93i",
+          "name": "PC-REST-U",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.25",
+          "mac": "50:76:AF:BD:A8:D5",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-wzt7jww5",
+          "name": "PC-BANKET-U",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.189",
+          "mac": "58:00:E3:E2:EE:CD",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-h6ftisfu",
+          "name": "SW_CORE",
+          "kind": "switch",
+          "vendor": "",
+          "ip": "10.11.99.28",
+          "mac": "5C:A6:E6:E7:C1:D8",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 120,
+          "y": 320,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-vn5zkkya",
+          "name": "Printer",
+          "kind": "printer",
+          "vendor": "",
+          "ip": "192.168.11.192",
+          "mac": "60:56:EE:E6:DF:0A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-123pyw9f",
+          "name": "PC-RST01-U",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.15",
+          "mac": "A4:97:B1:89:4B:BF",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-a3ba5hw3",
+          "name": "PC-Usadba-Olga",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.198",
+          "mac": "B4:2E:99:BB:D1:B3",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-h66sdvpl",
+          "name": "HP_Banket_Print",
+          "kind": "printer",
+          "vendor": "",
+          "ip": "192.168.11.194",
+          "mac": "C0:18:03:44:DB:8A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-tm1fa9ff",
+          "name": "Printer",
+          "kind": "printer",
+          "vendor": "",
+          "ip": "192.168.11.175",
+          "mac": "D8:49:2F:59:35:73",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-9y4tepyf",
+          "name": "PC-RCP-U01",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "192.168.11.30",
+          "mac": "EC:2E:98:AB:B6:AF",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-ebtj9224",
+          "name": "Canon",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.11.36",
+          "mac": "F8:A2:6D:0F:06:32",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-4qpvkt"
+        },
+        {
+          "id": "dsc-1bewqjlf",
+          "name": "POS02",
+          "kind": "pos",
+          "vendor": "",
+          "ip": "192.168.3.6",
+          "mac": "00:0C:D6:14:4A:C5",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-sqefqn9p",
+          "name": "SRV-UTM-USADBA",
+          "kind": "server",
+          "vendor": "",
+          "ip": "192.168.3.16",
+          "mac": "00:E0:67:24:C4:C0",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-tkn5cm4n",
+          "name": "POS01-BANKET",
+          "kind": "pos",
+          "vendor": "",
+          "ip": "192.168.3.21",
+          "mac": "00:E2:69:34:68:57",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-s6puoewq",
+          "name": "RKserver+POSKASSA",
+          "kind": "pos",
+          "vendor": "",
+          "ip": "192.168.3.10",
+          "mac": "00:E2:69:38:BB:AA",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-iq2dxm3z",
+          "name": "KDS_03",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.3.29",
+          "mac": "A0:36:BC:98:43:59",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-ft75csuu",
+          "name": "KDS_01",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.3.27",
+          "mac": "A0:36:BC:98:5A:4B",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-35oqd4sl",
+          "name": "KDS_02",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.3.28",
+          "mac": "A0:36:BC:98:5A:7E",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-s2j6qlzv",
+          "name": "kkt_IP_AgeevaOO",
+          "kind": "other",
+          "vendor": "",
+          "ip": "192.168.3.11",
+          "mac": "E4:F3:27:06:4D:E1",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-nyuvim"
+        },
+        {
+          "id": "dsc-mwiby053",
+          "name": "REG_CCTV_KARETNAYA",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.38",
+          "mac": "00:12:15:4C:71:78",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1880,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-h5tvl1za",
+          "name": "REG_U4",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.5.12",
+          "mac": "00:12:16:D0:8A:6E",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 620,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-7uee2lox",
+          "name": "CCTV_U_U2_0FL_Washing",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.34",
+          "mac": "00:12:17:D6:C1:D1",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-x8mz4g0j",
+          "name": "CCTV_U_U2_Sklad_3",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.29",
+          "mac": "00:12:17:D6:D0:43",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1440,
+          "y": 520,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-ifn9dfnp",
+          "name": "REG_RCP-------------------------------------------------------------------------------------------------------------------------",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.5.10",
+          "mac": "00:12:17:DC:A3:B9",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 620,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-208dbofs",
+          "name": "CCTV_U_U2_1FL_Enter",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.28",
+          "mac": "00:12:18:05:0A:FF",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1650,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-8rwpuo9x",
+          "name": "CCTV_U_rRCP_KonyCanopy",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.37",
+          "mac": "00:12:31:8E:46:E0",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-7h8uhl40",
+          "name": "CCTV_U_rRCP_BudkaViezd\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.17",
+          "mac": "00:12:31:8E:47:34",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-f1ozaxe9",
+          "name": "CCTV_U_rRCP_RingRoad\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.14",
+          "mac": "00:12:31:8E:48:39",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-h800ddj1",
+          "name": "CCTV_U_rRCP_Parking_1\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.16",
+          "mac": "00:12:31:8E:48:43",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-6333skbj",
+          "name": "CCTV_U_rRCP_Parking_2\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.15",
+          "mac": "00:12:31:8E:48:CB",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-h24qk9so",
+          "name": "CCTV_U_U2_0FL_SpZal_3",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.27",
+          "mac": "00:12:31:91:60:D3",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-tfczu9a9",
+          "name": "CCTV_U_U2_0FL_ConfZal",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.26",
+          "mac": "00:12:31:91:E7:C6",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-ujz19lub",
+          "name": "CCTV_U_U2_0FL_SpZal_2",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.24",
+          "mac": "00:12:31:92:02:2A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-yudsxarx",
+          "name": "CCTV_U_U2_1FL",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.35",
+          "mac": "00:12:31:C3:6E:B7",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-ik51rlq3",
+          "name": "CCTV_U_U1_0FL_KCOLD",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.54",
+          "mac": "00:12:31:C3:70:9B",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-70pos3i2",
+          "name": "CCTV_U_U2_3FL_Hall",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.19",
+          "mac": "00:12:31:C3:79:AA",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-j4gqjd0x",
+          "name": "CCTV_U_U1_1FL_Rcmin",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.51",
+          "mac": "00:12:31:C3:7A:40",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1880,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-81jj3plt",
+          "name": "CCTV_U_U1_1FL_Rest",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.85",
+          "mac": "00:12:33:60:ED:4D",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-dvs5tx1h",
+          "name": "CCTV_U_U1_1FL_RBar",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.49",
+          "mac": "00:12:33:60:EE:2A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-2y4h7px4",
+          "name": "CCTV_U_U1_1FL_RBelZall",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.48",
+          "mac": "00:12:33:60:EF:8F",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1650,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-5gpv1bcp",
+          "name": "CCTV_U_U1_0FL_Hall_1",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.61",
+          "mac": "00:12:33:60:F0:4F",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-7usboms3",
+          "name": "CCTV_U_U1_LETKA",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.52",
+          "mac": "00:12:33:60:F0:66",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1880,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-b8smf4p9",
+          "name": "CCTV_U_U1_1FL_Vhod",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.68",
+          "mac": "00:12:33:60:F0:8B",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-3mpuzmku",
+          "name": "CCTV_U_U1_1FL_RMngr",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.78",
+          "mac": "00:12:33:60:F0:CB",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-rlkcfyri",
+          "name": "CCTV_U_U1_1FL_RNewZal",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.58",
+          "mac": "00:12:33:60:F1:B0",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-jt8e4kz9",
+          "name": "CCTV_U_U1_0FL_KMoika",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.53",
+          "mac": "00:12:33:60:F2:66",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-peehy1u9",
+          "name": "CCTV_U_U1_0FL_Hall_2",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.56",
+          "mac": "00:12:33:60:F2:C0",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-i4y7rfcd",
+          "name": "CCTV_U_U1_Grill",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.76",
+          "mac": "00:12:33:E8:D5:00",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1650,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-9hbsjdoj",
+          "name": "CCTV_U_rRCP_BudkaSec\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.13",
+          "mac": "00:12:33:E8:D5:27",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-dvbdshmv",
+          "name": "CCTV_U_U1_2FL_Hall",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.75",
+          "mac": "00:12:33:E8:D5:84",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-lyu7qilw",
+          "name": "CCTV_U_U1_FL3_R",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.36",
+          "mac": "00:12:34:5B:D1:D5",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-npcdmuvf",
+          "name": "CCTV_U_U2_SKLAD_1",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.162",
+          "mac": "00:12:34:5B:D5:1A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-hq7ua724",
+          "name": "10.11.5.103",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.5.103",
+          "mac": "00:12:34:5F:8E:BC",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-ps1wuoo5",
+          "name": "CCTV_U_U2_SKLAD_2",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.156",
+          "mac": "00:12:34:5F:8F:02",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-5c3gkihs",
+          "name": "CCTV_U_U1_FL3_L",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.65",
+          "mac": "00:12:34:5F:92:46",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-01srv2ys",
+          "name": "CCTV_U1_0FL_KHot",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.47",
+          "mac": "00:12:34:5F:92:DC",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1650,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-hxr371ld",
+          "name": "CCTV_U_U2_POOL",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.221",
+          "mac": "00:12:34:5F:99:15",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-inh9iztc",
+          "name": "CCTV_U_U2_0FL_SpZal_1",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.115",
+          "mac": "00:12:34:5F:9C:3E",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-4fsyved0",
+          "name": "CCTV_U_U1_0FL_Kitchen_2",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.77",
+          "mac": "00:12:34:5F:AF:1F",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-ig8yv1al",
+          "name": "CCTV_U_U2_PoolBar",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.23",
+          "mac": "00:12:41:EE:75:47",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-yg8462m0",
+          "name": "CCTV_U_U2_3FL",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.21",
+          "mac": "00:12:41:EE:76:74",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 510,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-avfowu4y",
+          "name": "CCTV_U_rRCP_RCP_R\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.18",
+          "mac": "00:12:41:EE:77:08",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1880,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-pcw1sm4g",
+          "name": "CCTV_U_rRCP_RCP_L\\r\\n",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.20",
+          "mac": "00:12:41:EE:7A:A8",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1650,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-4tytgwf7",
+          "name": "CCTV_U_U2_2FL",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.43",
+          "mac": "00:12:41:EE:7D:0F",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1880,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-u47r074x",
+          "name": "CCTV_U_U2_0FL_Washing",
+          "kind": "camera",
+          "vendor": "",
+          "ip": "10.11.5.31",
+          "mac": "00:12:41:EE:83:43",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-aygvbkv8",
+          "name": "REG_U2",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.5.22",
+          "mac": "00:13:00:3D:01:CE",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 620,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-xrlh74p5",
+          "name": "REG_U1",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.5.32",
+          "mac": "00:13:00:3D:01:E5",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 620,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-c048vuuw",
+          "name": "BUDKA_PC",
+          "kind": "pc",
+          "vendor": "",
+          "ip": "10.11.5.50",
+          "mac": "40:B0:76:A3:86:4A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-lsw6lk02",
+          "name": "REG_KONY",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.5.11",
+          "mac": "AC:B9:2F:2F:12:F3",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 620,
+          "display": "compact",
+          "groupId": "auto-8zuhsc"
+        },
+        {
+          "id": "dsc-4ux520g0",
+          "name": "Ruijie",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.40.11",
+          "mac": "80:05:88:5F:CC:87",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1240,
+          "y": 800,
+          "display": "compact"
+        },
+        {
+          "id": "dsc-qgkrh43a",
+          "name": "sw_core_office",
+          "kind": "switch",
+          "vendor": "",
+          "ip": "10.11.99.40",
+          "mac": "10:5F:02:6E:F2:55",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-anna9wam",
+          "name": "ZBX_SRV_US",
+          "kind": "server",
+          "vendor": "",
+          "ip": "10.11.99.33",
+          "mac": "00:15:5D:52:36:08",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-d5r4k8nd",
+          "name": "Usadba",
+          "kind": "server",
+          "vendor": "",
+          "ip": "10.11.99.150",
+          "mac": "00:25:90:63:1C:11",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 683.9995348213715,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-uh33pfd2",
+          "name": "ubntU43flL",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.22",
+          "mac": "04:18:D6:58:0F:F6",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 495.31867974802344,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-hhzinpct",
+          "name": "ubntU42fl",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.27",
+          "mac": "04:18:D6:58:10:5A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 495.31867974802344,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-nz3i0zqe",
+          "name": "ubntU43flR",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.13",
+          "mac": "04:18:D6:58:11:25",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 400,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-5jxtkryi",
+          "name": "ubntU41flL",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.26",
+          "mac": "04:18:D6:58:11:57",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-kzkuoo2s",
+          "name": "ubntU41flR",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.14",
+          "mac": "04:18:D6:60:F5:1C",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-i5tnguey",
+          "name": "ubntU3banserver",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.15",
+          "mac": "04:18:D6:60:F5:54",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-x6quzvle",
+          "name": "u2_fl2",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.36",
+          "mac": "04:18:D6:60:F5:C8",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 776.0002502523469,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-kapo3iiu",
+          "name": "ubntbankony1",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.23",
+          "mac": "24:A4:3C:4C:3F:74",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-zgvzrw5r",
+          "name": "ubntU22flr48",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.20",
+          "mac": "24:A4:3C:4C:41:45",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 208,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-lglcui5y",
+          "name": "ubntU3banketkabig",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.16",
+          "mac": "44:D9:E7:7A:F0:E1",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-ilvfh5o1",
+          "name": "ubntU3banwall",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.24",
+          "mac": "44:D9:E7:A4:A5:48",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 290,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-2hta2nzr",
+          "name": "ubntU21fl",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.19",
+          "mac": "68:D7:9A:79:D5:F7",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-6bwb8xwg",
+          "name": "UbntRCP",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.25",
+          "mac": "68:D7:9A:79:E2:91",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 180,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-gsrg8i20",
+          "name": "ubntU23fl",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.17",
+          "mac": "68:D7:9A:79:E6:C3",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 208,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-erm0hp0q",
+          "name": "sw_4_kony",
+          "kind": "switch",
+          "vendor": "",
+          "ip": "10.11.99.41",
+          "mac": "70:85:C4:89:6B:9A",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 8,
+          "y": 103.21973650381756,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-wn0kt85r",
+          "name": "sw_2_u2",
+          "kind": "switch",
+          "vendor": "",
+          "ip": "10.11.99.43",
+          "mac": "70:85:C4:89:6F:58",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1420,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-a1y5wuy3",
+          "name": "AP_U1_3FL_L",
+          "kind": "ap",
+          "vendor": "",
+          "ip": "10.11.99.49",
+          "mac": "80:05:88:5F:C7:0B",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 270,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-yw0l8fqg",
+          "name": "ap_SRV_u1",
+          "kind": "ap",
+          "vendor": "",
+          "ip": "10.11.99.144",
+          "mac": "80:05:88:5F:C7:EF",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 40,
+          "y": 48,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-08di6v3g",
+          "name": "AP_U1_4FL",
+          "kind": "ap",
+          "vendor": "",
+          "ip": "10.11.99.55",
+          "mac": "80:05:88:5F:C8:97",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 730,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-woe9cuig",
+          "name": "AP_U1_REST",
+          "kind": "ap",
+          "vendor": "",
+          "ip": "10.11.99.54",
+          "mac": "80:05:88:5F:CC:FB",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 960,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-xco3y8wg",
+          "name": "Ruijie",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.99.52",
+          "mac": "80:05:88:5F:CD:17",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 1190,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-clqq1p2h",
+          "name": "AP_U1_3FL_R",
+          "kind": "ap",
+          "vendor": "",
+          "ip": "10.11.99.50",
+          "mac": "80:05:88:5F:CD:6F",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "via bridge FDB on GW_Usadba",
+            "discovered"
+          ],
+          "x": 500,
+          "y": 70,
+          "display": "compact",
+          "groupId": "auto-ceazoj"
+        },
+        {
+          "id": "dsc-g6fogaw2",
+          "name": "printer",
+          "kind": "printer",
+          "vendor": "",
+          "ip": "192.168.11.162",
+          "mac": "F4:30:B9:26:0E:72",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 2,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "FDB on GW_Usadba",
+            "VLAN 2",
+            "discovered"
+          ],
+          "x": 333,
+          "y": 48,
+          "display": "compact",
+          "groupId": "auto-dgmmn9"
+        },
+        {
+          "id": "dsc-t338h7td",
+          "name": "usadbatv11",
+          "kind": "other",
+          "vendor": "",
+          "ip": "10.11.40.30",
+          "mac": "04:F4:D8:C6:42:E4",
+          "ports": [
+            {
+              "id": "eth1",
+              "label": "eth1",
+              "type": "RJ45",
+              "vlan": 40,
+              "status": "down"
+            }
+          ],
+          "tags": [
+            "discovered",
+            "FDB on SW_CORE",
+            "VLAN 40",
+            "discovered"
+          ],
+          "x": 1566.9933432105831,
+          "y": 1505.1542383216288,
+          "display": "compact"
+        }
+      ],
+      "links": [
+        {
+          "id": "dsc-lnk-n7jda43d",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-lkhumvmf",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.237)"
+        },
+        {
+          "id": "dsc-lnk-ei8f64az",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-rr0vaohx",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.22)"
+        },
+        {
+          "id": "dsc-lnk-4zvyvhq1",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-wkplftmf",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.238)"
+        },
+        {
+          "id": "dsc-lnk-bey64dcg",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-bn5fehm3",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.233)"
+        },
+        {
+          "id": "dsc-lnk-y1ov0h7w",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-aynncbhf",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.16)"
+        },
+        {
+          "id": "dsc-lnk-fecg6qh4",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ybdu203r",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.241)"
+        },
+        {
+          "id": "dsc-lnk-ehgsa5go",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-83r8sleq",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.234)"
+        },
+        {
+          "id": "dsc-lnk-2omuztz2",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-r3h2svic",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.240)"
+        },
+        {
+          "id": "dsc-lnk-5lswjqwl",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "ether8-srvVirtual",
+          "toDeviceId": "dsc-vvf394ml",
+          "cable": "copper",
+          "label": "bridge FDB on ether8-srvVirtual (ARP 192.168.11.3)"
+        },
+        {
+          "id": "dsc-lnk-ztd9gp28",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "ether7-srvPHInt",
+          "toDeviceId": "dsc-290364s3",
+          "cable": "copper",
+          "label": "bridge FDB on ether7-srvPHInt (ARP 192.168.11.188)"
+        },
+        {
+          "id": "dsc-lnk-lbm594aq",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-mh238g6m",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.182)"
+        },
+        {
+          "id": "dsc-lnk-4gzg5zee",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-s4siz79e",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.35)"
+        },
+        {
+          "id": "dsc-lnk-ob4ckvtj",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-a37j855h",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.11)"
+        },
+        {
+          "id": "dsc-lnk-77issstu",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-mnpw0n5a",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.12)"
+        },
+        {
+          "id": "dsc-lnk-2l70xc5g",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-50roo9br",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.178)"
+        },
+        {
+          "id": "dsc-lnk-pdtm9gdi",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-5487w93i",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.25)"
+        },
+        {
+          "id": "dsc-lnk-7zgmo6i1",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "5G",
+          "toDeviceId": "dsc-wzt7jww5",
+          "cable": "copper",
+          "label": "bridge FDB on 5G (ARP 192.168.11.189)"
+        },
+        {
+          "id": "dsc-lnk-idi233ck",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-h6ftisfu",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.28)"
+        },
+        {
+          "id": "dsc-lnk-7045sed9",
+          "fromDeviceId": "dsc-6uevwc4i",
+          "fromPortId": "2G-SW_RoomOO-1-3",
+          "toDeviceId": "dsc-vn5zkkya",
+          "cable": "copper",
+          "label": "bridge FDB on 2G-SW_RoomOO-1-3 (ARP 192.168.11.192)"
+        },
+        {
+          "id": "dsc-lnk-6q8pbku3",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-123pyw9f",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.15)"
+        },
+        {
+          "id": "dsc-lnk-y526h1wo",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-a3ba5hw3",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.198)"
+        },
+        {
+          "id": "dsc-lnk-pr5ppcoi",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "5G",
+          "toDeviceId": "dsc-h66sdvpl",
+          "cable": "copper",
+          "label": "bridge FDB on 5G (ARP 192.168.11.194)"
+        },
+        {
+          "id": "dsc-lnk-0x2mf5pe",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-tm1fa9ff",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.175)"
+        },
+        {
+          "id": "dsc-lnk-fbi3dr2r",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-9y4tepyf",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.11.30)"
+        },
+        {
+          "id": "dsc-lnk-2rouqofp",
+          "fromDeviceId": "dsc-6uevwc4i",
+          "fromPortId": "2G-SW_RoomOO-1-1",
+          "toDeviceId": "dsc-ebtj9224",
+          "cable": "copper",
+          "label": "bridge FDB on 2G-SW_RoomOO-1-1 (ARP 192.168.11.36)"
+        },
+        {
+          "id": "dsc-lnk-ej9n63fh",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-1bewqjlf",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.6)"
+        },
+        {
+          "id": "dsc-lnk-pn1tvet6",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-sqefqn9p",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.16)"
+        },
+        {
+          "id": "dsc-lnk-7um2khhi",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-tkn5cm4n",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.21)"
+        },
+        {
+          "id": "dsc-lnk-eael8oqg",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-s6puoewq",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.10)"
+        },
+        {
+          "id": "dsc-lnk-946att6c",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-iq2dxm3z",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.29)"
+        },
+        {
+          "id": "dsc-lnk-jkpmue1y",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ft75csuu",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.27)"
+        },
+        {
+          "id": "dsc-lnk-ri5gluld",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-35oqd4sl",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.28)"
+        },
+        {
+          "id": "dsc-lnk-slgz642x",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-s2j6qlzv",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 192.168.3.11)"
+        },
+        {
+          "id": "dsc-lnk-pkttz1sw",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-mwiby053",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.38)"
+        },
+        {
+          "id": "dsc-lnk-6102z6tf",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-h5tvl1za",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.12)"
+        },
+        {
+          "id": "dsc-lnk-1icth03s",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-7uee2lox",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.34)"
+        },
+        {
+          "id": "dsc-lnk-xawpab71",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-x8mz4g0j",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.29)"
+        },
+        {
+          "id": "dsc-lnk-8pynzq7a",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ifn9dfnp",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.10)"
+        },
+        {
+          "id": "dsc-lnk-c0h4uahx",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-208dbofs",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.28)"
+        },
+        {
+          "id": "dsc-lnk-kv8bhu0c",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-8rwpuo9x",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.37)"
+        },
+        {
+          "id": "dsc-lnk-5fl0zw4s",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-7h8uhl40",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.17)"
+        },
+        {
+          "id": "dsc-lnk-fhg0nspp",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-f1ozaxe9",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.14)"
+        },
+        {
+          "id": "dsc-lnk-xpktpvp2",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-h800ddj1",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.16)"
+        },
+        {
+          "id": "dsc-lnk-1jniplfs",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-6333skbj",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.15)"
+        },
+        {
+          "id": "dsc-lnk-49lmep3f",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-h24qk9so",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.27)"
+        },
+        {
+          "id": "dsc-lnk-1zle02qw",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-tfczu9a9",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.26)"
+        },
+        {
+          "id": "dsc-lnk-wkfb06zj",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ujz19lub",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.24)"
+        },
+        {
+          "id": "dsc-lnk-u88svfil",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-yudsxarx",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.35)"
+        },
+        {
+          "id": "dsc-lnk-crg477ak",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ik51rlq3",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.54)"
+        },
+        {
+          "id": "dsc-lnk-jd1v9zry",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-70pos3i2",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.19)"
+        },
+        {
+          "id": "dsc-lnk-w5bj538w",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-j4gqjd0x",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.51)"
+        },
+        {
+          "id": "dsc-lnk-7sgojlyv",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-81jj3plt",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.85)"
+        },
+        {
+          "id": "dsc-lnk-0lhjh0c9",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-dvs5tx1h",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.49)"
+        },
+        {
+          "id": "dsc-lnk-9aldr09v",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-2y4h7px4",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.48)"
+        },
+        {
+          "id": "dsc-lnk-p7gimk84",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-5gpv1bcp",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.61)"
+        },
+        {
+          "id": "dsc-lnk-volh4e06",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-7usboms3",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.52)"
+        },
+        {
+          "id": "dsc-lnk-rqau4n57",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-b8smf4p9",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.68)"
+        },
+        {
+          "id": "dsc-lnk-a1mkisdq",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-3mpuzmku",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.78)"
+        },
+        {
+          "id": "dsc-lnk-l53ebvrd",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-rlkcfyri",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.58)"
+        },
+        {
+          "id": "dsc-lnk-lbio0i1v",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-jt8e4kz9",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.53)"
+        },
+        {
+          "id": "dsc-lnk-kwqgfr08",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-peehy1u9",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.56)"
+        },
+        {
+          "id": "dsc-lnk-t5wxv0wr",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-i4y7rfcd",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.76)"
+        },
+        {
+          "id": "dsc-lnk-ik47f1ht",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-9hbsjdoj",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.13)"
+        },
+        {
+          "id": "dsc-lnk-9vb4p2gv",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-dvbdshmv",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.75)"
+        },
+        {
+          "id": "dsc-lnk-cak5euru",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-lyu7qilw",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.36)"
+        },
+        {
+          "id": "dsc-lnk-8xhv3983",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-npcdmuvf",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.162)"
+        },
+        {
+          "id": "dsc-lnk-qmyfxjsi",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-hq7ua724",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.103)"
+        },
+        {
+          "id": "dsc-lnk-fyt6ba4u",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ps1wuoo5",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.156)"
+        },
+        {
+          "id": "dsc-lnk-241s19fu",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-5c3gkihs",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.65)"
+        },
+        {
+          "id": "dsc-lnk-3fsoz4l7",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-01srv2ys",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.47)"
+        },
+        {
+          "id": "dsc-lnk-yanffu1g",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-hxr371ld",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.221)"
+        },
+        {
+          "id": "dsc-lnk-zkg4kqvi",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-inh9iztc",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.115)"
+        },
+        {
+          "id": "dsc-lnk-2gzo2iwp",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-4fsyved0",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.77)"
+        },
+        {
+          "id": "dsc-lnk-1ttjqix5",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ig8yv1al",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.23)"
+        },
+        {
+          "id": "dsc-lnk-1m87wiug",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-yg8462m0",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.21)"
+        },
+        {
+          "id": "dsc-lnk-0riua8ur",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-avfowu4y",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.18)"
+        },
+        {
+          "id": "dsc-lnk-gc08uyx5",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-pcw1sm4g",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.20)"
+        },
+        {
+          "id": "dsc-lnk-36q9cqon",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-4tytgwf7",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.43)"
+        },
+        {
+          "id": "dsc-lnk-283rgb3q",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-u47r074x",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.31)"
+        },
+        {
+          "id": "dsc-lnk-41a28e0h",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-aygvbkv8",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.22)"
+        },
+        {
+          "id": "dsc-lnk-mhfenji5",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-xrlh74p5",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.32)"
+        },
+        {
+          "id": "dsc-lnk-1ywz7oyx",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-c048vuuw",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.50)"
+        },
+        {
+          "id": "dsc-lnk-dkmqap6g",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-lsw6lk02",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.5.11)"
+        },
+        {
+          "id": "dsc-lnk-v6muwu99",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-4ux520g0",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.40.11)"
+        },
+        {
+          "id": "dsc-lnk-1pypflfy",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-qgkrh43a",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.40)"
+        },
+        {
+          "id": "dsc-lnk-jyjbphl3",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "ether8-srvVirtual",
+          "toDeviceId": "dsc-anna9wam",
+          "cable": "copper",
+          "label": "bridge FDB on ether8-srvVirtual (ARP 10.11.99.33)"
+        },
+        {
+          "id": "dsc-lnk-q8ae7bip",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "ether8-srvVirtual",
+          "toDeviceId": "dsc-d5r4k8nd",
+          "cable": "copper",
+          "label": "bridge FDB on ether8-srvVirtual (ARP 10.11.99.150)"
+        },
+        {
+          "id": "dsc-lnk-c7hnq3zy",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-uh33pfd2",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.22)"
+        },
+        {
+          "id": "dsc-lnk-s36o9hob",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-hhzinpct",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.27)"
+        },
+        {
+          "id": "dsc-lnk-2vof1lrv",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-nz3i0zqe",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.13)"
+        },
+        {
+          "id": "dsc-lnk-ljlm90b0",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-5jxtkryi",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.26)"
+        },
+        {
+          "id": "dsc-lnk-tmkieqlb",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-kzkuoo2s",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.14)"
+        },
+        {
+          "id": "dsc-lnk-emmyujbu",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-i5tnguey",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.15)"
+        },
+        {
+          "id": "dsc-lnk-azd4ocza",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-x6quzvle",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.36)"
+        },
+        {
+          "id": "dsc-lnk-vou499un",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-kapo3iiu",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.23)"
+        },
+        {
+          "id": "dsc-lnk-rt35vyur",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-zgvzrw5r",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.20)"
+        },
+        {
+          "id": "dsc-lnk-ll6edjuu",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-lglcui5y",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.16)"
+        },
+        {
+          "id": "dsc-lnk-dnkougqg",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-ilvfh5o1",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.24)"
+        },
+        {
+          "id": "dsc-lnk-mujihx5y",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-2hta2nzr",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.19)"
+        },
+        {
+          "id": "dsc-lnk-eytidxne",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-6bwb8xwg",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.25)"
+        },
+        {
+          "id": "dsc-lnk-0zme38oj",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-gsrg8i20",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.17)"
+        },
+        {
+          "id": "dsc-lnk-s75om5br",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-erm0hp0q",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.41)"
+        },
+        {
+          "id": "dsc-lnk-loiu9bnl",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-wn0kt85r",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.43)"
+        },
+        {
+          "id": "dsc-lnk-ur95b6yi",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-a1y5wuy3",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.49)"
+        },
+        {
+          "id": "dsc-lnk-a32cdqif",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-yw0l8fqg",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.144)"
+        },
+        {
+          "id": "dsc-lnk-0odga2o6",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-08di6v3g",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.55)"
+        },
+        {
+          "id": "dsc-lnk-gyrivyfa",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-woe9cuig",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.54)"
+        },
+        {
+          "id": "dsc-lnk-aghz44io",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-xco3y8wg",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.52)"
+        },
+        {
+          "id": "dsc-lnk-u03mywkf",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-clqq1p2h",
+          "cable": "copper",
+          "label": "bridge FDB on sfp1-SW-OPT (ARP 10.11.99.50)"
+        },
+        {
+          "id": "dsc-lnk-z4muiuih",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-16et3php",
+          "toPortId": "bridgeLocal/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-ffal1aw6",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-4zy6tvg0",
+          "toPortId": "bridge/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-qqxj6ds0",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-4p9j493b",
+          "toPortId": "bridgeLocal/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-z2gpevc0",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-yenybgz0",
+          "toPortId": "HW(999)",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-7gzsh6c8",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-zlcmincn",
+          "toPortId": "bridge1/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-lepa5uh2",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-5nu9sk6x",
+          "toPortId": "bridge/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-249f00ep",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-zqcblfjn",
+          "toPortId": "bridgeLocal/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-wth27ddb",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-6uevwc4i",
+          "toPortId": "bridge/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-1wnzdspv",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-m15ednb0",
+          "toPortId": "bridgeLocal/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-t3k4h9mn",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-zboskmqe",
+          "toPortId": "bridge/ether1",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-s8z1cipo",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-7t9m221j",
+          "toPortId": "vlan999",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-s70rna8i",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "port 0",
+          "toDeviceId": "dsc-xxgosfld",
+          "toPortId": "vlan999",
+          "cable": "copper",
+          "label": "LLDP on GW_Usadba:port 0"
+        },
+        {
+          "id": "dsc-lnk-d795h0nn",
+          "fromDeviceId": "dsc-xawn404j",
+          "fromPortId": "sfp1-SW-OPT",
+          "toDeviceId": "dsc-g6fogaw2",
+          "cable": "copper",
+          "label": "FDB on GW_Usadba:sfp1-SW-OPT"
+        },
+        {
+          "id": "dsc-lnk-s6cel7jk",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "POS+kassa",
+          "toDeviceId": "dsc-s6puoewq",
+          "toPortId": "00:E2:69:38:BB:AA",
+          "cable": "copper",
+          "label": "LLDP on SW_CORE:POS+kassa"
+        },
+        {
+          "id": "dsc-lnk-hmn2nrxf",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "SRV-UTM-U",
+          "toDeviceId": "dsc-sqefqn9p",
+          "toPortId": "00:E0:67:24:C4:C0",
+          "cable": "copper",
+          "label": "LLDP on SW_CORE:SRV-UTM-U"
+        },
+        {
+          "id": "dsc-lnk-zlcs8zd2",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "office OO",
+          "toDeviceId": "dsc-6uevwc4i",
+          "toPortId": "vlan(999)",
+          "cable": "copper",
+          "label": "LLDP on SW_CORE:office OO"
+        },
+        {
+          "id": "dsc-lnk-0b0iegjr",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "office OO",
+          "toDeviceId": "dsc-a3ba5hw3",
+          "toPortId": "B4:2E:99:BB:D1:B3",
+          "cable": "copper",
+          "label": "LLDP on SW_CORE:office OO"
+        },
+        {
+          "id": "dsc-lnk-t440ox5f",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "RK7-BAR",
+          "toDeviceId": "dsc-1bewqjlf",
+          "toPortId": "00:0C:D6:14:4A:C5",
+          "cable": "copper",
+          "label": "LLDP on SW_CORE:RK7-BAR"
+        },
+        {
+          "id": "dsc-lnk-asg20d0t",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "Port28 UP_SW_OPT",
+          "toDeviceId": "dsc-7t9m221j",
+          "toPortId": "vlan999",
+          "cable": "copper",
+          "label": "LLDP on SW_CORE:Port28 UP_SW_OPT"
+        },
+        {
+          "id": "dsc-lnk-0jsvz61h",
+          "fromDeviceId": "dsc-h6ftisfu",
+          "fromPortId": "gigabitEthernet 1/0/28",
+          "toDeviceId": "dsc-t338h7td",
+          "cable": "copper",
+          "label": "FDB on SW_CORE:gigabitEthernet 1/0/28"
+        }
+      ],
+      "stickies": [],
+      "vlans": []
+    },
+    "createdAt": 1790330345421,
+    "updatedAt": 1790957044316
+  }
+}
