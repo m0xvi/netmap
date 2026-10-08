@@ -76,18 +76,30 @@ const OID = {
 /** v0.75.1: чистая сборка v3-параметров сессии (юнит-тестируемая).
  *  level: noAuthNoPriv | authNoPriv | authPriv; протоколы — строками
  *  ('md5'|'sha'|'sha256'… / 'des'|'aes'|'aes256b'…), как ключи net-snmp. */
-function buildV3Options(v3) {
+// v0.76.5: net-snmp ждёт USM-параметры В ОБЪЕКТЕ ПОЛЬЗОВАТЕЛЯ
+// {name, level, authProtocol, authKey, privProtocol, privKey}, а не в опциях
+// сессии. Раньше имя передавалось строкой, а level/протоколы — в options:
+// user.name === undefined → пустой msgUserName → authorizationError на любом
+// агенте (поймано живым прогоном против pysnmp-агента).
+function buildV3User(v3) {
   const level = (v3.level && snmp.SecurityLevel[v3.level]) || snmp.SecurityLevel.noAuthNoPriv;
-  const o = { version: snmp.Version3, level };
+  const u = { name: v3.user, level };
   if (level >= snmp.SecurityLevel.authNoPriv) {
-    o.authProtocol = snmp.AuthProtocols[v3.authProtocol || 'sha'] || snmp.AuthProtocols.sha;
-    o.authKey = v3.authKey || '';
+    u.authProtocol = snmp.AuthProtocols[v3.authProtocol || 'sha'] || snmp.AuthProtocols.sha;
+    u.authKey = v3.authKey || '';
   }
   if (level === snmp.SecurityLevel.authPriv) {
-    o.privProtocol = snmp.PrivProtocols[v3.privProtocol || 'aes'] || snmp.PrivProtocols.aes;
-    o.privKey = v3.privKey || '';
+    u.privProtocol = snmp.PrivProtocols[v3.privProtocol || 'aes'] || snmp.PrivProtocols.aes;
+    u.privKey = v3.privKey || '';
   }
-  return o;
+  return u;
+}
+// Совместимость: старые юниты/вызовы.
+function buildV3Options(v3) {
+  const u = buildV3User(v3);
+  return { version: snmp.Version3, level: u.level,
+    ...(u.authProtocol != null ? { authProtocol: u.authProtocol, authKey: u.authKey } : {}),
+    ...(u.privProtocol != null ? { privProtocol: u.privProtocol, privKey: u.privKey } : {}) };
 }
 
 function mkSession(host, community, opts = {}) {
@@ -101,7 +113,7 @@ function mkSession(host, community, opts = {}) {
   };
   // v0.75.1: SNMPv3 (USM) — отдельный тип сессии в net-snmp.
   if (opts.v3 && opts.v3.user) {
-    return snmp.createV3Session(host, opts.v3.user, { ...base, ...buildV3Options(opts.v3) });
+    return snmp.createV3Session(host, buildV3User(opts.v3), { ...base });
   }
   const version = opts.snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
   return snmp.createSession(host, community || 'public', { ...base, version });
@@ -248,4 +260,5 @@ module.exports = {
   walkSafe,
   tableSafe,
   buildV3Options,
+  buildV3User,
 };

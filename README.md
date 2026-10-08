@@ -2,6 +2,19 @@
 
 Прототип desktop-приложения для Windows, которое заменяет статичные schемы Visio/draw.io живой интерактивной картой сети.
 
+## v0.76.5 — SNMPv3 наконец работает: USM-параметры в объекте пользователя
+
+- Корень бага: net-snmp (npm) ждёт USM-параметры в ОБЪЕКТЕ пользователя `{name, level, authProtocol, authKey, privProtocol, privKey}`, а NetMap передавал имя строкой, а level/протоколы — в опциях сессии (библиотека их игнорирует) → пустой msgUserName → authorizationError на любом агенте.
+- Исправление: `buildV3User()` в electron/snmp.cjs, `createV3Session(host, userObj, base)`.
+- Проверено живым прогоном против независимого pysnmp-агента (v3-юзеры noAuthNoPriv / authNoPriv SHA-512 / authPriv SHA-256+AES-128 / authPriv SHA-256+AES-256): probe и walk — OK во всех четырёх комбинациях; v2c-регрессии нет.
+- Сверка с snmpwalk (Ubuntu): `sudo apt install snmp`, затем по полям формы NetMap:
+  уровень noAuthNoPriv: `snmpwalk -v3 -u USER -l noAuthNoPriv IP 1.3.6.1.2.1.1`;
+  authNoPriv: `-l authNoPriv -a ALGO -A AUTHPASS`; authPriv: плюс `-x PRIV -X PRIVPASS`;
+  auth: md5→MD5, sha→SHA, sha256→SHA-256, sha512→SHA-512; priv: des→DES, aes→AES,
+  aes256b→AES-256, aes256r→AES-256-C (вариант Cisco; нужен net-snmp ≥ 5.8).
+  Если snmpwalk с теми же параметрами ходит, а NetMap нет — баг наш; не ходит —
+  сверьте пользователя/ключи/протоколы на устройстве.
+
 ## v0.76.4 — Полный аудит: SSH-ключи реально сохраняются и доезжают до скана
 
 Найдено и исправлено по жалобе «проверь полностью на ошибки»:
