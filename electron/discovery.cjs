@@ -111,6 +111,22 @@ const OUI_HINTS = [
   { prefix: '00:00:74', vendor: 'Ricoh',            kind: 'printer' },
   { prefix: '00:26:73', vendor: 'HP Printer',       kind: 'printer' },
 ];
+// v0.76.7: принадлежность IP подсети CIDR (IPv4). Нужна, чтобы привязать
+// устройство к VLAN по подсети VLAN-интерфейса роутера.
+function ipToInt(ip) {
+  const p = String(ip).split('.').map(Number);
+  return p[0] * 16777216 + p[1] * 65536 + p[2] * 256 + p[3];
+}
+function ipInCidr(ip, cidr) {
+  const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/.exec(String(cidr || ''));
+  if (!m || !normIp(ip)) return false;
+  const bits = Number(m[2]);
+  if (bits < 0 || bits > 32) return false;
+  const size = Math.pow(2, 32 - bits);
+  const net = Math.floor(ipToInt(m[1]) / size);
+  return Math.floor(ipToInt(ip) / size) === net;
+}
+
 function ouiHint(mac) {
   const m = (mac || '').toUpperCase();
   if (!m) return null;
@@ -391,6 +407,10 @@ async function collectMikrotik(cfg, opts) {
     vlanIfaceByName: {}, // vlan interface name -> vlanId (из /interface vlan)
     vlanNames: {},    // vlanId -> имя/комментарий
     switchVlanIds: [], // v0.53.0: VLAN с switch-chip (перечисление)
+    // v0.76.7: все VLAN, которые железка реально несёт (bridge vlan table,
+    // включая транковые без комментария) и подсети VLAN-интерфейсов.
+    bridgeVlanIds: [],
+    subnetVlans: [],   // {cidr, vlanId, iface} — /ip address на vlan-интерфейсе
     warnings: [],
   };
   try {
@@ -442,10 +462,13 @@ async function collectMikrotik(cfg, opts) {
       });
     }
     for (const row of parseTerseLines(fdb)) {
+      // v0.76.7: vid — VLAN записи FDB, если RouterOS его отдаёт.
+      const vid = Number(row['vid']);
       out.fdb.push({
         mac: normMac(row['mac-address'] || ''),
         onIface: row['on-interface'] || row['interface'] || '',
         bridge:  row['bridge'] || '',
+        vlan: (Number.isInteger(vid) && vid >= 1 && vid <= 4094) ? vid : undefined,
       });
     }
     // v0.52.0: DHCP leases — главный источник человеческих имён
@@ -482,6 +505,10 @@ async function collectMikrotik(cfg, opts) {
       for (const p of untagged) {
         if (!(p in out.vlanByPort)) out.vlanByPort[p] = ids[0];
       }
+      // v0.76.7: раньше VLAN без комментария здесь терялись целиком.
+      for (const id of ids) {
+        if (!out.bridgeVlanIds.includes(id)) out.bridgeVlanIds.push(id);
+      }
       if (row['comment']) for (const id of ids) {
         if (!out.vlanNames[id]) out.vlanNames[id] = row['comment'];
       }
@@ -493,6 +520,12 @@ async function collectMikrotik(cfg, opts) {
       if (row['name']) out.vlanIfaceByName[row['name']] = id;
       const label = row['comment'] || row['name'] || '';
       if (label && !out.vlanNames[id]) out.vlanNames[id] = label;
+    }
+    // v0.76.7: подсеть на VLAN-интерфейсе роутера (v_CCTV 10.16.55.1/24)
+    // однозначно говорит, какой VLAN у всех адресов этой подсети.
+    for (const a of out.addresses) {
+      const vid = out.vlanIfaceByName[a.interface];
+      if (vid != null) out.subnetVlans.push({ cidr: a.cidr, vlanId: vid, iface: a.interface });
     }
     // v0.53.0: VLAN на switch-chip (CRS1xx/2xx и др., где bridge vlan table
     // пуста). Таблица switch vlan — только для ПЕРЕЧИСЛЕНИЯ id: колонка
@@ -700,6 +733,28 @@ async function collectSnmp(host, community, opts) {
         out.vlanList.push({ id, name: typeof it.value === 'string' ? it.value : '' });
       }
     } catch (e) { /* нет Q-BRIDGE VLAN MIB — не критично */ }
+
+    // v0.76.7: текущие VLAN (dot1qVlanCurrentTable, индекс TimeMark.VlanId) —
+    // ловит VLAN, которых нет в статической таблице (динамические, GVRP).
+    // И PVID портов: VLAN по умолчанию у access-портов тоже входит в список.
+    try {
+      const cur = await snmpApi.walk(host, community, snmpApi.OID.dot1qVlanCurrentEgressPorts, scanOpts);
+      for (const it of cur) {
+        const id = Number(it.oid.split('.').pop());
+        if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
+        if (out.vlanList.some(v => v.id === id)) continue;
+        out.vlanList.push({ id, name: '' });
+      }
+    } catch (e) { /* нет текущей VLAN-таблицы — не критично */ }
+    try {
+      const pv = await snmpApi.walk(host, community, snmpApi.OID.dot1qPvid, scanOpts);
+      for (const it of pv) {
+        const id = Number(it.value);
+        if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
+        if (out.vlanList.some(v => v.id === id)) continue;
+        out.vlanList.push({ id, name: '' });
+      }
+    } catch (e) { /* PVID не отдан — не критично */ }
 
     // Bridge FDB (fallback for links to unmanaged endpoints).
     // v0.52.0: сначала пробуем Q-BRIDGE-MIB (тот же FDB + номер VLAN),
@@ -966,7 +1021,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         descr: '',
         hint: 'via bridge FDB on ' + (mt.self.name || rootHost),
         // v0.52.0: FDB на access-порту → VLAN известен из bridge vlan table.
-        vlan: (mt.vlanByPort || {})[f.onIface],
+        vlan: f.vlan ?? (mt.vlanByPort || {})[f.onIface],
       });
       if (!remoteRef) continue;
       // Skip self-links
@@ -1114,8 +1169,26 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
   const subnets = (mt && mt.ok && Array.isArray(mt.addresses))
     ? mt.addresses.map(a => ({ cidr: a.cidr, interface: a.interface || '', comment: a.comment || '' }))
     : [];
+  // v0.76.7: VLAN по подсети. Устройство, у которого VLAN не вывелся из
+  // FDB/портов, получает VLAN VLAN-интерфейса роутера, на чьей подсети оно
+  // стоит (IP 10.16.55.23 в 10.16.55.1/24 на v_CCTV → VLAN 55). Это точнее
+  // «угадывания по соседу» и покрывает устройства на транках.
+  const subnetVlanList = (mt && mt.ok && Array.isArray(mt.subnetVlans)) ? mt.subnetVlans : [];
+  if (subnetVlanList.length) for (const pd of proposedDevices) {
+    if (pd.vlan != null || !pd.ip) continue;
+    const hit = subnetVlanList.find(sv => ipInCidr(pd.ip, sv.cidr));
+    if (hit) { pd.vlan = hit.vlanId; pd.vlanSource = 'subnet'; }
+  }
+
   const vlanIdSet = new Set();
   for (const pd of proposedDevices) if (pd.vlan != null) vlanIdSet.add(pd.vlan);
+  // v0.76.7: все VLAN, которые железка реально несёт, — даже без устройств
+  // и без комментария (bridge vlan table, vlan-интерфейсы, подсети).
+  if (mt && mt.ok) {
+    for (const id of (mt.bridgeVlanIds || [])) vlanIdSet.add(id);
+    for (const id of Object.values(mt.vlanIfaceByName || {})) vlanIdSet.add(id);
+    for (const sv of (mt.subnetVlans || [])) vlanIdSet.add(sv.vlanId);
+  }
   if (mt && mt.ok && mt.vlanNames) for (const id of Object.keys(mt.vlanNames)) vlanIdSet.add(Number(id));
   // v0.53.0: + VLAN с switch-chip роутера и статические VLAN-таблицы
   // опрошенных коммутаторов (находятся даже пустые VLAN).
@@ -1205,6 +1278,34 @@ async function test(cfg) {
  *   - doc: the current NetMapDoc (to match existing devices)
  *   - snmpSeeds?: [host, host, ...]  additional SNMP hosts to poll
  */
+/**
+ * v0.76.7: ядро и распределение (switch/router), которые соседи назвали, но
+ * которые ещё не опрошены по SNMP. Это кандидаты для ПОШАГОВОГО обхода:
+ * UI спрашивает пользователя, опрашивать ли их, а не ходит сам.
+ */
+function findUnpolledHubs({ mt, snmpResults, scannedHosts, rootHost }) {
+  const out = new Map();
+  const classify = (name, descr) => {
+    const f = fingerprintKind({ names: [name || ''], vendor: '', descr: descr || '', mac: '', vlanName: '' });
+    return f.confident ? f.kind : 'other';
+  };
+  const add = (ip, name, kind, via, from) => {
+    if (!ip || !normIp(ip) || ip === rootHost || scannedHosts.has(ip) || out.has(ip)) return;
+    if (kind !== 'switch' && kind !== 'router') return;
+    out.set(ip, { ip, name: name || ip, kind, via, from: from || '' });
+  };
+  if (mt && mt.ok) for (const n of (mt.neighbors || [])) {
+    add(n.ip, n.name, classify(n.name, [n.platform, n.board].join(' ')), 'MikroTik /ip neighbor', mt.self && mt.self.name);
+  }
+  for (const r of (snmpResults || [])) {
+    if (!r || !r.ok) continue;
+    for (const l of (r.lldp || [])) {
+      add(l.mgmtIp, l.sysName, classify(l.sysName, l.sysDesc), 'LLDP', (r.self && r.self.name) || r.host);
+    }
+  }
+  return Array.from(out.values());
+}
+
 async function scan(cfg) {
   const t0 = now();
   const doc = cfg.doc || { devices: [], links: [] };
@@ -1304,6 +1405,9 @@ async function scan(cfg) {
         fdbMacs: (s.fdb || []).map(f => f.mac).filter(Boolean), at: now(),
       })),
     ],
+    // v0.76.7: пошаговый обход — что уже опрошено и кого можно опросить дальше.
+    scannedHosts: Array.from(scannedSet),
+    hubCandidates: findUnpolledHubs({ mt, snmpResults, scannedHosts: scannedSet, rootHost }),
     proposedDevices: merged.proposedDevices,
     proposedLinks:   merged.proposedLinks,
     subnets: merged.subnets,   // v0.52.0: эталонные подсети роутера

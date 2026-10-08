@@ -97,6 +97,21 @@ interface DiscSubnet {
 }
 interface DiscVlan { id: number; count: number; name?: string; }
 
+/**
+ * v0.76.7: при повторном опросе (ядро/распределение) решения пользователя
+ * переносим по ключу устройства (IP → MAC → tempId). tempId пересоздаются
+ * каждым сканом, поэтому по ним переносить нельзя.
+ */
+type DevLike = { tempId: string; ip?: string; mac?: string };
+type LinkLike = { tempId: string; fromRef: { existingId?: string; tempId?: string }; toRef: { existingId?: string; tempId?: string }; fromPort?: string; toPort?: string };
+const devKey = (d: DevLike) => d.ip || d.mac || d.tempId;
+function refKey(ref: { existingId?: string; tempId?: string }, keyOfTemp: Map<string, string>) {
+  if (ref.existingId) return 'E:' + ref.existingId;
+  return 'K:' + (ref.tempId ? (keyOfTemp.get(ref.tempId) ?? ref.tempId) : '');
+}
+const linkKey = (l: LinkLike, keyOfTemp: Map<string, string>) =>
+  [refKey(l.fromRef, keyOfTemp), refKey(l.toRef, keyOfTemp), l.fromPort || '', l.toPort || ''].join('|');
+
 const NAME_SRC_META: Record<DiscoveryNameSource, { label: string; bg: string; fg: string; title: string }> = {
   dhcp:     { label: 'DHCP', bg: '#dcfce7', fg: '#166534', title: 'Имя из комментария DHCP-лизы (задано администратором)' },
   sysname:  { label: 'имя',  bg: '#e0f2fe', fg: '#0369a1', title: 'Собственное имя устройства (LLDP sysName / MikroTik identity)' },
@@ -376,11 +391,17 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [v3PrivKey, setV3PrivKey] = useState('');
   // v0.76.4: SSH-ключ (PEM) и passphrase — из vault-кнопки; едут в scan().
   const [sshKeyPem, setSshKeyPem] = useState('');
+  // v0.76.7: путь к файлу приватного ключа (раньше поддерживался только PEM из vault).
+  const [sshKeyPath, setSshKeyPath] = useState('');
+  // v0.76.7: пошаговый обход — выбранные ядро/распределение и скрыт ли вопрос.
+  const [hubPick, setHubPick] = useState<Record<string, boolean>>({});
+  const [hubDismissed, setHubDismissed] = useState(false);
   const [sshPassPem, setSshPassPem] = useState('');
   const [snmpSweep, setSnmpSweep] = useState(false);
   // v0.51.20: рекурсивный обход — management-IP LLDP-соседей становятся
   // целями следующих волн SNMP-опроса.
-  const [snmpRecursive, setSnmpRecursive] = useState(true);
+  // v0.76.7: по умолчанию НЕ ходим по LLDP сами — вместо этого спрашиваем (см. hubPick).
+  const [snmpRecursive, setSnmpRecursive] = useState(false);
   const [snmpMaxHops, setSnmpMaxHops] = useState(2);
 
   // --- scan state --------------------------------------------------------
@@ -389,7 +410,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [scan, setScan] = useState<DiscoveryScanResult | null>(null);
   const [devPick, setDevPick] = useState<Record<string, boolean>>({});
   const [linkPick, setLinkPick] = useState<Record<string, boolean>>({});
-  const [applyReport, setApplyReport] = useState<{ dev: number; link: number } | null>(null);
+  const [applyReport, setApplyReport] = useState<{ dev: number; link: number; vlan: number } | null>(null);
   // v0.52.0: фильтры предпросмотра (как в обычном импорте) + переименование.
   const [q, setQ] = useState('');
   const [excludedCidrs, setExcludedCidrs] = useState<Set<string>>(new Set());
@@ -416,6 +437,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setShowNoIp(false);
       setNameEdits({});
       setKindEdits({});
+      setHubPick({});
+      setHubDismissed(false);
     }
   }, [open]);
 
@@ -427,6 +450,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     mode, host, port, username, password,
     // v0.76.4: SSH-ключ из vault-кнопки доезжает до scan().
     privateKey: sshKeyPem || undefined,
+    privateKeyPath: sshKeyPath || undefined,
     sshPassphrase: sshPassPem || undefined,
     snmpCommunity: community,
     snmpVersion,
@@ -473,6 +497,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       const lp: Record<string, boolean> = {};
       for (const l of r.proposedLinks) lp[l.tempId] = true;
       setDevPick(dp); setLinkPick(lp);
+      const hp0: Record<string, boolean> = {};
+      for (const h of r.hubCandidates ?? []) hp0[h.ip] = true;
+      setHubPick(hp0); setHubDismissed(false);
       setQ('');
       setExcludedCidrs(new Set());
       setExcludedVlans(new Set());
@@ -483,6 +510,70 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     } catch (e: any) {
       setPhase('form');
       await alertDialog('Не удалось выполнить сканирование', e?.message || String(e));
+    }
+  }
+
+  /**
+   * v0.76.7: пошаговый обход. Пользователь выбрал ядро/распределение — опрашиваем
+   * их по SNMP вместе с уже опрошенными хостами. Решения по устройствам, связям
+   * и именам переносим на новый результат (по IP/MAC).
+   */
+  async function onScanHubs() {
+    if (!scan) return;
+    const picked = (scan.hubCandidates ?? []).filter(h => hubPick[h.ip]).map(h => h.ip);
+    if (picked.length === 0) return;
+    const prev = scan;
+    const seeds = Array.from(new Set([...(prev.scannedHosts ?? []), ...picked]));
+    setPhase('scanning');
+    try {
+      const r = await discoveryScan({ ...currentCfg, snmpRecursive: false, snmpSeeds: seeds, doc });
+      if (!r || r.ok === false || !Array.isArray((r as any).proposedDevices)) {
+        setPhase('review');
+        await alertDialog('Автообнаружение', 'Опрос не вернул результат: ' + ((r as any)?.error || 'неизвестная ошибка'));
+        return;
+      }
+      const prevKeyOfTemp = new Map<string, string>();
+      for (const d of prev.proposedDevices) prevKeyOfTemp.set(d.tempId, devKey(d));
+      const nextKeyOfTemp = new Map<string, string>();
+      for (const d of r.proposedDevices) nextKeyOfTemp.set(d.tempId, devKey(d));
+
+      const oldPick = new Map<string, boolean>();
+      const oldName = new Map<string, string>();
+      const oldKind = new Map<string, DeviceKind>();
+      for (const d of prev.proposedDevices) {
+        const k = devKey(d);
+        oldPick.set(k, devPick[d.tempId] !== false);
+        if (nameEdits[d.tempId] != null) oldName.set(k, nameEdits[d.tempId]);
+        if (kindEdits[d.tempId] != null) oldKind.set(k, kindEdits[d.tempId]);
+      }
+      const oldLinkPick = new Map<string, boolean>();
+      for (const l of prev.proposedLinks) oldLinkPick.set(linkKey(l, prevKeyOfTemp), linkPick[l.tempId] !== false);
+
+      const dp: Record<string, boolean> = {};
+      const ne: Record<string, string> = {};
+      const ke: Record<string, DeviceKind> = {};
+      for (const d of r.proposedDevices) {
+        const k = devKey(d);
+        dp[d.tempId] = oldPick.has(k) ? !!oldPick.get(k) : true;
+        if (oldName.has(k)) ne[d.tempId] = oldName.get(k)!;
+        if (oldKind.has(k)) ke[d.tempId] = oldKind.get(k)!;
+      }
+      const lp: Record<string, boolean> = {};
+      for (const l of r.proposedLinks) {
+        const k = linkKey(l, nextKeyOfTemp);
+        lp[l.tempId] = oldLinkPick.has(k) ? !!oldLinkPick.get(k) : true;
+      }
+      const hp: Record<string, boolean> = {};
+      for (const h of r.hubCandidates ?? []) hp[h.ip] = true;
+
+      setScan(r);
+      setDevPick(dp); setLinkPick(lp);
+      setNameEdits(ne); setKindEdits(ke);
+      setHubPick(hp); setHubDismissed(false);
+      setPhase('review');
+    } catch (e: any) {
+      setPhase('review');
+      await alertDialog('Не удалось опросить ядро и распределение', e?.message || String(e));
     }
   }
 
@@ -549,10 +640,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
 
     const report = applyDiscovery({
       devices: devicesToCreate, links: linksToCreate,
+      // v0.76.7: все VLAN, найденные сканом (в т.ч. без устройств), — в проект.
+      vlans: (scan.vlans || []).map(v => ({ id: v.id, name: v.name || '' })),
       // v0.74: следы сканирований — в doc.scanMeta для аудита хабов.
       scanMeta: (scan as any).scanMeta,
     });
-    setApplyReport({ dev: report.addedDevices, link: report.addedLinks });
+    setApplyReport({ dev: report.addedDevices, link: report.addedLinks, vlan: report.addedVlans });
     // v0.51.22: сразу раскладываем карту автоматически — иначе сетка из
     // сотен новых карточек остаётся налезать на существующие группы
     // (жалоба пользователя после автообнаружения). Умная раскладка группирует
@@ -566,7 +659,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     pushAlert({
       severity: 'success', origin: 'import',
       title: 'Автообнаружение применено',
-      message: `Добавлено устройств: ${report.addedDevices}, связей: ${report.addedLinks}` +
+      message: `Добавлено устройств: ${report.addedDevices}, связей: ${report.addedLinks}, VLAN: ${report.addedVlans}` +
                (report.addedDevices > 0 ? '. Карта разложена автоматически.' : '') +
                (droppedLinks ? ` (пропущено связей: ${droppedLinks}, без обеих сторон)` : ''),
     });
@@ -665,8 +758,11 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       if (d.vlan == null) continue;
       counts.set(d.vlan, (counts.get(d.vlan) || 0) + 1);
     }
-    return Array.from(counts.entries())
-      .map(([id, count]) => ({ id, count, name: names.get(id) }))
+    // v0.76.7: показываем ВСЕ VLAN, которые нашло сканирование, даже если на них
+    // пока нет устройств (раньше фильтр видел только VLAN с назначенными устройствами).
+    const ids = new Set<number>([...counts.keys(), ...(scan.vlans || []).map(v => v.id)]);
+    return Array.from(ids)
+      .map(id => ({ id, count: counts.get(id) || 0, name: names.get(id) }))
       .sort((a, b) => a.id - b.id);
   }, [scan]);
   const noVlanCount = useMemo(
@@ -970,13 +1066,15 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                     <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
                       <VaultCredsButtons
                         host={host} purpose="ssh" serviceLabel="MikroTik SSH" folder="MikroTik"
-                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }, { key: 'sshKey', label: 'SSH-ключ (PEM)' }]}
-                        values={{ username, password, port: String(port), sshKey: sshKeyPem, sshPassphrase: sshPassPem }}
+                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }, { key: 'sshKey', label: 'SSH-ключ (PEM)' }, { key: 'sshKeyPath', label: 'Путь к ключу' }, { key: 'sshPassphrase', label: 'Passphrase' }]}
+                        values={{ username, password, port: String(port), sshKey: sshKeyPem, sshKeyPath, sshPassphrase: sshPassPem }}
                         onApply={v => {
                           setUsername(v.username ?? '');
                           setPassword(v.password ?? '');
                           // v0.76.4: ключ из записи vault — в конфиг скана.
                           setSshKeyPem(v.sshKey ?? '');
+                          // v0.76.7: путь и passphrase раньше терялись — запрашиваются и применяются.
+                          setSshKeyPath(v.sshKeyPath ?? '');
                           setSshPassPem(v.sshPassphrase ?? '');
                           // v0.53.0: порт тоже храним в записи (раньше терялся).
                           if (v.port != null && v.port !== '') {
@@ -985,6 +1083,36 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                           }
                         }}
                       />
+                    </div>
+                    {/* v0.76.7: вход по ключу — поля и справка прямо в форме. */}
+                    <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', border: '1px dashed #cbd5e1', borderRadius: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>Вход по SSH-ключу (вместо пароля)</div>
+                      <label style={S.label}>Файл приватного ключа (путь)
+                        <input value={sshKeyPath} onChange={e => setSshKeyPath(e.target.value)}
+                          placeholder="C:\Users\admin\.ssh\netmap_ed25519" style={S.input} />
+                      </label>
+                      <label style={S.label}>Passphrase (только если ключ зашифрован)
+                        <input type="password" value={sshPassPem} onChange={e => setSshPassPem(e.target.value)} style={S.input} />
+                      </label>
+                      <div style={S.hint}>
+                        {sshKeyPem
+                          ? 'Используется PEM-ключ из Vault: путь к файлу игнорируется.'
+                          : sshKeyPath
+                            ? 'Ключ читается из файла при каждом сканировании.'
+                            : 'Ключ не задан: подключение пойдёт по паролю.'}
+                      </div>
+                      <details style={{ fontSize: 12, color: '#334155' }}>
+                        <summary style={{ cursor: 'pointer' }}>Как настроить вход по ключу</summary>
+                        <ol style={{ margin: '6px 0 0 18px', padding: 0, lineHeight: 1.5 }}>
+                          <li>Создайте ключ на своём ПК: <code>ssh-keygen -t ed25519 -f %USERPROFILE%\.ssh\netmap_ed25519</code> (Windows 10+ уже содержит ssh-keygen). Пароль на ключ можно задать, тогда укажите его в поле Passphrase.</li>
+                          <li>Добавьте публичный ключ <code>netmap_ed25519.pub</code> на устройство. MikroTik: загрузите файл в Files (WinBox) и выполните <code>/user ssh-keys import public-key-file=netmap_ed25519.pub user=admin</code>. Для RouterOS со старой версией надёжнее RSA: <code>ssh-keygen -t rsa -b 3072</code>. Linux и другие: добавьте строку в <code>~/.ssh/authorized_keys</code>.</li>
+                          <li>Укажите ключ здесь (путь к файлу) или сохраните его в Vault: запись → раздел «SSH-ключ» → кнопка Vault в этой форме.</li>
+                          <li>Нажмите «Проверить». Если не проходит: ключ не добавлен на устройство, неверный логин или неверный passphrase.</li>
+                        </ol>
+                        <div style={{ marginTop: 6, color: '#64748b' }}>
+                          Пароль можно оставить пустым, когда задан ключ. Путь и PEM-ключ сохраняются только в Vault, если вы решите их там хранить.
+                        </div>
+                      </details>
                     </div>
                   </>
                 )}
@@ -1332,6 +1460,41 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               )}
             </div>
 
+            {/* v0.76.7: пошаговый обход — спрашиваем, опрашивать ли найденные ядро/распределение. */}
+            {(scan!.hubCandidates ?? []).length > 0 && !hubDismissed && (
+              <section style={{ margin: '0 0 12px', padding: '12px 14px', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 10 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                  Найдены ядро и распределение, которые ещё не опрошены ({(scan!.hubCandidates ?? []).length})
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+                  Опрос по SNMP даст их VLAN, таблицы MAC и соседей. Опросить их тоже, чтобы обойти сеть целиком?
+                  Новые коммутаторы, найденные уже ими, появятся здесь на следующем шаге.
+                </div>
+                {(scan!.hubCandidates ?? []).map(h => (
+                  <label key={h.ip} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '2px 0' }}>
+                    <input type="checkbox" checked={!!hubPick[h.ip]}
+                      onChange={e => setHubPick(p => ({ ...p, [h.ip]: e.target.checked }))} />
+                    <span style={{ fontWeight: 600 }}>{h.name}</span>
+                    <span style={{ fontFamily: 'monospace' }}>{h.ip}</span>
+                    <span>{h.kind === 'router' ? 'роутер' : 'коммутатор'}</span>
+                    <span style={{ color: '#64748b' }}>· найден: {h.via}{h.from ? ` (${h.from})` : ''}</span>
+                  </label>
+                ))}
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                  <button style={S.btnPrimary}
+                    disabled={!(scan!.hubCandidates ?? []).some(h => hubPick[h.ip])}
+                    onClick={onScanHubs}>
+                    Опросить выбранные ({(scan!.hubCandidates ?? []).filter(h => hubPick[h.ip]).length})
+                  </button>
+                  <button style={S.btnSecondary}
+                    onClick={() => { const all: Record<string, boolean> = {}; for (const h of scan!.hubCandidates ?? []) all[h.ip] = true; setHubPick(all); }}>
+                    Выбрать все
+                  </button>
+                  <button style={S.btnSecondary} onClick={() => setHubDismissed(true)}>Не сейчас</button>
+                </div>
+              </section>
+            )}
+
             {/* v0.56.0: плотная таблица устройств с сортировкой и липкой шапкой. */}
             <div ref={devicesRef}>
               <div className="sec-head">
@@ -1557,7 +1720,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#166534' }}>Готово</div>
                 <div style={{ fontSize: 12, color: '#166534' }}>
-                  Добавлено устройств: <b>{applyReport.dev}</b>, связей: <b>{applyReport.link}</b>.
+                  Добавлено устройств: <b>{applyReport.dev}</b>, связей: <b>{applyReport.link}</b>, VLAN: <b>{applyReport.vlan}</b>.
                   Карта разложена автоматически; Ctrl+Z отменит раскладку и применение (два нажатия).
                 </div>
               </div>

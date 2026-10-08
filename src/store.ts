@@ -436,7 +436,9 @@ interface State {
     links: Array<Partial<Link> & { id: string; fromDeviceId: string; toDeviceId: string }>;
     /** v0.74: следы SNMP/SSH-сканирований по хабам — в doc.scanMeta. */
     scanMeta?: ScannedHubMeta[];
-  }) => { addedDevices: number; addedLinks: number };
+    /** v0.76.7: VLAN из сканирования — заводятся в doc.vlans, если ещё нет такого 802.1Q ID. */
+    vlans?: Array<{ id: number; name?: string }>;
+  }) => { addedDevices: number; addedLinks: number; addedVlans: number };
   /** v0.74: аудит хабов — подключить устройства по FDB просканированных
    *  свитчей (move/add). Откат Ctrl+Z. Возвращает число правок. */
   applyAuditFixes: () => number;
@@ -1608,8 +1610,26 @@ export const useStore = create<State>((set, get) => ({
   // v0.44 — bulk-apply auto-discovery results in a SINGLE undo step.
   // Rejects duplicates (device id / link (from,to) pair) so re-running scan is safe.
   applyDiscovery: (diff) => {
-    let addedDevices = 0, addedLinks = 0;
+    let addedDevices = 0, addedLinks = 0, addedVlans = 0;
     set((s) => {
+      // v0.76.7: VLAN, найденные сканированием (включая пустые), заводим в проект.
+      // Уже существующие VLAN (по 802.1Q ID) не трогаем — имя и цвет пользователя важнее.
+      const palette = ['#3B82F6', '#10B981', '#8B5CF6', '#EF4444', '#F59E0B', '#14B8A6', '#EC4899', '#64748B'];
+      const knownVlanIds = new Set((s.doc.vlans || []).map(v => v.vlanId));
+      const newVlans: Vlan[] = [];
+      for (const dv of (diff.vlans || [])) {
+        const vid = Number(dv?.id);
+        if (!Number.isInteger(vid) || vid < 1 || vid > 4094 || knownVlanIds.has(vid)) continue;
+        knownVlanIds.add(vid);
+        newVlans.push({
+          id: `vlan-${vid}-${Math.random().toString(36).slice(2, 6)}`,
+          vlanId: vid,
+          name: (dv.name && String(dv.name).trim()) || `VLAN ${vid}`,
+          color: palette[vid % palette.length],
+          description: 'Найден автообнаружением',
+        });
+      }
+      addedVlans = newVlans.length;
       const existingIds = new Set(s.doc.devices.map(d => d.id));
       const nextDevices = [...s.doc.devices];
       // Place discovered orphans in a grid below existing content
@@ -1681,11 +1701,15 @@ export const useStore = create<State>((set, get) => ({
         for (const m of diff.scanMeta) byHost.set(m.host, m);
         scanMeta = [...byHost.values()];
       }
-      const doc = { ...s.doc, devices: nextDevices, links: nextLinks, ...(scanMeta ? { scanMeta } : {}) };
+      const doc = {
+        ...s.doc, devices: nextDevices, links: nextLinks,
+        ...(newVlans.length ? { vlans: [...(s.doc.vlans || []), ...newVlans] } : {}),
+        ...(scanMeta ? { scanMeta } : {}),
+      };
       persist(doc);
       return { ...historyPush(s), doc };
     });
-    return { addedDevices, addedLinks };
+    return { addedDevices, addedLinks, addedVlans };
   },
 
   removeLink: (id) => set((s) => {

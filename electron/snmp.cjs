@@ -53,6 +53,11 @@ const OID = {
   // v0.53.0: статическая VLAN-таблица коммутатора — перечисляет ВСЕ VLAN,
   // известные железке, даже без единого найденного устройства в них.
   dot1qVlanStaticName: '1.3.6.1.2.1.17.7.1.4.3.1.1', // index = VlanId
+  // v0.76.7: динамические/текущие VLAN (созданные не вручную) —
+  // индекс: TimeMark(1 subid) + VlanId. Берём последний subid.
+  dot1qVlanCurrentEgressPorts: '1.3.6.1.2.1.17.7.1.4.2.1.4',
+  // v0.76.7: PVID порта (default VLAN для нетегированного трафика); индекс = bridge port.
+  dot1qPvid: '1.3.6.1.2.1.17.7.1.4.5.1.1',
 
   // IP-MIB — ARP
   ipNetToPhysicalPhysAddress: '1.3.6.1.2.1.4.35.1.4', // ipNetToPhysicalPhysAddress

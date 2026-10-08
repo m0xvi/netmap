@@ -292,6 +292,13 @@ netmap/
 
 ---
 
+## 3.1 SSH-ключи: устройство и инструкция (v0.76.x)
+
+- Приоритет аутентификации (`electron/sshAuth.cjs`): PEM из `privateKey` (Vault) → файл `privateKeyPath` → пароль. Passphrase: `passphrase`/`sshPassphrase`.
+- Где задаётся: Vault → запись → раздел «SSH-ключ» (`VaultStudio.tsx`, поля `sshKey`, `sshKeyPath`, `sshPassphrase` на верхнем уровне записи); форма автообнаружения (`DiscoveryDialog.tsx`, блок «Вход по SSH-ключу»: `sshKeyPath`, `sshPassphrase`); `VaultCreds.pick()` подставляет эти поля из `props.fields`.
+- Пользователю: инструкция в README (раздел «Вход по SSH-ключу — как настроить»): `ssh-keygen -t ed25519`, публичный ключ в RouterOS через `/user ssh-keys import public-key-file=... user=...`, для RouterOS надёжнее RSA; ed25519 проверять на версии. Если меняете шаги, меняйте и README, и эту секцию.
+- Не сохранять приватный ключ в открытом виде в `doc` или `localStorage`: в документе хранится только путь или запись Vault.
+
 ## 4. Архитектурные паттерны
 
 ### 4.1 Store — единая zustand-точка

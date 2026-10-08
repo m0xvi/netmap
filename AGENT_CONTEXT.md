@@ -11,7 +11,7 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
+| HEAD | v0.76.7 (автообнаружение: VLAN, пошаговый обход, SSH-ключи в UI) поверх v0.76.6 (аудит). Ранее v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
 | Версия | `0.76.5` (package.json), тег `v0.76.5` запушен |
 | Релиз | v0.76.5 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.5.exe`, `NetMap-Portable-0.76.5.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
@@ -23,6 +23,13 @@
 Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
+**v0.76.7 (автообнаружение, 2026-10-08)** — VLAN находятся полностью (bridge без комментария,
+trunk-only, назначение по FDB `vid` и по подсети на транке, `vlanSource`); пошагово предлагается
+опросить найденные ядро/распределение (`hubCandidates`, `scannedHosts`, `snmpRecursive` по умолчанию
+выключен); решения пользователя при повторном опросе переносятся по IP/MAC; `applyDiscovery` заводит
+VLAN из скана в `doc.vlans`; SSH-ключ: поля «Путь к ключу» и «Passphrase» в форме и Vault. Подробности — README, v0.76.7 и раздел «Вход по SSH-ключу».
+Тест: `/tmp/vt/verify_vlan.cjs` (моки, вне репозитория) — ALL PASS.
 
 **v0.76.6 (аудит, 2026-10-08)** — исправлено: will-navigate/openExternal в `electron/main.cjs`
 (окно не уходит на внешние URL, схемы ограничены http/https/mailto); `isSafeHost` в ping/traceroute;

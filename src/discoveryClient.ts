@@ -25,6 +25,8 @@ export interface DiscoveryConfig {
   v3PrivKey?: string;
   /** v0.76: SSH-ключ (PEM) для SSH-режима — из vault или вручную. */
   privateKey?: string;
+  /** v0.76.7: путь к файлу приватного ключа (альтернатива PEM-тексту). */
+  privateKeyPath?: string;
   sshPassphrase?: string;
   snmpPort?: number;
   snmpTimeout?: number;
@@ -54,6 +56,8 @@ export interface DiscoveryDeviceProposal {
   kindConfident?: boolean;
   hint?: string;
   vlan?: number;
+  /** v0.76.7: откуда вывелся VLAN: 'fdb' (vid/порт) или 'subnet' (подсеть VLAN-интерфейса). */
+  vlanSource?: 'fdb' | 'subnet';
   dhcpComment?: string;
   dhcpHost?: string;
 }
@@ -70,9 +74,21 @@ export interface DiscoveryLinkProposal {
   cable?: 'copper' | 'fiber' | 'wifi';
   evidence?: string;
 }
+/** v0.76.7: ядро/распределение, найденное соседями, но ещё не опрошенное. */
+export interface DiscoveryHubCandidate {
+  ip: string;
+  name: string;
+  kind: string;
+  via: string;
+  from?: string;
+}
 export interface DiscoveryScanResult {
   ok: boolean;
   error?: string;
+  /** v0.76.7: адреса, которые реально опрошены по SNMP (для пошагового обхода). */
+  scannedHosts?: string[];
+  /** v0.76.7: switch/router из соседей, которых ещё не опрашивали. */
+  hubCandidates?: DiscoveryHubCandidate[];
   rootHost?: string;
   source?: DiscoveryMode;
   seeds?: Array<{ host: string; name?: string; vendor?: string; descr?: string; ok?: boolean }>;
