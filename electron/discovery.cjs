@@ -540,14 +540,17 @@ async function collectSnmp(host, community, opts) {
     ifNames: {},    // ifIndex -> ifName/ifDescr
     warnings: [],
   };
+  // v0.76.2: v3-учётка едет через opts.cfg (collectSnmp вызывается из scan,
+  // где cfg есть; раньше здесь был голый `cfg` — ReferenceError у пользователя).
+  const c = (opts && opts.cfg) || {};
   const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1,
     // v0.75.1: версия SNMP и v3-учётка (USM) — в каждую сессию snmp.cjs.
-    snmpVersion: cfg.snmpVersion || '2c',
-    ...(cfg.snmpVersion === '3' ? { v3: {
-      user: cfg.v3User || cfg.username || 'admin',
-      level: cfg.v3Level || 'authNoPriv',
-      authProtocol: cfg.v3AuthProto, authKey: cfg.v3AuthKey,
-      privProtocol: cfg.v3PrivProto, privKey: cfg.v3PrivKey,
+    snmpVersion: c.snmpVersion || '2c',
+    ...(c.snmpVersion === '3' ? { v3: {
+      user: c.v3User || c.username || 'admin',
+      level: c.v3Level || 'authNoPriv',
+      authProtocol: c.v3AuthProto, authKey: c.v3AuthKey,
+      privProtocol: c.v3PrivProto, privKey: c.v3PrivKey,
     } } : {}),
   };
   try {
@@ -1216,6 +1219,10 @@ async function scan(cfg) {
       port: cfg.port || 22,
       username: cfg.username,
       password: cfg.password,
+      // v0.76.2: ключ из диалога/vault доходит до mikrotik-ssh (sshAuthFragment).
+      privateKey: cfg.privateKey,
+      privateKeyPath: cfg.privateKeyPath,
+      passphrase: cfg.sshPassphrase || cfg.passphrase,
     }, { timeout: cfg.sshTimeout || 8000 });
     warnings.push(...(mt.warnings || []));
   }
@@ -1250,7 +1257,7 @@ async function scan(cfg) {
     if (hop > 0) hopsUsed = hop;
     await Promise.all(wave.map(async (h) => {
       scannedSet.add(h);
-      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500 });
+      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg });
       snmpResults.push(r);
       if (r.warnings && r.warnings.length) warnings.push(`[${h}] ` + r.warnings.join('; '));
       if (recursive && hop < maxHops) {

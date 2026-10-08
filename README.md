@@ -2,6 +2,12 @@
 
 Прототип desktop-приложения для Windows, которое заменяет статичные schемы Visio/draw.io живой интерактивной картой сети.
 
+## v0.76.2 — Хотфикс: «cfg is not defined» в автообнаружении + ключ в MikroTik-скане
+
+- collectSnmp: v3-блок SNMP читал голый `cfg`, которого в функции нет (ReferenceError «cfg is not defined» при сканировании — диалог из v0.76.1). Теперь v3-учётка едет через `opts.cfg`, scan() передаёт cfg в collectSnmp.
+- scan() передаёт SSH-ключ (privateKey/privateKeyPath/passphrase) в collectMikrotik — ключ из диалога/vault реально работает в MikroTik-режиме автообнаружения (в v0.76 поля терялись по дороге).
+- Проверки: живой прогон scan() в node — snmp v2c, snmp v3 и mikrotik+key возвращают результат без исключений; tsc + vite build.
+
 ## v0.76.1 — Хотфикс: перекрытия верхних меню и краш автообнаружения
 
 - Дропдауны верхнего меню (File/View/Tools/Monitor/Help) рендерятся порталом в document.body с zIndex 10000 — больше не перекрываются тулбаром, легендой подсетей и оверлеями канваса (скрины пользователя).
