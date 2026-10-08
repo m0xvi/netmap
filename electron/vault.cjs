@@ -285,6 +285,11 @@ function upsertItem(db, item) {
     tags:      Array.isArray(item.tags) ? item.tags : [],
     fields:    (item.fields && typeof item.fields === 'object') ? item.fields : {},
     totpSecret: item.totpSecret || '',
+    // v0.76.4: SSH-ключи раньше МОЛЧА терялись — secretPart был whitelist'ом
+    // без этих полей (аудит после жалобы «проверь полностью на ошибки»).
+    sshKey:        item.sshKey || '',
+    sshKeyPath:    item.sshKeyPath || '',
+    sshPassphrase: item.sshPassphrase || '',
     history,
   };
   const { iv, ciphertext } = encrypt(currentKey, JSON.stringify(secretPart));
@@ -374,6 +379,9 @@ function exportAll(db, opts) {
         tags:     data.tags || [],
         fields:   data.fields || {},
         totpSecret: data.totpSecret || '',
+        sshKey:        data.sshKey || '',
+        sshKeyPath:    data.sshKeyPath || '',
+        sshPassphrase: data.sshPassphrase || '',
       });
     } catch (e) {
       // Skip un-decryptable entries but continue with the rest.

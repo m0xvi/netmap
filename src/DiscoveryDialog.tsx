@@ -374,6 +374,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [v3AuthKey, setV3AuthKey] = useState('');
   const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>('aes');
   const [v3PrivKey, setV3PrivKey] = useState('');
+  // v0.76.4: SSH-ключ (PEM) и passphrase — из vault-кнопки; едут в scan().
+  const [sshKeyPem, setSshKeyPem] = useState('');
+  const [sshPassPem, setSshPassPem] = useState('');
   const [snmpSweep, setSnmpSweep] = useState(false);
   // v0.51.20: рекурсивный обход — management-IP LLDP-соседей становятся
   // целями следующих волн SNMP-опроса.
@@ -422,6 +425,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
 
   const currentCfg: DiscoveryConfig = {
     mode, host, port, username, password,
+    // v0.76.4: SSH-ключ из vault-кнопки доезжает до scan().
+    privateKey: sshKeyPem || undefined,
+    sshPassphrase: sshPassPem || undefined,
     snmpCommunity: community,
     snmpVersion,
     v3User, v3Level, v3AuthProto, v3AuthKey, v3PrivProto, v3PrivKey,
@@ -965,10 +971,13 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                       <VaultCredsButtons
                         host={host} purpose="ssh" serviceLabel="MikroTik SSH" folder="MikroTik"
                         fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }, { key: 'sshKey', label: 'SSH-ключ (PEM)' }]}
-                        values={{ username, password, port: String(port) }}
+                        values={{ username, password, port: String(port), sshKey: sshKeyPem, sshPassphrase: sshPassPem }}
                         onApply={v => {
                           setUsername(v.username ?? '');
                           setPassword(v.password ?? '');
+                          // v0.76.4: ключ из записи vault — в конфиг скана.
+                          setSshKeyPem(v.sshKey ?? '');
+                          setSshPassPem(v.sshPassphrase ?? '');
                           // v0.53.0: порт тоже храним в записи (раньше терялся).
                           if (v.port != null && v.port !== '') {
                             const p = parseInt(v.port, 10);

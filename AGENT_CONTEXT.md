@@ -11,9 +11,9 @@
 | Проект | NetMap — desktop-приложение (Windows) для интерактивной схемы сети сисадмина. Замена статичным схемам Visio/draw.io |
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
-| HEAD | v0.76.3 (меню нажимается: dropdownNode в outside-click) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.76.3` (package.json), тег `v0.76.3` запушен |
-| Релиз | v0.76.3 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.3.exe`, `NetMap-Portable-0.76.3.exe`, `latest.yml` |
+| HEAD | v0.76.4 (аудит: vault whitelist, VaultCreds top-level, ключ в scan) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
+| Версия | `0.76.4` (package.json), тег `v0.76.4` запушен |
+| Релиз | v0.76.4 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.4.exe`, `NetMap-Portable-0.76.4.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
 
