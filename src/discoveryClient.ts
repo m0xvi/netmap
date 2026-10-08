@@ -23,6 +23,9 @@ export interface DiscoveryConfig {
   v3AuthKey?: string;
   v3PrivProto?: 'des' | 'aes' | 'aes256b' | 'aes256r';
   v3PrivKey?: string;
+  /** v0.76: SSH-ключ (PEM) для SSH-режима — из vault или вручную. */
+  privateKey?: string;
+  sshPassphrase?: string;
   snmpPort?: number;
   snmpTimeout?: number;
   sshTimeout?: number;

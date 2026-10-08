@@ -654,6 +654,8 @@ function ItemRow({ item, selected, onClick }: { item: VaultItemMeta; selected: b
         detail: {
           host: connect.host, port: connect.port || 22,
           username: f.username, password: f.password,
+          privateKey: f.sshKey || undefined, privateKeyPath: f.sshKeyPath || undefined,
+          passphrase: f.sshPassphrase || undefined,
           title: item.name, subtitle: item.url,
         },
       }));
@@ -845,6 +847,10 @@ function DetailDrawer({ item, isNew, onClose, onSave, onDelete }: {
   const [tags, setTags] = useState<string[]>(item.tags || []);
   const [tagInput, setTagInput] = useState('');
   const [totpSecret, setTotpSecret] = useState(item.totpSecret || '');
+  // v0.76: SSH-ключ в записи vault.
+  const [sshKey, setSshKey] = useState(item.sshKey || '');
+  const [sshKeyPath, setSshKeyPath] = useState(item.sshKeyPath || '');
+  const [sshPassphrase, setSshPassphrase] = useState(item.sshPassphrase || '');
   const [fields, setFields] = useState<Record<string, string>>(item.fields || {});
   const [newFieldKey, setNewFieldKey] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -867,6 +873,7 @@ function DetailDrawer({ item, isNew, onClose, onSave, onDelete }: {
     setName(item.name || ''); setFolder(item.folder || ''); setUrl(item.url || '');
     setUsername(item.username || ''); setPassword(item.password || ''); setNotes(item.notes || '');
     setTags(item.tags || []); setTotpSecret(item.totpSecret || ''); setFields(item.fields || {});
+    setSshKey(item.sshKey || ''); setSshKeyPath(item.sshKeyPath || ''); setSshPassphrase(item.sshPassphrase || '');
     setBound(item.boundDeviceIds || []);
     setShowPw(false); setTab('details');
   }, [item.id, item.updated]);
@@ -1137,6 +1144,13 @@ function DetailDrawer({ item, isNew, onClose, onSave, onDelete }: {
               </button>
             </SectionCard>
 
+            {/* v0.76: SSH-ключ — альтернатива паролю для терминала/discovery. */}
+            <SectionCard title="SSH-ключ">
+              <FieldRow label="PEM-ключ (вставьте текст)" value={sshKey} onChange={setSshKey} />
+              <FieldRow label="…или путь к файлу ключа" value={sshKeyPath} onChange={setSshKeyPath} />
+              <FieldRow label="Passphrase (если ключ зашифрован)" value={sshPassphrase} onChange={setSshPassphrase} type="password" />
+            </SectionCard>
+
             {/* More Actions */}
             <SectionCard title="More Actions">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1144,6 +1158,8 @@ function DetailDrawer({ item, isNew, onClose, onSave, onDelete }: {
                   onClick={() => onSave({
                     name, folder: folder || null, url, username, password, notes,
                     tags, totpSecret, fields,
+                    sshKey: sshKey || undefined, sshKeyPath: sshKeyPath || undefined,
+                    sshPassphrase: sshPassphrase || undefined,
                     boundDeviceIds: bound,
                   } as any)}
                   style={actionBtn}

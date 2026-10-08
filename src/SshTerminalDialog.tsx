@@ -106,6 +106,9 @@ function SshTerminalDialog({ cfg, onClose }: { cfg: OpenDetail; onClose: () => v
         const session = await openSshShell({
           host: cfg.host, port: cfg.port,
           username: cfg.username, password: cfg.password,
+          // v0.76: SSH-ключ из vault/контекстного меню.
+          privateKey: cfg.privateKey, privateKeyPath: cfg.privateKeyPath,
+          passphrase: cfg.passphrase,
           cols, rows,
         });
         sessionRef.current = session;

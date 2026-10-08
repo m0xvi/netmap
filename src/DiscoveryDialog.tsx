@@ -956,7 +956,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                     <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
                       <VaultCredsButtons
                         host={host} purpose="ssh" serviceLabel="MikroTik SSH" folder="MikroTik"
-                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }]}
+                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }, { key: 'sshKey', label: 'SSH-ключ (PEM)' }]}
                         values={{ username, password, port: String(port) }}
                         onApply={v => {
                           setUsername(v.username ?? '');

@@ -16,6 +16,10 @@ export interface SshConfig {
   port?: number;
   username: string;
   password?: string;
+  /** v0.76: PEM-текст ключа / путь к файлу / passphrase. */
+  privateKey?: string;
+  privateKeyPath?: string;
+  passphrase?: string;
   cols?: number;
   rows?: number;
 }

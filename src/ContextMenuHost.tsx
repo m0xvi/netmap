@@ -91,12 +91,19 @@ export function ContextMenuHost() {
           // приоритетнее встроенного credential.username.
           let username = dev.credential?.username;
           let password: string | undefined;
+          // v0.76: SSH-ключ из привязанной записи vault.
+          let privateKey: string | undefined;
+          let privateKeyPath: string | undefined;
+          let passphrase: string | undefined;
           const vaultId = dev.credentialId || dev.credential?.vaultItemId;
           if (vaultId) {
             const res = await vaultGet(vaultId);
             if (res.ok && res.item) {
               if (res.item.username) username = res.item.username;
               password = res.item.password;
+              privateKey = res.item.sshKey || undefined;
+              privateKeyPath = res.item.sshKeyPath || undefined;
+              passphrase = res.item.sshPassphrase || undefined;
             }
           }
           if (!username) {
@@ -105,7 +112,9 @@ export function ContextMenuHost() {
             return;
           }
           window.dispatchEvent(new CustomEvent('netmap:open-ssh-terminal', {
-            detail: { host, port: 22, username, password, title: dev.name, subtitle: host },
+            detail: { host, port: 22, username, password,
+              privateKey, privateKeyPath, passphrase,
+              title: dev.name, subtitle: host },
           }));
         },
       }] : []),

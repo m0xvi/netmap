@@ -34,6 +34,11 @@ export interface VaultItemFull extends VaultItemMeta {
   fields?: Record<string, string>;
   /** v0.38 — RFC 4648 base32 secret (as printed on 2FA setup screens). */
   totpSecret?: string;
+  /** v0.76 — SSH-аутентификация ключом: PEM-текст и/или путь к файлу,
+   *  passphrase для зашифрованного ключа. */
+  sshKey?: string;
+  sshKeyPath?: string;
+  sshPassphrase?: string;
   /** v0.38 — history[0] is the most recent previous password. */
   history?: VaultHistoryEntry[];
 }
