@@ -49,7 +49,11 @@ export function MenuBar() {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
       if (!barRef.current) return;
-      if (!barRef.current.contains(e.target as Node)) setOpen(null);
+      // v0.76.3: дропдаун живёт порталом в body — клик по нему НЕ внешний
+      // (иначе меню закрывалось на mousedown раньше, чем срабатывал onClick
+      // пункта — «кнопки не нажимаются», отчёт пользователя на v0.76.1/2).
+      const t = e.target as Node;
+      if (!barRef.current.contains(t) && !(dropdownNode && dropdownNode.contains(t))) setOpen(null);
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
@@ -475,13 +479,16 @@ function HelpMenu({ onClose }: { onClose: () => void }) {
 // ---------------------------------------------------------------------------
 // Reusable UI atoms
 
+// v0.76.3: DOM-узел портал-дропадауна для проверки «клик снаружи».
+let dropdownNode: HTMLElement | null = null;
+
 function Dropdown({ anchor, children }: { anchor: HTMLElement | null; children: React.ReactNode }) {
   const rect = anchor?.getBoundingClientRect();
   // v0.76.1: портал в body + z10000 — меню выше ЛЮБЫХ полос и оверлеев
   // канваса (раньше fixed-дропдаун жил в stacking-контексте своей полосы и
   // перекрывался соседями: тулбаром, легендой подсетей — скрины пользователя).
   return createPortal(
-    <div style={{
+    <div ref={(n) => { dropdownNode = n; }} style={{
       position: 'fixed',
       top: rect ? rect.bottom + 2 : 30,
       left: rect ? rect.left : 0,
