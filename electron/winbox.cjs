@@ -34,20 +34,28 @@ function launch(cfg) {
     if (!ip) return resolve({ ok: false, error: 'ip required' });
     const exe = p || 'winbox.exe';
     const args = buildWinboxArgs(ip, cfg.login, cfg.password);
+    // БАГ (v0.75.0): раньше resolve({ok:true}) шёл синхронно сразу после
+    // spawn(), до события 'error' — ENOENT терялся, и рендер не мог
+    // предложить указать путь. Теперь ждём либо 'spawn', либо 'error'.
+    let settled = false;
+    const done = (r) => { if (!settled) { settled = true; resolve(r); } };
+    let child;
     try {
-      const child = spawn(exe, args, {
+      child = spawn(exe, args, {
         detached: true,
         stdio: 'ignore',
         // winbox.exe обычно лежит вне PATH — даём пользователю указать путь;
         // если указан каталог, cwd туда же (relative-файлы winbox рядом).
         cwd: pathMod.dirname(exe) && pathMod.dirname(exe) !== '.' ? pathMod.dirname(exe) : undefined,
       });
-      child.on('error', (e) => resolve({ ok: false, error: String(e && e.message || e) }));
-      child.unref();
-      resolve({ ok: true });
     } catch (e) {
-      resolve({ ok: false, error: String(e && e.message || e) });
+      return done({ ok: false, error: String(e && e.message || e) });
     }
+    child.once('error', (e) => done({ ok: false, error: String(e && e.message || e) }));
+    child.once('spawn', () => {
+      child.unref();
+      done({ ok: true });
+    });
   });
 }
 

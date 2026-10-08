@@ -27,6 +27,18 @@ const { sshAuthFragment } = require('./sshAuth.cjs');
 
 const sessions = new Map(); // sessionId -> { client, stream, sender }
 
+/**
+ * Удаляем запись сессии только если она всё ещё принадлежит этому клиенту/потоку.
+ * БАГ (v0.40–v0.76): обработчики close/error старой сессии вызывали
+ * sessions.delete(id) безусловно. При переподключении с тем же sessionId
+ * старый close приходил ПОСЛЕ регистрации новой сессии и удалял её —
+ * ввод в терминал переставал работать («session-not-found»).
+ */
+function forget(id, owner) {
+  const cur = sessions.get(id);
+  if (cur && (cur.client === owner || cur.stream === owner)) sessions.delete(id);
+}
+
 function open(cfg, sender) {
   const id = String(cfg.sessionId || Math.random().toString(36).slice(2));
   if (sessions.has(id)) {
@@ -35,11 +47,14 @@ function open(cfg, sender) {
   return new Promise((resolve) => {
     const client = new Client();
     let resolved = false;
+    const finishOpen = (result) => {
+      if (!resolved) { resolved = true; resolve(result); }
+    };
 
     client.on('ready', () => {
       client.shell({ term: 'xterm-256color', cols: cfg.cols || 100, rows: cfg.rows || 30 }, (err, stream) => {
         if (err) {
-          if (!resolved) { resolved = true; resolve({ ok: false, error: err.message }); }
+          finishOpen({ ok: false, error: err.message });
           try { client.end(); } catch {}
           return;
         }
@@ -54,31 +69,47 @@ function open(cfg, sender) {
           catch {}
         });
         stream.on('close', (code, signal) => {
-          sessions.delete(id);
+          forget(id, stream);
           try { sender.send('netmap:ssh-close', { sessionId: id, code, signal }); } catch {}
           try { client.end(); } catch {}
         });
 
-        if (!resolved) { resolved = true; resolve({ ok: true, sessionId: id }); }
+        finishOpen({ ok: true, sessionId: id });
       });
     });
 
     client.on('error', (err) => {
-      sessions.delete(id);
-      if (!resolved) { resolved = true; resolve({ ok: false, error: err.message || String(err) }); }
+      forget(id, client);
+      const msg = err.message || String(err);
+      if (!resolved) { finishOpen({ ok: false, error: msg }); }
       else {
-        try { sender.send('netmap:ssh-error', { sessionId: id, error: err.message || String(err) }); } catch {}
+        try { sender.send('netmap:ssh-error', { sessionId: id, error: msg }); } catch {}
       }
     });
     client.on('close', () => {
-      if (sessions.has(id)) {
-        sessions.delete(id);
+      // Соединение закрылось до готовности (например, сервер оборвал handshake):
+      // без этого промис висел бы до readyTimeout без внятной ошибки.
+      if (!resolved) finishOpen({ ok: false, error: 'connection closed before ready' });
+      if (sessions.get(id) && sessions.get(id).client === client) {
+        forget(id, client);
         try { sender.send('netmap:ssh-close', { sessionId: id, reason: 'connection closed' }); } catch {}
       }
     });
 
     // v0.76: пароль ИЛИ ключ (PEM-текст/файл) + passphrase.
-    const auth = sshAuthFragment(cfg);
+    let auth;
+    try { auth = sshAuthFragment(cfg); }
+    catch (e) { return finishOpen({ ok: false, error: 'SSH-ключ: ' + (e.message || String(e)) }); }
+
+    // БАГ: с tryKeyboard:true ssh2 отдаёт серверу запрос keyboard-interactive,
+    // но без обработчика никто не отвечает → подключение висит до readyTimeout
+    // и показывает «Timed out while waiting for handshake». Многие sshd/
+    // сетевые устройства принимают пароль ТОЛЬКО через keyboard-interactive.
+    // (mikrotik-ssh.cjs делал это правильно — здесь приводим к тому же.)
+    client.on('keyboard-interactive', (_name, _instr, _lang, prompts, finish) => {
+      finish(prompts.map(() => auth.password || auth.passphrase || ''));
+    });
+
     client.connect({
       host: String(cfg.host || '').trim(),
       port: Number(cfg.port) || 22,

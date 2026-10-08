@@ -29,10 +29,22 @@ export async function persistLoadDoc(): Promise<NetMapDoc | null> {
   } catch { return null; }
 }
 
+/**
+ * БАГ: IPC-обработчики в main оборачиваются в safeInvoke, который при ошибке
+ * НЕ отклоняет промис, а возвращает {ok:false,error}. Поэтому прежний
+ * `.catch(() => {})` никогда не срабатывал — неудачная запись тихо
+ * терялась. Теперь ошибка хотя бы попадает в консоль (и в поддержку по логам).
+ */
+function reportNativeSaveResult(what: string, p: Promise<any>) {
+  p.then((r) => {
+    if (r && r.ok === false) console.error(`[netmap] ${what} save failed:`, r.error);
+  }).catch((e) => console.error(`[netmap] ${what} save failed:`, e));
+}
+
 export function persistSaveDoc(doc: NetMapDoc) {
   if (hasNativeBackend) {
     // Fire and forget; debouncing done by caller
-    w.netmap.saveDoc(doc).catch(() => {});
+    reportNativeSaveResult('doc', w.netmap.saveDoc(doc));
     return;
   }
   try { localStorage.setItem(LS_DOC, JSON.stringify(doc)); } catch {}
@@ -52,7 +64,7 @@ export async function persistLoadFilters(): Promise<any | null> {
 }
 
 export function persistSaveFilters(f: any) {
-  if (hasNativeBackend) { w.netmap.saveFilters(f).catch(() => {}); return; }
+  if (hasNativeBackend) { reportNativeSaveResult('filters', w.netmap.saveFilters(f)); return; }
   try { localStorage.setItem(LS_FILTERS, JSON.stringify(f)); } catch {}
 }
 
@@ -70,7 +82,7 @@ export async function persistLoadTemplates(): Promise<DeviceTemplate[]> {
 }
 
 export function persistSaveTemplates(list: DeviceTemplate[]) {
-  if (hasNativeBackend) { w.netmap.saveTemplates(list).catch(() => {}); return; }
+  if (hasNativeBackend) { reportNativeSaveResult('templates', w.netmap.saveTemplates(list)); return; }
   try { localStorage.setItem(LS_TEMPLATES, JSON.stringify(list)); } catch {}
 }
 

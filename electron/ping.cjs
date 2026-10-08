@@ -6,11 +6,25 @@ const net = require('net');
 const os = require('os');
 
 /**
+ * Host guard for anything that reaches the `ping` argv or a socket.
+ * БАГ: раньше проверялся только normalizeHost (вызывался не всегда), а
+ * значение вида "-f" / "-l …" уходило в argv как опция ping. Теперь
+ * сначала отсекаем всё, что не похоже на IPv4/IPv6/hostname, и никогда
+ * не начинаем с "-".
+ */
+const SAFE_HOST_RE = /^[A-Za-z0-9._:-]+$/;
+function isSafeHost(host) {
+  return typeof host === 'string' && host.length > 0 && host.length <= 253 &&
+    !host.startsWith('-') && SAFE_HOST_RE.test(host);
+}
+
+/**
  * ICMP-based probe via system `ping` binary.
  * Returns { alive: bool, rttMs?: number, method: 'icmp' }
  */
 function icmpPing(host, timeoutMs = 1500) {
   return new Promise((resolve) => {
+    if (!isSafeHost(host)) return resolve({ alive: false, method: 'icmp', error: 'bad-host' });
     const isWin = process.platform === 'win32';
     // Windows: -n 1 -w <ms> ; Unix: -c 1 -W <sec>
     const args = isWin
@@ -55,6 +69,7 @@ function icmpPing(host, timeoutMs = 1500) {
  */
 function tcpPing(host, timeoutMs = 1500, ports = [443, 80, 22, 8291, 8080, 8443]) {
   return new Promise((resolve) => {
+    if (!isSafeHost(host)) return resolve({ alive: false, method: 'tcp', error: 'bad-host' });
     let settled = false;
     const finish = (result) => {
       if (settled) return;
@@ -111,7 +126,7 @@ function normalizeHost(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim().split('/')[0].split(' ')[0];
   // very permissive: IPv4, IPv6, or a hostname
-  if (!/^[a-zA-Z0-9._:-]+$/.test(trimmed)) return null;
+  if (!isSafeHost(trimmed)) return null;
   return trimmed;
 }
 

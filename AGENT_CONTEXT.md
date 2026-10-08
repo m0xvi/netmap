@@ -19,6 +19,12 @@
 
 ## 2. Где остановились
 
+**v0.76.6 (аудит, 2026-10-08)** — исправлено: will-navigate/openExternal в `electron/main.cjs`
+(окно не уходит на внешние URL, схемы ограничены http/https/mailto); `isSafeHost` в ping/traceroute;
+SSH keyboard-interactive + гонка sessionId в `ssh-shell.cjs`; ENOENT WinBox (`winbox.cjs`);
+логирование ошибок сохранения в `persistence.ts`. Подробности — README, v0.76.6.
+Не сделано: тег/релиз (по правилам — только по запросу), включение `sandbox` у окна.
+
 **Сессия 2026-10-08 (эта ветка, `arena/01a0da42-netmap`)** — закрыта серия
 v0.75.0 → v0.76.5, всё выпущено и в CI success:
 - **v0.75.0**: WinBox (`electron/winbox.cjs`, аргументы `winbox.exe <ip> [login [password]]`,

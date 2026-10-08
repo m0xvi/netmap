@@ -1,6 +1,7 @@
 // Electron entry point — `npm run electron:dev` and packaged .exe
 const { app, BrowserWindow, shell, ipcMain, Menu } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 const isDev = !app.isPackaged;
 
@@ -116,6 +117,32 @@ function getRdp() {
 function getDiscovery() {
   if (!discoveryApi) discoveryApi = require('./discovery.cjs');
   return discoveryApi;
+}
+
+/**
+ * Only http(s) and mailto may be handed to the OS shell. Anything else
+ * (file:, javascript:, ms-msdt:, smb:, custom protocol handlers, …) is
+ * refused — a malicious link must not be able to launch local handlers.
+ */
+const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+function openExternalSafe(rawUrl) {
+  let u;
+  try { u = new URL(String(rawUrl)); } catch { u = null; }
+  if (!u || !EXTERNAL_PROTOCOLS.has(u.protocol)) {
+    console.warn('[netmap] blocked external URL:', String(rawUrl).slice(0, 120));
+    return false;
+  }
+  shell.openExternal(u.href).catch((e) => console.warn('[netmap] openExternal failed:', e && e.message));
+  return true;
+}
+
+/** True when `rawUrl` points at the application itself (dev server or bundled dist). */
+function isAppUrl(rawUrl) {
+  let u;
+  try { u = new URL(String(rawUrl)); } catch { return false; }
+  if (isDev) return u.origin === 'http://localhost:5173';
+  const distHref = pathToFileURL(path.join(__dirname, '..', 'dist')).href;
+  return u.protocol === 'file:' && u.href.startsWith(distHref.endsWith('/') ? distHref : distHref + '/');
 }
 
 function safeInvoke(fn) {
@@ -314,9 +341,21 @@ function createWindow() {
 
   // Open external links in the default browser instead of a new Electron window
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openExternalSafe(url);
     return { action: 'deny' };
   });
+
+  // SECURITY: preload exposes window.netmap (vault, SSH, RDP, …) to EVERY page
+  // loaded in this webContents. The main window must therefore never navigate
+  // to anything except the app itself. Any other http(s)/mailto link is handed
+  // to the system browser instead.
+  const onForeignNavigation = (event, url) => {
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    openExternalSafe(url);
+  };
+  win.webContents.on('will-navigate', onForeignNavigation);
+  win.webContents.on('will-redirect', onForeignNavigation);
 
   // Handy: F12 to toggle DevTools in prod
   win.webContents.on('before-input-event', (_event, input) => {

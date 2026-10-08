@@ -28,6 +28,12 @@ function start(cfg, sender) {
   const requestId = String(cfg?.requestId || Math.random().toString(36).slice(2));
   const target = String(cfg?.target || '').trim();
   if (!target) return { ok: false, error: 'target пустой', requestId };
+  // SECURITY: target уходит в argv tracert/traceroute. Без проверки значение
+  // вида "-f" интерпретировалось бы как опция утилиты. Разрешаем только
+  // IPv4/IPv6/hostname и не даём начинаться с "-".
+  if (target.startsWith('-') || !/^[A-Za-z0-9._:-]{1,253}$/.test(target)) {
+    return { ok: false, error: 'некорректный адрес назначения', requestId };
+  }
   const maxHops   = Math.max(1, Math.min(64, Number(cfg?.maxHops) || 30));
   const timeoutMs = Math.max(500, Math.min(10000, Number(cfg?.timeoutMs) || 2000));
 
