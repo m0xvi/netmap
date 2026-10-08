@@ -15,6 +15,14 @@ export interface DiscoveryConfig {
   username?: string;
   password?: string;
   snmpCommunity?: string;
+  /** v0.75.1: версия SNMP. '2c' по умолчанию; '3' — USM с auth/priv. */
+  snmpVersion?: '1' | '2c' | '3';
+  v3User?: string;
+  v3Level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+  v3AuthProto?: 'md5' | 'sha' | 'sha256' | 'sha512';
+  v3AuthKey?: string;
+  v3PrivProto?: 'des' | 'aes' | 'aes256b' | 'aes256r';
+  v3PrivKey?: string;
   snmpPort?: number;
   snmpTimeout?: number;
   sshTimeout?: number;

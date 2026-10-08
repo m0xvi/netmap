@@ -73,16 +73,38 @@ const OID = {
 
 // ---------- Session helpers -----------------------------------------------
 
+/** v0.75.1: чистая сборка v3-параметров сессии (юнит-тестируемая).
+ *  level: noAuthNoPriv | authNoPriv | authPriv; протоколы — строками
+ *  ('md5'|'sha'|'sha256'… / 'des'|'aes'|'aes256b'…), как ключи net-snmp. */
+function buildV3Options(v3) {
+  const level = (v3.level && snmp.SecurityLevel[v3.level]) || snmp.SecurityLevel.noAuthNoPriv;
+  const o = { version: snmp.Version3, level };
+  if (level >= snmp.SecurityLevel.authNoPriv) {
+    o.authProtocol = snmp.AuthProtocols[v3.authProtocol || 'sha'] || snmp.AuthProtocols.sha;
+    o.authKey = v3.authKey || '';
+  }
+  if (level === snmp.SecurityLevel.authPriv) {
+    o.privProtocol = snmp.PrivProtocols[v3.privProtocol || 'aes'] || snmp.PrivProtocols.aes;
+    o.privKey = v3.privKey || '';
+  }
+  return o;
+}
+
 function mkSession(host, community, opts = {}) {
-  return snmp.createSession(host, community || 'public', {
+  const base = {
     port: opts.port || 161,
     retries: opts.retries != null ? opts.retries : 1,
     timeout: opts.timeout || 2500,
     transport: 'udp4',
     trapPort: 162,
-    version: snmp.Version2c,
     idBitsSize: 32,
-  });
+  };
+  // v0.75.1: SNMPv3 (USM) — отдельный тип сессии в net-snmp.
+  if (opts.v3 && opts.v3.user) {
+    return snmp.createV3Session(host, opts.v3.user, { ...base, ...buildV3Options(opts.v3) });
+  }
+  const version = opts.snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
+  return snmp.createSession(host, community || 'public', { ...base, version });
 }
 
 function closeSession(sess) {
@@ -225,4 +247,5 @@ module.exports = {
   getSafe,
   walkSafe,
   tableSafe,
+  buildV3Options,
 };

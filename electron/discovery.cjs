@@ -540,7 +540,16 @@ async function collectSnmp(host, community, opts) {
     ifNames: {},    // ifIndex -> ifName/ifDescr
     warnings: [],
   };
-  const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1 };
+  const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1,
+    // v0.75.1: версия SNMP и v3-учётка (USM) — в каждую сессию snmp.cjs.
+    snmpVersion: cfg.snmpVersion || '2c',
+    ...(cfg.snmpVersion === '3' ? { v3: {
+      user: cfg.v3User || cfg.username || 'admin',
+      level: cfg.v3Level || 'authNoPriv',
+      authProtocol: cfg.v3AuthProto, authKey: cfg.v3AuthKey,
+      privProtocol: cfg.v3PrivProto, privKey: cfg.v3PrivKey,
+    } } : {}),
+  };
   try {
     const probe = await snmpApi.probe(host, community, scanOpts);
     if (!probe.ok) {

@@ -587,6 +587,9 @@ const bar: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 2,
   height: 28, padding: '0 8px',
   background: '#F8FAFC', borderBottom: '1px solid #E5E7EB',
+  // v0.75.1: stacking-контекст выше канвас-оверлеев (z30) — меню не
+  // перекрываются легендой подсетей и чипами схемы.
+  position: 'relative', zIndex: 60,
   flexShrink: 0,
   // WebkitAppRegion removed — draggable title bar reserved for Electron frame
 };

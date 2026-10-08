@@ -76,6 +76,15 @@ import { planAuditFixes, type AuditFix } from './topoAudit';
 // past the group border. Reflow after the update commits.
 import { reflowGroupsForDevices } from './collide';
 import { loadWorkspace, saveWorkspace, makeProject, type Workspace, type Project } from './workspace';
+
+/** v0.75.1: уникальное имя проекта: при коллизии — « (2)», « (3)»… */
+function uniqueProjectName(projects: Array<{ id: string; name: string }>, desired: string, exceptId?: string): string {
+  const taken = new Set(projects.filter(p => p.id !== exceptId).map(p => p.name));
+  if (!taken.has(desired)) return desired;
+  let n = 2;
+  while (taken.has(`${desired} (${n})`)) n++;
+  return `${desired} (${n})`;
+}
 import { traceCable } from './traceCable';
 
 export interface CtxMenuState {
@@ -780,14 +789,18 @@ export const useStore = create<State>((set, get) => ({
       pathA: null, pathB: null, pathIds: new Set(), pathLinkIds: new Set(), pathSteps: [],
     };
   }),
+  // v0.75.1: одинаковых имён проектов быть не должно — при коллизии
+  // добавляем « (2)», « (3)»… (баг: «Новый проект» несколько раз без
+  // переименования плодил одинаковые «Новая схема»).
   createProject: (name: string, fromExisting?: string): string => {
     const s = get();
     const src = fromExisting ? s.workspace.projects.find((p: Project) => p.id === fromExisting)?.doc : null;
     const newDoc: NetMapDoc = src
       ? JSON.parse(JSON.stringify(src))
       : { version: 3, name, groups: [], devices: [], links: [], stickies: [], vlans: [] };
-    newDoc.name = name;
-    const p = makeProject(name, newDoc);
+    const uniq = uniqueProjectName(s.workspace.projects, name);
+    newDoc.name = uniq;
+    const p = makeProject(uniq, newDoc);
     const nextWs: Workspace = { ...s.workspace, projects: [...s.workspace.projects, p], activeId: p.id };
     saveWorkspace(nextWs);
     set({
@@ -800,9 +813,10 @@ export const useStore = create<State>((set, get) => ({
     return p.id;
   },
   renameProject: (id: string, name: string) => set((s) => {
+    const uniq = uniqueProjectName(s.workspace.projects, name, id);
     const nextWs: Workspace = {
       ...s.workspace,
-      projects: s.workspace.projects.map((p: Project) => p.id === id ? { ...p, name, doc: { ...p.doc, name } } : p),
+      projects: s.workspace.projects.map((p: Project) => p.id === id ? { ...p, name: uniq, doc: { ...p.doc, name: uniq } } : p),
     };
     saveWorkspace(nextWs);
     return { workspace: nextWs, doc: activeDoc(nextWs) };

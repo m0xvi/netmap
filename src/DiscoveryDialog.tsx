@@ -366,6 +366,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [community, setCommunity] = useState('public');
+  // v0.75.1: SNMPv3 (USM) — версия, пользователь, auth/priv.
+  const [snmpVersion, setSnmpVersion] = useState<'1' | '2c' | '3'>('2c');
+  const [v3User, setV3User] = useState('admin');
+  const [v3Level, setV3Level] = useState<'noAuthNoPriv' | 'authNoPriv' | 'authPriv'>('authNoPriv');
+  const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>('sha256');
+  const [v3AuthKey, setV3AuthKey] = useState('');
+  const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>('aes');
+  const [v3PrivKey, setV3PrivKey] = useState('');
   const [snmpSweep, setSnmpSweep] = useState(false);
   // v0.51.20: рекурсивный обход — management-IP LLDP-соседей становятся
   // целями следующих волн SNMP-опроса.
@@ -415,6 +423,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const currentCfg: DiscoveryConfig = {
     mode, host, port, username, password,
     snmpCommunity: community,
+    snmpVersion,
+    v3User, v3Level, v3AuthProto, v3AuthKey, v3PrivProto, v3PrivKey,
     snmpSweep,
     snmpRecursive,
     snmpMaxHops,
@@ -963,9 +973,55 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                 )}
                 {(mode === 'snmp' || mode === 'both') && (
                   <>
+                    {/* v0.75.1: выбор версии SNMP; v3 — свои поля USM. */}
+                    <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12 }}>Версия SNMP</span>
+                      <select value={snmpVersion} onChange={e => setSnmpVersion(e.target.value as any)} style={{ ...S.input, width: 110 }}>
+                        <option value="2c">v2c</option>
+                        <option value="1">v1</option>
+                        <option value="3">v3</option>
+                      </select>
+                      {snmpVersion === '3' && (
+                        <select value={v3Level} onChange={e => setV3Level(e.target.value as any)} style={{ ...S.input, width: 150 }}>
+                          <option value="noAuthNoPriv">noAuthNoPriv</option>
+                          <option value="authNoPriv">authNoPriv</option>
+                          <option value="authPriv">authPriv</option>
+                        </select>
+                      )}
+                    </label>
+                    {snmpVersion !== '3' ? (
                     <label style={S.label}>SNMP community
                       <input value={community} onChange={e => setCommunity(e.target.value)} placeholder="public" style={S.input} />
                     </label>
+                    ) : (
+                    <>
+                      <label style={S.label}>v3 пользователь
+                        <input value={v3User} onChange={e => setV3User(e.target.value)} placeholder="admin" style={S.input} />
+                      </label>
+                      {v3Level !== 'noAuthNoPriv' && (
+                        <label style={S.label}>Auth ({v3AuthProto}) + ключ
+                          <span style={{ display: 'flex', gap: 6 }}>
+                            <select value={v3AuthProto} onChange={e => setV3AuthProto(e.target.value as any)} style={{ ...S.input, width: 90 }}>
+                              <option value="md5">md5</option><option value="sha">sha</option>
+                              <option value="sha256">sha256</option><option value="sha512">sha512</option>
+                            </select>
+                            <input type="password" value={v3AuthKey} onChange={e => setV3AuthKey(e.target.value)} placeholder="authKey" style={S.input} />
+                          </span>
+                        </label>
+                      )}
+                      {v3Level === 'authPriv' && (
+                        <label style={S.label}>Priv ({v3PrivProto}) + ключ
+                          <span style={{ display: 'flex', gap: 6 }}>
+                            <select value={v3PrivProto} onChange={e => setV3PrivProto(e.target.value as any)} style={{ ...S.input, width: 90 }}>
+                              <option value="des">des</option><option value="aes">aes</option>
+                              <option value="aes256b">aes256</option>
+                            </select>
+                            <input type="password" value={v3PrivKey} onChange={e => setV3PrivKey(e.target.value)} placeholder="privKey" style={S.input} />
+                          </span>
+                        </label>
+                      )}
+                    </>
+                    )}
                     {/* v0.51.21 */}
                     <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
                       <VaultCredsButtons

@@ -900,7 +900,7 @@ function IconBtn({ title, children, onClick, active }: {
 const bar: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 4,
   padding: '8px 12px', background: '#FFFFFF', borderBottom: '1px solid #E5E7EB',
-  position: 'relative', zIndex: 10, flexShrink: 0,
+  position: 'relative', zIndex: 60, flexShrink: 0, // v0.75.1: выше канвас-оверлеев (z30) — дропдауны не перекрываются легендой подсетей
 };
 const logoWrap: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8, marginRight: 6,
