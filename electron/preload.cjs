@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld('netmap', {
 
   // v0.43: RDP launcher (Windows-only auto-launch; other OS opens .rdp in default app)
   rdpLaunch: (cfg) => ipcRenderer.invoke('netmap:rdpLaunch', cfg),
+  // v0.75: WinBox (MikroTik) — запуск с адресом и учёткой.
+  winboxLaunch: (cfg) => ipcRenderer.invoke('netmap:winboxLaunch', cfg),
 
   // Ping monitor
   ping:      (host, opts) => ipcRenderer.invoke('netmap:ping', host, opts),

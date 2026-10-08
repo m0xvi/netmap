@@ -349,11 +349,16 @@ function DiscoveryDeviceRow({ d, effName, effKind, renamed, kindEdited, checked,
 // Component
 // ============================================================================
 
-interface Props { open: boolean; onClose: () => void; }
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  /** v0.75: предзаполнить цель (кнопка «Автообнаружение отсюда» в фокусе). */
+  initialHost?: string;
+}
 
 type Phase = 'form' | 'testing' | 'scanning' | 'review' | 'applying' | 'done';
 
-export function DiscoveryDialog({ open, onClose }: Props) {
+export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   // --- form state --------------------------------------------------------
   const [mode, setMode] = useState<DiscoveryConfig['mode']>('both');
   const [host, setHost] = useState('192.168.11.1');
@@ -386,6 +391,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   // Reset when re-opened
   useEffect(() => {
     if (open) {
+      // v0.75: цель из фокус-вида (если дали), иначе прежний host.
+      if (initialHost) setHost(initialHost);
       setPhase('form');
       setScan(null);
       setDevPick({});

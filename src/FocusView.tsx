@@ -6,6 +6,8 @@ import { StickyStack } from './StickyStack';
 import { confirmDialog, alertDialog, promptText } from './Modal';
 import { vaultStatus, vaultList, vaultGet, vaultUnlock, type VaultItemFull } from './vaultClient';
 import { bestVaultMatch } from './vaultMatcher';
+import { winboxLaunch, isMikrotikDevice } from './winboxClient';
+import { DiscoveryDialog } from './DiscoveryDialog';
 
 /**
  * Full-screen "focus mode" — one device is enlarged and centered,
@@ -101,7 +103,9 @@ export function FocusView() {
           }}
         >✕</button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+        {/* v0.75: paddingRight — крестик (top:12 right:12) больше не
+            наезжает на колонку кнопок QuickActions (баг со скрина). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, paddingRight: 44 }}>
           <div style={{ color: meta.color, filter: `drop-shadow(0 4px 12px ${meta.color})` }}>
             <Icon size={64} />
           </div>
@@ -543,8 +547,32 @@ function QuickActions({ device }: { device: Device }) {
   const [vaultReady, setVaultReady] = useState(false);
   const [copiedKind, setCopiedKind] = useState<'user' | 'pw' | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // v0.75: автообнаружение от этого устройства (диалог с предзаполненным host).
+  const [discOpen, setDiscOpen] = useState(false);
 
   const openUrl = buildOpenUrl(device);
+  const isMt = isMikrotikDevice(device);
+
+  // v0.75: WinBox — адрес + учётка (vault → встроенная учётка устройства).
+  const openWinbox = async () => {
+    if (!device.ip) { await alertDialog('WinBox', 'У устройства нет IP-адреса'); return; }
+    const login = vaultCreds?.username || device.credential?.username || '';
+    const password = vaultCreds?.password || '';
+    let path = '';
+    try { path = localStorage.getItem('netmap:winboxPath') || ''; } catch {}
+    const tryLaunch = (p: string) => winboxLaunch({ path: p, ip: device.ip!, login, password });
+    let res = await tryLaunch(path);
+    if (!res.ok && /ENOENT|not found|не найден/i.test(res.error || '')) {
+      const np = await promptText(
+        'Путь к winbox.exe',
+        path || 'C:\\Program Files\\WinBox\\winbox.exe',
+        'WinBox не найден по текущему пути — укажите полный путь к winbox.exe (сохранится)');
+      if (!np) return;
+      try { localStorage.setItem('netmap:winboxPath', np); } catch {}
+      res = await tryLaunch(np);
+    }
+    if (!res.ok) await alertDialog('WinBox', 'Не удалось запустить: ' + (res.error || 'ошибка'));
+  };
 
   // Load & auto-match vault credentials on mount / when device changes.
   useEffect(() => {
@@ -634,6 +662,57 @@ function QuickActions({ device }: { device: Device }) {
         </svg>
         Открыть в браузере
       </button>
+
+      {/* v0.75: WinBox — только для MikroTik; сразу с адресом и учёткой. */}
+      {isMt && (
+        <button
+          onClick={openWinbox}
+          disabled={!device.ip}
+          title={device.ip
+            ? `winbox ${device.ip}${vaultCreds?.username ? ' ' + vaultCreds.username : ''} (учётка из vault, если есть)`
+            : 'Нет IP'}
+          style={{
+            background: device.ip ? '#0D9488' : '#E5E7EB',
+            border: `1px solid ${device.ip ? '#14B8A6' : '#D1D5DB'}`,
+            color: device.ip ? '#fff' : '#6B7280',
+            padding: '8px 12px', borderRadius: 6,
+            cursor: device.ip ? 'pointer' : 'not-allowed',
+            fontSize: 13, fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="4" width="20" height="14" rx="2"/>
+            <path d="M8 22h8"/><path d="M12 18v4"/>
+          </svg>
+          Открыть в WinBox
+        </button>
+      )}
+
+      {/* v0.75: автообнаружение от этого устройства — быстрее найти соседей
+          и порты, чем выбирать цель вручную в меню. */}
+      <button
+        onClick={() => setDiscOpen(true)}
+        disabled={!device.ip}
+        title={device.ip ? `SNMP+SSH-обход от ${device.ip}: найдёт соседей и порты` : 'Нет IP'}
+        style={{
+          background: device.ip ? '#7C3AED' : '#E5E7EB',
+          border: `1px solid ${device.ip ? '#8B5CF6' : '#D1D5DB'}`,
+          color: device.ip ? '#fff' : '#6B7280',
+          padding: '8px 12px', borderRadius: 6,
+          cursor: device.ip ? 'pointer' : 'not-allowed',
+          fontSize: 13, fontWeight: 600,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>
+        </svg>
+        Автообнаружение отсюда
+      </button>
+      {discOpen && (
+        <DiscoveryDialog open={discOpen} initialHost={device.ip || ''} onClose={() => setDiscOpen(false)} />
+      )}
 
       {vaultCreds ? (
         <div style={{
