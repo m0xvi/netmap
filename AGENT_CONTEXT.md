@@ -19,6 +19,11 @@
 
 ## 2. Где остановились
 
+**Standing rule (указание пользователя, 2026-10-08): после КАЖДОГО изменения кода — релиз.**
+Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
+`git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
+Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
 **v0.76.6 (аудит, 2026-10-08)** — исправлено: will-navigate/openExternal в `electron/main.cjs`
 (окно не уходит на внешние URL, схемы ограничены http/https/mailto); `isSafeHost` в ping/traceroute;
 SSH keyboard-interactive + гонка sessionId в `ssh-shell.cjs`; ENOENT WinBox (`winbox.cjs`);
