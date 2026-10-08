@@ -23,6 +23,7 @@
  */
 
 const { Client } = require('ssh2');
+const { sshAuthFragment } = require('./sshAuth.cjs');
 
 const sessions = new Map(); // sessionId -> { client, stream, sender }
 
@@ -76,12 +77,14 @@ function open(cfg, sender) {
       }
     });
 
+    // v0.76: пароль ИЛИ ключ (PEM-текст/файл) + passphrase.
+    const auth = sshAuthFragment(cfg);
     client.connect({
       host: String(cfg.host || '').trim(),
       port: Number(cfg.port) || 22,
       username: String(cfg.username || ''),
-      password: cfg.password ? String(cfg.password) : undefined,
-      privateKey: cfg.privateKey || undefined,
+      ...auth,
+      tryKeyboard: true,
       readyTimeout: 15000,
       // Broad set of legacy algorithms so we can talk to old RouterOS/D-Link.
       algorithms: {

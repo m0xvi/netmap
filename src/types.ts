@@ -76,6 +76,10 @@ export interface Device {
   x: number;                 // canvas position (absolute if no group, else RELATIVE to parent group)
   y: number;
   groupId?: string | null;   // parent group id, if any
+  /** v0.67: «домашняя» пользовательская группа устройства. Запоминается, когда
+   *  стратегия раскладки временно выводит устройство из пользовательской
+   *  группы в автогруппу; восстанавливается раскладкой «без группировки». */
+  userGroupId?: string;
   /** For kind='vm': the physical host device id */
   hostDeviceId?: string | null;
   /** For kind='vm': vCPU / RAM / OS metadata */
@@ -139,6 +143,25 @@ export interface Device {
   lastRttMs?: number;
   /** Timestamp (ms) of last probe result */
   lastCheckedAt?: number;
+  /** v0.74: откуда устройство появилось на карте.
+   *  'dhcp' — из списка DHCP-лиз (топология тогда предположительная),
+   *  'snmp'/'ssh' — найдено при опросе свитча/роутера (FDB/LLDP/neighbor —
+   *  топология по данным сканирования), 'manual' — добавлено вручную.
+   *  Используется аудитом хабов (меню «Вид → Аудит сканирования хабов»). */
+  origin?: 'dhcp' | 'snmp' | 'ssh' | 'manual';
+}
+
+/** v0.74: след SNMP/SSH-прохода по одному хабу (seed-хосту discovery).
+ *  Сохраняется в doc.scanMeta при применении результатов сканирования и
+ *  позволяет аудиту отвечать: «был ли свитч просканирован и какие устройства
+ *  по его FDB должны к нему подключаться». */
+export interface ScannedHubMeta {
+  host: string;                    // IP опрошенного хоста
+  name?: string;                   // sysName/identity
+  via: 'snmp' | 'ssh' | 'both';    // чем реально опрошен
+  ok?: boolean;                    // ответил ли
+  fdbMacs: string[];               // MAC'и из его FDB/bridge host print
+  at?: number;                     // timestamp (ms) сканирования
 }
 
 export interface Link {
@@ -226,4 +249,8 @@ export interface NetMapDoc {
   stickies?: StickyNote[];
   /** Project-scoped VLAN dictionary (added in schema v3). */
   vlans?: Vlan[];
+  /** v0.74: следы SNMP/SSH-сканирований по хабам (см. ScannedHubMeta).
+   *  Заполняется discovery при применении результатов; аудит хабов
+   *  («Вид → Аудит сканирования хабов») сверяет с ним текущие связи. */
+  scanMeta?: ScannedHubMeta[];
 }

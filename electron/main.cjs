@@ -197,6 +197,10 @@ function registerIpc() {
 
   // v0.43: RDP launcher — generates a .rdp file and hands it to the OS.
   ipcMain.handle('netmap:rdpLaunch', safeInvoke((_e, cfg) => getRdp().launch(cfg)));
+  // v0.75: WinBox launcher (MikroTik) — ip + учётка позиционными аргументами.
+  let winboxApi = null;
+  const getWinbox = () => { if (!winboxApi) winboxApi = require('./winbox.cjs'); return winboxApi; };
+  ipcMain.handle('netmap:winboxLaunch', safeInvoke((_e, cfg) => getWinbox().launch(cfg)));
 
   // ---- Ping monitor ----
   ipcMain.handle('netmap:ping',      safeInvoke((_e, host, opts) => getPing().probe(host, opts)));

@@ -14,6 +14,11 @@
       .react-flow__edges,
       .react-flow__edge,
       .react-flow__edge-path { z-index: 2000 !important; }
+      /* v0.65: на близком зуме (near) карточки выше связей — кабели не режут
+         текст (приём макета A). Класс nm-edges-below навешивает Canvas;
+         на mid/far и в режиме «нож» связи остаются поверх карточек.
+         Рёбра в DOM идут раньше нод, поэтому z-index 0 = под карточками. */
+      .react-flow.nm-edges-below .react-flow__edges { z-index: 0 !important; }
       /* Force the SVG edge container to stay on top of the transform stack */
       .react-flow__edges { pointer-events: none; }
       .react-flow__edge-interaction { pointer-events: stroke; }
@@ -24,7 +29,9 @@
          pushed by collision resolver on drop, plus a subtle "grab" effect on
          the currently held node. */
       .react-flow__node {
-        transition: transform 260ms cubic-bezier(.22, .61, .36, 1);
+        /* v0.65: + opacity — плавное затемнение не-соседей при ховере
+           (Canvas ставит opacity напрямую на DOM-обёртки узлов). */
+        transition: transform 260ms cubic-bezier(.22, .61, .36, 1), opacity 150ms ease;
       }
       .react-flow__node.dragging,
       .react-flow__node:active {

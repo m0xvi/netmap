@@ -6,6 +6,7 @@ import { Toolbar } from './Toolbar';
 import { MenuBar } from './MenuBar';
 import { NewSidebar } from './NewSidebar';
 import { ContextMenuHost } from './ContextMenuHost';
+import { DeviceTooltipHost, GroupTooltipHost } from './DeviceTooltip';
 import { PathBanner } from './PathBanner';
 import { MultiSelectBar } from './MultiSelectBar';
 import { PingMonitor } from './PingMonitor';
@@ -230,6 +231,9 @@ export default function App() {
         <SlidePanel open={rightPanelOpen}><RightPanel /></SlidePanel>
       </div>
       <ContextMenuHost />
+      {/* v0.64: единый живой тултип устройств (карточки + точки-клиенты). */}
+      <DeviceTooltipHost />
+      <GroupTooltipHost />
       <PingMonitor />
       <FocusView />
       {/* v0.36.1: splash + progress overlay for long ops (loads, imports, exports) */}

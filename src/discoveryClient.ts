@@ -15,6 +15,17 @@ export interface DiscoveryConfig {
   username?: string;
   password?: string;
   snmpCommunity?: string;
+  /** v0.75.1: версия SNMP. '2c' по умолчанию; '3' — USM с auth/priv. */
+  snmpVersion?: '1' | '2c' | '3';
+  v3User?: string;
+  v3Level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+  v3AuthProto?: 'md5' | 'sha' | 'sha256' | 'sha512';
+  v3AuthKey?: string;
+  v3PrivProto?: 'des' | 'aes' | 'aes256b' | 'aes256r';
+  v3PrivKey?: string;
+  /** v0.76: SSH-ключ (PEM) для SSH-режима — из vault или вручную. */
+  privateKey?: string;
+  sshPassphrase?: string;
   snmpPort?: number;
   snmpTimeout?: number;
   sshTimeout?: number;
@@ -65,6 +76,8 @@ export interface DiscoveryScanResult {
   rootHost?: string;
   source?: DiscoveryMode;
   seeds?: Array<{ host: string; name?: string; vendor?: string; descr?: string; ok?: boolean }>;
+  /** v0.74: следы сканирования по каждому опрошенному хабу (для аудита). */
+  scanMeta?: Array<{ host: string; name?: string; via: 'snmp' | 'ssh' | 'both'; ok?: boolean; fdbMacs: string[]; at?: number }>;
   proposedDevices: DiscoveryDeviceProposal[];
   proposedLinks: DiscoveryLinkProposal[];
   // v0.52.0: справочники для фильтров (подсети из /ip/address, VLAN с именами)

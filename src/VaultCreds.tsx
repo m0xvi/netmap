@@ -226,9 +226,12 @@ async function saveToVault(props: Props) {
   const username = props.values['username'] || '';
   const firstSecret = props.fields.find(f => f.key !== 'username' && (props.values[f.key] || ''));
   const password = props.values['password'] ?? (firstSecret ? props.values[firstSecret.key] : '');
+  // v0.76.4: SSH-ключи — top-level поля записи (как в VaultStudio и
+  // ContextMenuHost), а не в fields{}-карте.
+  const SSH_TOP = ['sshKey', 'sshKeyPath', 'sshPassphrase'];
   const extraFields: Record<string, string> = {};
   for (const f of props.fields) {
-    if (f.key !== 'username' && f.key !== 'password' && props.values[f.key]) {
+    if (f.key !== 'username' && f.key !== 'password' && !SSH_TOP.includes(f.key) && props.values[f.key]) {
       extraFields[f.key] = props.values[f.key];
     }
   }
@@ -241,6 +244,9 @@ async function saveToVault(props: Props) {
     name,
     username,
     password,
+    sshKey: props.values['sshKey'] || undefined,
+    sshKeyPath: props.values['sshKeyPath'] || undefined,
+    sshPassphrase: props.values['sshPassphrase'] || undefined,
     fields: Object.keys(extraFields).length ? extraFields : undefined,
     tags: ['creds', props.purpose, props.serviceLabel.toLowerCase()],
     url: props.host || undefined,
@@ -317,6 +323,10 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
     for (const f of props.fields) {
       if (f.key === 'username') vals.username = r.item.username || '';
       else if (f.key === 'password') vals.password = r.item.password || '';
+      // v0.76.4: SSH-ключи читаем из top-level полей записи.
+      else if (f.key === 'sshKey') { const x = r.item.sshKey || r.item.fields?.['sshKey']; if (x) vals.sshKey = x; }
+      else if (f.key === 'sshKeyPath') { const x = r.item.sshKeyPath || r.item.fields?.['sshKeyPath']; if (x) vals.sshKeyPath = x; }
+      else if (f.key === 'sshPassphrase') { const x = r.item.sshPassphrase || r.item.fields?.['sshPassphrase']; if (x) vals.sshPassphrase = x; }
       else {
         const fv = r.item.fields?.[f.key];
         // v0.53.0: подставляем только то, что реально сохранено. Раньше

@@ -10,6 +10,7 @@ import { suggestVaultItems } from './vaultMatcher';
 import { TotpChip } from './TotpChip';
 import { ICONS, KIND_META } from './icons';
 import { VLAN_COLORS, vlanColorForIndex } from './vlanDefaults';
+import { HubPeersList } from './HubPeersList';
 import { MiniSpinner } from './Spinner';
 
 const KINDS: DeviceKind[] = ['router','switch','patchpanel','ap','camera','server','vm','vps','pc','pos','printer','lock','cloud','pbx','dvr','other'];
@@ -65,6 +66,8 @@ export function DevicePanel() {
 
       <div style={{ padding: 14, overflowY: 'auto', flex: 1, background: '#FFFFFF' }}>
         {tab === 'info' && <InfoTab device={device} update={update} />}
+        {/* v0.66.0: синхронный список соседей (макет D) — под основными полями. */}
+        {tab === 'info' && <HubPeersList deviceId={device.id} />}
         {tab === 'ports' && <PortsTab device={device} focusedPortId={selectedPortId} />}
         {tab === 'vlans' && <VlansTab device={device} update={update} />}
         {tab === 'hw' && <HardwareTab device={device} update={update} />}

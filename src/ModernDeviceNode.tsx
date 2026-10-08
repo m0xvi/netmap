@@ -40,6 +40,8 @@ import type { Device, DeviceKind } from './types';
 import { getFavicon } from './faviconClient';
 import { portSides } from './portSides';
 import { inferLayer } from './layers';
+import { showDeviceTip, hideDeviceTip } from './DeviceTooltip';
+import { downCountsByHub, groupEndpointsForCard, type EndpointGroup } from './scenePlan';
 
 interface Props {
   id: string;
@@ -94,6 +96,14 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
   const statusColor = isOnline ? '#22C55E' : '#EF4444';
   const statusLabel = isOnline ? 'Online' : 'Offline';
 
+  // v0.71: heatmap проблемности — число недоступных соседей хаба (красный
+  // бейдж на карточке/маяке). Подписка узкая: селектор возвращает число.
+  const isHubKind71 = device.kind === 'switch' || device.kind === 'router';
+  const downCount = useStore(s => (isHubKind71 ? downCountsByHub(s.doc).get(id) || 0 : 0));
+
+  // v0.72: focus-first — сколько соседей скрыто фокусом («+N» чип).
+  const hiddenExtra = Number((data as { hiddenExtra?: number }).hiddenExtra || 0);
+
   // ---------- LEAF (small) rendering ----------
   if (isEndpoint) {
     return (
@@ -114,7 +124,10 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
         // v0.47 — single click selects (Canvas.onNodeClick handles it +
         // opens right panel). Double click enters focus view.
         onDoubleClick={(e) => { e.stopPropagation(); setFocus(id); }}
-        title="Клик — выбрать · Двойной клик — крупный вид"
+        // v0.64 — живой тултип (имя/IP/MAC/статус) вместо native title.
+        onMouseEnter={(e) => showDeviceTip(id, e.clientX, e.clientY)}
+        onMouseMove={(e) => showDeviceTip(id, e.clientX, e.clientY)}
+        onMouseLeave={hideDeviceTip}
       >
         <div
           style={{
@@ -135,7 +148,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           </div>
           {/* v0.57: на средней ступени лист — только имя (IP/статус не читаются). */}
           {zoomBand !== 'mid' && (
-            <div style={{ fontSize: 10, color: '#64748B', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ fontSize: 11, color: '#64748B', display: 'flex', gap: 6, alignItems: 'center' }}>
               {device.ip && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{device.ip}</span>}
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, display: 'inline-block' }} />
             </div>
@@ -145,14 +158,14 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
             handles so React Flow can route edges to the exact port defined
             in the link, or fall back to a side handle when there's no
             port id (matches DeviceNode behaviour). */}
-        <PortHandles device={device} />
+        <PortHandles device={device} selected={selected} />
       </div>
     );
   }
 
   // v0.57: дальняя ступень — хаб рисуется «маяком»: крупно, читаемо издалека.
   if (isHub && zoomBand === 'far') {
-    return <FarBeacon id={id} device={device} selected={selected} />;
+    return <FarBeacon id={id} device={device} selected={selected} hiddenExtra={hiddenExtra} />;
   }
 
   // ---------- HUB (big card with optional endpoints) rendering ----------
@@ -168,8 +181,39 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
           : '0 2px 8px rgba(15,23,42,0.05)',
         overflow: 'hidden',
         transition: 'box-shadow 120ms, border-color 120ms',
+        position: 'relative',
       }}
     >
+      {/* v0.71: heatmap — красная пилюля «сколько соседей недоступно». */}
+      {downCount > 0 && (
+        <span
+          title={`Недоступно соседей: ${downCount}`}
+          style={{
+            position: 'absolute', top: 8, right: 8, zIndex: 2,
+            background: '#EF4444', color: '#fff', borderRadius: 999,
+            fontSize: 10, fontWeight: 800, lineHeight: '16px', padding: '0 7px',
+            boxShadow: '0 1px 5px rgba(239,68,68,0.45)',
+            pointerEvents: 'none',
+          }}
+        >
+          {downCount} down
+        </span>
+      )}
+      {/* v0.72: focus-first — синяя пилюля «+N» скрытых соседей (клик — раскрыть). */}
+      {hiddenExtra > 0 && (
+        <button
+          onClick={e => { e.stopPropagation(); useStore.getState().expandFocus(id); }}
+          title={`Раскрыть ещё ${hiddenExtra} сосед(ей) этого хаба`}
+          style={{
+            position: 'absolute', top: 8, right: downCount > 0 ? 62 : 8, zIndex: 3,
+            background: '#2563EB', color: '#fff', border: 'none', borderRadius: 999,
+            fontSize: 10, fontWeight: 800, lineHeight: '16px', padding: '0 8px',
+            boxShadow: '0 1px 5px rgba(37,99,235,0.45)', cursor: 'pointer',
+          }}
+        >
+          +{hiddenExtra}
+        </button>
+      )}
       {/* Header */}
       <div
         style={{
@@ -187,7 +231,10 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
             setFocus(id);
           }
         }}
-        title="Клик — выбрать · Двойной клик — крупный режим (focus)"
+        // v0.64 — живой тултип вместо native title.
+        onMouseEnter={(e) => showDeviceTip(id, e.clientX, e.clientY)}
+        onMouseMove={(e) => showDeviceTip(id, e.clientX, e.clientY)}
+        onMouseLeave={hideDeviceTip}
       >
         <div
           style={{
@@ -210,7 +257,8 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
             {device.name}
           </div>
           <div style={{
-            fontSize: 10, color: '#64748B', marginTop: 2,
+            // v0.65: кегль 10 → 11 px — второстепенная строка читается на 1080p.
+            fontSize: 11, color: '#64748B', marginTop: 2,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {device.model && <span>{device.model}</span>}
@@ -236,7 +284,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
       {/* Endpoint groups (Connected Devices section) */}
       {isHub && collapseEndpoints && <HubEndpoints hubId={id} />}
 
-      <PortHandles device={device} />
+      <PortHandles device={device} selected={selected} />
     </div>
   );
 }
@@ -248,6 +296,7 @@ export function ModernDeviceNode({ id, data, selected }: Props) {
 function HubEndpoints({ hubId }: { hubId: string }) {
   const [expanded, setExpanded] = useState(true);
   // v0.57: mid — только шапка с итогом, far — секция не нужна (есть полоса «маяка»).
+  // v0.64: точки-клиенты видны и на mid (макет B) — это дёшево и кликабельно.
   const zoomBand = useStore(s => s.zoomBand);
   // Только ссылки этого хаба (useShallow: новые массивы с теми же
   // ссылками ре-рендера не вызывают).
@@ -262,12 +311,29 @@ function HubEndpoints({ hubId }: { hubId: string }) {
   const peers = useStore(useShallow(
     (s) => s.doc.devices.filter(d => peerIds.has(d.id)),
   ));
-  const endpointGroups = useMemo(() => groupPeerEndpoints(peers), [peers]);
-  if (endpointGroups.length === 0) return null;
+  // v0.64: оконечные сортируются по типу (ENDPOINT_ORDER), внутри типа — по имени.
+  // Каждая точка подписана на своё устройство отдельно (EndpointDot) — тик
+  // мониторинга перерисовывает только изменившуюся точку.
+  // v0.73: агрегация по типам (groupEndpointsForCard): группы крупнее
+  // ENDPOINT_AGG_THRESHOLD сворачиваются в пилюлю «N × тип».
+  const endpointGroups = useMemo(
+    () => groupEndpointsForCard(peers, ENDPOINT_KINDS, ENDPOINT_ORDER),
+    [peers],
+  );
+  const endpointIds = useMemo(
+    () => endpointGroups.flatMap(g => g.ids),
+    [endpointGroups],
+  );
+  const offlineCount = useMemo(
+    () => peers.reduce((a, d) => a + (ENDPOINT_KINDS.includes(d.kind) && d.liveStatus === 'down' ? 1 : 0), 0),
+    [peers],
+  );
+  if (endpointIds.length === 0) return null;
   if (zoomBand === 'far') return null;
   return (
     <div style={{ borderTop: '1px solid #F1F5F9' }}>
       <button
+        className="nodrag"
         onClick={() => setExpanded(v => !v)}
         style={{
           width: '100%', padding: '10px 14px', border: 'none', background: 'transparent',
@@ -277,18 +343,113 @@ function HubEndpoints({ hubId }: { hubId: string }) {
       >
         <span style={{ fontSize: 9 }}>{expanded ? '▼' : '▶'}</span>
         <span>Connected Devices</span>
-        <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.7 }}>
-          {endpointGroups.reduce((a, g) => a + g.count, 0)}
+        <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.7, display: 'inline-flex', gap: 6 }}>
+          {offlineCount > 0 && (
+            <span style={{ color: '#EF4444', fontWeight: 700, opacity: 1 }}>{offlineCount} down</span>
+          )}
+          <span>{endpointIds.length}</span>
         </span>
       </button>
-      {(expanded && zoomBand === 'near') && (
-        <div style={{ padding: '0 8px 8px' }}>
-          {endpointGroups.map(g => (
-            <EndpointChip key={g.kind} kind={g.kind} count={g.count} ids={g.ids} />
-          ))}
-        </div>
-      )}
+      {expanded && <EndpointDots groups={endpointGroups} />}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v0.64 — интерактивные точки-клиенты (приём из макета B, map-variants.html):
+// каждое свёрнутое оконечное устройство — цветной квадратик 13 px на карточке
+// хаба. Цвет = тип устройства (KIND_META), красный = offline, полупрозрачные =
+// нет данных/проверка. Клик — выбрать (правая панель), Ctrl+клик — добавить
+// к мульти-выделению, двойной клик — крупный вид, ПКМ — меню устройства,
+// ховер — общий тултип (DeviceTooltip). «nodrag» не даёт клику превратиться
+// в перетаскивание хаба (конвенция React Flow).
+
+function EndpointDots({ groups }: { groups: EndpointGroup[] }) {
+  // v0.73: крупные однотипные группы стартуют пилюлей «N × тип»;
+  // клик раскрывает точки той же группы (локально, без store).
+  const [opened, setOpened] = useState<Set<string>>(new Set());
+  return (
+    <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+      {groups.map(g => {
+        if (g.aggregated && !opened.has(g.kind)) {
+          const m = KIND_META[g.kind];
+          const I = ICONS[g.kind];
+          return (
+            <button
+              key={g.kind}
+              className="nodrag"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpened(v => new Set(v).add(g.kind));
+              }}
+              title={`Показать ${g.ids.length} × ${ENDPOINT_LABEL[g.kind] || m.label}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: m.bg, border: `1px solid ${m.color}35`, borderRadius: 999,
+                padding: '2px 10px 2px 6px', fontSize: 11, fontWeight: 800, color: m.color,
+                cursor: 'pointer',
+              }}
+            >
+              <I size={13} color={m.color} />{g.ids.length} × {ENDPOINT_LABEL[g.kind] || m.label}
+            </button>
+          );
+        }
+        return g.ids.map(devId => <EndpointDot key={devId} devId={devId} />);
+      })}
+    </div>
+  );
+}
+
+function EndpointDot({ devId }: { devId: string }) {
+  // Подписка на примитивы своего устройства — ре-рендер только своей точки.
+  const d = useStore(useShallow((s) => {
+    const x = s.doc.devices.find(z => z.id === devId);
+    if (!x) return null;
+    return { kind: x.kind, liveStatus: x.liveStatus || 'unknown' };
+  }));
+  const selected = useStore(s => s.selectedDeviceId === devId || s.multiSelectedIds.has(devId));
+  if (!d) return null;
+  const meta = KIND_META[d.kind];
+  const down = d.liveStatus === 'down';
+  const dim = d.liveStatus === 'unknown' || d.liveStatus === 'checking';
+  return (
+    <span
+      className="nodrag"
+      onClick={(e) => {
+        e.stopPropagation();
+        const st = useStore.getState();
+        if (e.ctrlKey || e.metaKey) {
+          const cur = new Set(st.multiSelectedIds);
+          // Ранее выбранное одиночным кликом устройство «подхватываем» в набор —
+          // ctrl+клик расширяет выбор, а не начинает его с нуля.
+          if (st.selectedDeviceId && !cur.has(st.selectedDeviceId)) cur.add(st.selectedDeviceId);
+          if (cur.has(devId)) cur.delete(devId); else cur.add(devId);
+          st.setMultiSelection(Array.from(cur));
+        } else {
+          st.select(devId);
+        }
+      }}
+      onDoubleClick={(e) => { e.stopPropagation(); useStore.getState().focusDevice(devId); }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideDeviceTip();
+        useStore.getState().openContextMenu({
+          x: e.clientX, y: e.clientY, target: { type: 'device', id: devId },
+        });
+      }}
+      onMouseEnter={(e) => showDeviceTip(devId, e.clientX, e.clientY)}
+      onMouseMove={(e) => showDeviceTip(devId, e.clientX, e.clientY)}
+      onMouseLeave={hideDeviceTip}
+      style={{
+        width: 13, height: 13, borderRadius: 4,
+        background: down ? '#EF4444' : meta.color,
+        opacity: dim ? 0.45 : 1,
+        cursor: 'pointer',
+        boxShadow: selected ? '0 0 0 2px #FFFFFF, 0 0 0 3.5px #2563EB' : 'none',
+        transition: 'box-shadow 100ms, opacity 200ms, background 200ms',
+      }}
+    />
   );
 }
 
@@ -296,13 +457,23 @@ function HubEndpoints({ hubId }: { hubId: string }) {
 // v0.42.1: reusable port-handles renderer (same logic as DeviceNode's
 // CompactHandles — invisible handles per port, positioned by portSides).
 
-function PortHandles({ device }: { device: Device }) {
+/** v0.67: когда устройство держит невидимые портовые якоря (2 DOM-узла на порт).
+ *  near-зум, выделение или ховер — да; mid/far в покое — нет (оптимизация DOM,
+ *  рёбра на этих ступенях цепляются к боковым якорям по геометрии). */
+export const exposesPortAnchors = (band: string, selected: boolean, hovered: boolean) =>
+  band === 'near' || selected || hovered;
+
+function PortHandles({ device, selected }: { device: Device; selected?: boolean }) {
   const invisible: React.CSSProperties = {
     width: 6, height: 6, background: 'transparent', border: 'none', opacity: 0,
   };
   // Bump-based subscription so we re-render when portSides recompute.
   const psVersion = useStore(s => s.portSidesVersion);
   void psVersion;
+  // v0.67: на mid/far портовые якоря не рендерим — это 40–57% DOM схемы.
+  const band = useStore(s => s.zoomBand);
+  const hovered = useStore(s => s.hoveredDeviceId === device.id);
+  const exposePorts = exposesPortAnchors(band, !!selected, hovered);
 
   const posStyleFor = (s: Position, pct: number): React.CSSProperties =>
     (s === Position.Left || s === Position.Right)
@@ -317,7 +488,7 @@ function PortHandles({ device }: { device: Device }) {
 
   return (
     <>
-      {ports.map((port, idx) => {
+      {exposePorts && ports.map((port, idx) => {
         const dynSide = portSides.getSide(device.id, port.id);
         const dynPct  = portSides.getOffsetPct(device.id, port.id);
         const effSide = dynSide ?? defaultSide;
@@ -345,93 +516,8 @@ function PortHandles({ device }: { device: Device }) {
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint chip (row inside "Connected Devices" section)
-
-function EndpointChip({ kind, count, ids }: { kind: DeviceKind; count: number; ids: string[] }) {
-  const meta = KIND_META[kind];
-  const Icon = ICONS[kind];
-  const [open, setOpen] = useState(false);
-
-  const label = ENDPOINT_LABEL[kind] || meta.label;
-
-  return (
-    <div style={{ marginTop: 4 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%', padding: '6px 8px', border: 'none',
-          background: open ? meta.bg : 'transparent',
-          borderRadius: 8, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 8,
-          transition: 'background 120ms',
-        }}
-        onMouseEnter={(e) => { if (!open) (e.currentTarget as HTMLButtonElement).style.background = '#F8FAFC'; }}
-        onMouseLeave={(e) => { if (!open) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-      >
-        <div
-          style={{
-            width: 22, height: 22, borderRadius: '50%',
-            background: meta.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <Icon size={12} color={meta.color} />
-        </div>
-        <span style={{ fontSize: 11, color: '#334155', flex: 1, textAlign: 'left' }}>{label}</span>
-        <span
-          style={{
-            fontSize: 10, fontWeight: 700, color: meta.color,
-            background: 'white', padding: '1px 8px', borderRadius: 999,
-            border: `1px solid ${meta.color}30`,
-          }}
-        >
-          {count}
-        </span>
-      </button>
-      {open && (
-        <div style={{ margin: '4px 0 6px 30px', display: 'grid', gap: 2 }}>
-          {ids.map(devId => <EndpointRow key={devId} devId={devId} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// v0.55.0: строка endpoint'а подписана только на СВОЁ устройство по id.
-function EndpointRow({ devId }: { devId: string }) {
-  // v0.47 — expanded endpoint list uses select (single click) + double click
-  // for focus, matching the main-card behaviour.
-  const setFocus  = useStore(s => s.focusDevice);
-  const selectDev = useStore(s => s.select);
-  const d = useStore(s => s.doc.devices.find(x => x.id === devId));
-  if (!d) return null;
-  const online = d.liveStatus !== 'down';
-  return (
-    <button
-      onClick={(e) => { e.stopPropagation(); selectDev(devId); }}
-      onDoubleClick={(e) => { e.stopPropagation(); setFocus(devId); }}
-      title="Клик — выбрать в правой панели · Двойной клик — крупный вид"
-      style={{
-        padding: '3px 6px', border: 'none', background: 'transparent',
-        borderRadius: 4, cursor: 'pointer', textAlign: 'left',
-        display: 'flex', alignItems: 'center', gap: 5,
-        fontSize: 10, color: '#475569',
-      }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#F1F5F9'; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-    >
-      <span style={{
-        width: 5, height: 5, borderRadius: '50%',
-        background: online ? '#22C55E' : '#EF4444',
-      }} />
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {d.name}
-      </span>
-      {d.ip && <span style={{ fontFamily: 'ui-monospace, monospace', opacity: 0.7 }}>{d.ip}</span>}
-    </button>
-  );
-}
+// v0.64: бывшие EndpointChip/EndpointRow (аккордеон списков по типам) удалены —
+// их заменили интерактивные точки EndpointDots (см. выше). История — в git.
 
 const ENDPOINT_LABEL: Partial<Record<DeviceKind, string>> = {
   ap: 'Wi-Fi Access Points',
@@ -447,13 +533,17 @@ const ENDPOINT_LABEL: Partial<Record<DeviceKind, string>> = {
 // контрастная карточка: имя читается издалека, оконечные — счётчиками
 // по типам. Ядро (inferLayer === 'core') — с синим кольцом и плашкой CORE.
 
-function FarBeacon({ id, device, selected }: { id: string; device: Device; selected?: boolean }) {
+function FarBeacon({ id, device, selected, hiddenExtra = 0 }: {
+  id: string; device: Device; selected?: boolean; hiddenExtra?: number;
+}) {
   const meta = KIND_META[device.kind];
   const Icon = ICONS[device.kind];
   const setFocus = useStore(s => s.focusDevice);
   const isOnline = device.liveStatus !== 'down';
   const statusColor = isOnline ? '#22C55E' : '#EF4444';
   const isCore = inferLayer(device) === 'core';
+  // v0.71: проблемность на обзоре — маяк сразу показывает «N down».
+  const downCount = useStore(s => downCountsByHub(s.doc).get(id) || 0);
   return (
     <div
       style={{
@@ -476,7 +566,9 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
       <div
         style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px 12px', cursor: 'pointer' }}
         onDoubleClick={(e) => { e.stopPropagation(); setFocus(id); }}
-        title="Двойной клик — крупный вид"
+        onMouseEnter={(e) => showDeviceTip(id, e.clientX, e.clientY)}
+        onMouseMove={(e) => showDeviceTip(id, e.clientX, e.clientY)}
+        onMouseLeave={hideDeviceTip}
       >
         <div
           style={{
@@ -516,6 +608,34 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
               {isOnline ? 'Online' : 'Offline'}
             </span>
+            {downCount > 0 && (
+              <span
+                title={`Недоступно соседей: ${downCount}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  fontSize: 11, padding: '2px 10px', borderRadius: 999,
+                  background: '#EF4444', color: '#fff', fontWeight: 800,
+                  boxShadow: '0 1px 5px rgba(239,68,68,0.45)',
+                }}
+              >
+                {downCount} down
+              </span>
+            )}
+            {hiddenExtra > 0 && (
+              <button
+                onClick={e => { e.stopPropagation(); useStore.getState().expandFocus(id); }}
+                title={`Раскрыть ещё ${hiddenExtra} сосед(ей) этого хаба`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  fontSize: 11, padding: '2px 10px', borderRadius: 999,
+                  background: '#2563EB', color: '#fff', fontWeight: 800,
+                  boxShadow: '0 1px 5px rgba(37,99,235,0.45)',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                +{hiddenExtra}
+              </button>
+            )}
             {isCore && (
               <span style={{
                 fontSize: 10, fontWeight: 800, letterSpacing: 1,
@@ -530,7 +650,7 @@ function FarBeacon({ id, device, selected }: { id: string; device: Device; selec
       </div>
 
       <FarEndpointStrip hubId={id} />
-      <PortHandles device={device} />
+      <PortHandles device={device} selected={selected} />
     </div>
   );
 }

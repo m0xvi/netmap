@@ -30,6 +30,11 @@ interface SmartLayoutOpts {
   groupBy?: GroupingStrategy;
   /** Never touch existing user-created groups; only add auto-* groups for ungrouped devices. */
   preserveUserGroups?: boolean;
+  /** v0.67: стратегия ПЕРЕОРГАНИЗУЕТ всю карту, включая устройства внутри
+   *  пользовательских групп (они уходят в автогруппы, а «домашняя» группа
+   *  запоминается в device.userGroupId и возвращается restoreUserGroups).
+   *  Без флага поведение прежнее: пользовательские группы не трогаем. */
+  takeOverUserGroups?: boolean;
 }
 
 const AUTO_GROUP_PREFIX = 'auto-';
@@ -156,11 +161,19 @@ export function autoGroupDevices(
   const seeds = new Map<string, AutoGroupSeed>();
 
   const devicesWithGroup = devicesCleaned.map(d => {
-    if (d.groupId && preservedGroupIds.has(d.groupId)) return d; // untouched user group
+    const inUserGroup = !!(d.groupId && preservedGroupIds.has(d.groupId));
+    if (inUserGroup && !opts.takeOverUserGroups) return d; // untouched user group
     // Skip pure orphan "cloud" providers — they float freely.
     if (d.kind === 'cloud') return d;
     const gk = groupKeyFor(d, doc, strategy);
-    if (!gk) return d;
+    if (!gk) {
+      // v0.67: при takeover устройство выходит из пользовательской группы,
+      // но «дом» запоминается — «без группировки» вернёт его обратно.
+      if (opts.takeOverUserGroups && inUserGroup) {
+        return { ...d, groupId: undefined, userGroupId: d.groupId || undefined };
+      }
+      return d;
+    }
     const gid = `${AUTO_GROUP_PREFIX}${shortHash(gk.key)}`;
     let seed = seeds.get(gid);
     if (!seed) {
@@ -168,7 +181,9 @@ export function autoGroupDevices(
       seeds.set(gid, seed);
     }
     seed.devIds.push(d.id);
-    return { ...d, groupId: gid };
+    // v0.67: «домашняя» пользовательская группа запоминается ровно один раз.
+    const home = inUserGroup ? d.groupId || undefined : d.userGroupId;
+    return { ...d, groupId: gid, userGroupId: home };
   });
 
   // 3) Drop singleton auto-groups (a lone device looks worse in a box than alone).
@@ -212,3 +227,26 @@ export function summarizeAutoGrouping(before: NetMapDoc, after: NetMapDoc): stri
 }
 
 export const IS_AUTO_GROUP = (id: string) => id.startsWith(AUTO_GROUP_PREFIX);
+
+/**
+ * v0.67: раскладка «без группировки» (и любая с groupBy='none'):
+ *  - снимает автогруппы предыдущих стратегий (устройства из них выходят),
+ *  - возвращает устройства в «домашние» пользовательские группы (userGroupId),
+ *  - сами пользовательские группы не трогает (они лишь «спали», пока была стратегия).
+ */
+export function restoreUserGroups(doc: NetMapDoc): NetMapDoc {
+  const groups = (doc.groups || []).filter(g => !g.id.startsWith(AUTO_GROUP_PREFIX));
+  const kept = new Set(groups.map(g => g.id));
+  const devices = doc.devices.map(d => {
+    let groupId: string | undefined | null = d.groupId;
+    let userGroupId: string | undefined = d.userGroupId;
+    if (groupId && !kept.has(groupId)) groupId = undefined; // был в автогруппе
+    if (!groupId && userGroupId && kept.has(userGroupId)) {
+      groupId = userGroupId; // возвращаемся «домой»
+      userGroupId = undefined;
+    }
+    if (groupId === d.groupId && userGroupId === d.userGroupId) return d;
+    return { ...d, groupId, userGroupId };
+  });
+  return { ...doc, devices, groups };
+}

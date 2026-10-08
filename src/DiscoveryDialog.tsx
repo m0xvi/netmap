@@ -349,11 +349,16 @@ function DiscoveryDeviceRow({ d, effName, effKind, renamed, kindEdited, checked,
 // Component
 // ============================================================================
 
-interface Props { open: boolean; onClose: () => void; }
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  /** v0.75: предзаполнить цель (кнопка «Автообнаружение отсюда» в фокусе). */
+  initialHost?: string;
+}
 
 type Phase = 'form' | 'testing' | 'scanning' | 'review' | 'applying' | 'done';
 
-export function DiscoveryDialog({ open, onClose }: Props) {
+export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   // --- form state --------------------------------------------------------
   const [mode, setMode] = useState<DiscoveryConfig['mode']>('both');
   const [host, setHost] = useState('192.168.11.1');
@@ -361,6 +366,17 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [community, setCommunity] = useState('public');
+  // v0.75.1: SNMPv3 (USM) — версия, пользователь, auth/priv.
+  const [snmpVersion, setSnmpVersion] = useState<'1' | '2c' | '3'>('2c');
+  const [v3User, setV3User] = useState('admin');
+  const [v3Level, setV3Level] = useState<'noAuthNoPriv' | 'authNoPriv' | 'authPriv'>('authNoPriv');
+  const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>('sha256');
+  const [v3AuthKey, setV3AuthKey] = useState('');
+  const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>('aes');
+  const [v3PrivKey, setV3PrivKey] = useState('');
+  // v0.76.4: SSH-ключ (PEM) и passphrase — из vault-кнопки; едут в scan().
+  const [sshKeyPem, setSshKeyPem] = useState('');
+  const [sshPassPem, setSshPassPem] = useState('');
   const [snmpSweep, setSnmpSweep] = useState(false);
   // v0.51.20: рекурсивный обход — management-IP LLDP-соседей становятся
   // целями следующих волн SNMP-опроса.
@@ -386,6 +402,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
   // Reset when re-opened
   useEffect(() => {
     if (open) {
+      // v0.75: цель из фокус-вида (если дали), иначе прежний host.
+      if (initialHost) setHost(initialHost);
       setPhase('form');
       setScan(null);
       setDevPick({});
@@ -407,7 +425,12 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 
   const currentCfg: DiscoveryConfig = {
     mode, host, port, username, password,
+    // v0.76.4: SSH-ключ из vault-кнопки доезжает до scan().
+    privateKey: sshKeyPem || undefined,
+    sshPassphrase: sshPassPem || undefined,
     snmpCommunity: community,
+    snmpVersion,
+    v3User, v3Level, v3AuthProto, v3AuthKey, v3PrivProto, v3PrivKey,
     snmpSweep,
     snmpRecursive,
     snmpMaxHops,
@@ -434,6 +457,14 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     setScan(null);
     try {
       const r = await discoveryScan({ ...currentCfg, doc });
+      // v0.76.1: результат ошибки ({ok:false,error}) НЕ должен попадать в
+      // scan — мемо review-фазы итерируют proposedDevices и падали
+      // («T.proposedDevices is not iterable», отчёт 2026-10-08).
+      if (!r || r.ok === false || !Array.isArray((r as any).proposedDevices)) {
+        setPhase('form');
+        await alertDialog('Автообнаружение', 'Сканирование не вернуло результат: ' + ((r as any)?.error || 'неизвестная ошибка'));
+        return;
+      }
       setScan(r);
       // Default: all rows selected (MAC-only rows are visible but never apply —
       // v0.52.0 requires every added device to have an IP).
@@ -465,7 +496,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     // на непринятых устройствах, пропускаются автоматически со счётчиком.
     const finalIdByTemp = new Map<string, string>();
     const devicesToCreate: any[] = [];
-    for (const d of scan.proposedDevices) {
+    for (const d of (scan!.proposedDevices ?? [])) {
       if (!effectiveDevIds.has(d.tempId)) continue;
       const finalId = `dsc-${d.tempId.replace(/^new_/, '')}`;
       const finalName = (effNameOf(d).trim() || d.name).slice(0, 128);
@@ -481,6 +512,12 @@ export function DiscoveryDialog({ open, onClose }: Props) {
         vendor: d.vendor,
         vlan: d.vlan ?? undefined,   // v0.55.0: VLAN едет в порт — smart-раскладка группирует по VLAN
         tags,
+        // v0.74: происхождение для аудита хабов. Устройство найдено при
+        // опросе (FDB/LLDP/neighbor — есть hint) — из скана (ssh, если
+        // источник MikroTik); иначе имя из DHCP-лизы — значит из DHCP.
+        origin: d.hint
+          ? (scan.source === 'mikrotik' ? 'ssh' : 'snmp')
+          : ((d.nameSource === 'dhcp' || d.dhcpHost || d.dhcpComment) ? 'dhcp' : 'snmp'),
       });
       finalIdByTemp.set(d.tempId, finalId);
     }
@@ -493,7 +530,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
 
     const linksToCreate: any[] = [];
     let droppedLinks = 0;
-    for (const l of scan.proposedLinks) {
+    for (const l of (scan!.proposedLinks ?? [])) {
       if (!linkPick[l.tempId]) continue;
       if (!isLinkVisible(l)) { droppedLinks++; continue; }
       const from = resolveRef(l.fromRef);
@@ -510,7 +547,11 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       });
     }
 
-    const report = applyDiscovery({ devices: devicesToCreate, links: linksToCreate });
+    const report = applyDiscovery({
+      devices: devicesToCreate, links: linksToCreate,
+      // v0.74: следы сканирований — в doc.scanMeta для аудита хабов.
+      scanMeta: (scan as any).scanMeta,
+    });
     setApplyReport({ dev: report.addedDevices, link: report.addedLinks });
     // v0.51.22: сразу раскладываем карту автоматически — иначе сетка из
     // сотен новых карточек остаётся налезать на существующие группы
@@ -568,7 +609,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
         fromRouter: true,
       });
     }
-    for (const d of scan.proposedDevices) {
+    for (const d of (scan!.proposedDevices ?? [])) {
       if (!d.ip) continue;
       let hit: DiscSubnet | undefined;
       for (const s of stats.values()) {
@@ -591,7 +632,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       byParent.set(s.cidr, new Map());
     }
     if (byParent.size > 0) {
-      for (const d of scan.proposedDevices) {
+      for (const d of (scan!.proposedDevices ?? [])) {
         if (!d.ip) continue;
         const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(d.ip);
         if (!m) continue;
@@ -620,7 +661,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     const names = new Map<number, string>();
     for (const v of scan.vlans || []) if (v.name) names.set(v.id, v.name);
     const counts = new Map<number, number>();
-    for (const d of scan.proposedDevices) {
+    for (const d of (scan!.proposedDevices ?? [])) {
       if (d.vlan == null) continue;
       counts.set(d.vlan, (counts.get(d.vlan) || 0) + 1);
     }
@@ -629,7 +670,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
       .sort((a, b) => a.id - b.id);
   }, [scan]);
   const noVlanCount = useMemo(
-    () => scan ? scan.proposedDevices.filter(d => d.ip && d.vlan == null).length : 0,
+    () => scan ? (scan!.proposedDevices ?? []).filter(d => d.ip && d.vlan == null).length : 0,
     [scan]);
 
   const exclCidrArr = useMemo(() => Array.from(excludedCidrs), [excludedCidrs]);
@@ -801,7 +842,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
   const noIpTotal = useMemo(
-    () => scan ? scan.proposedDevices.filter(d => !d.ip).length : 0, [scan]);
+    () => scan ? (scan!.proposedDevices ?? []).filter(d => !d.ip).length : 0, [scan]);
   // v0.56.0: группы таблицы устройств (отсортированные внутри групп).
   const unknownGroup = useMemo(
     () => sortRows([...unknownDevs, ...(showNoIp ? noIpDevs : [])]),
@@ -929,11 +970,14 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                     <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
                       <VaultCredsButtons
                         host={host} purpose="ssh" serviceLabel="MikroTik SSH" folder="MikroTik"
-                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }]}
-                        values={{ username, password, port: String(port) }}
+                        fields={[{ key: 'username', label: 'Логин' }, { key: 'password', label: 'Пароль' }, { key: 'port', label: 'Порт' }, { key: 'sshKey', label: 'SSH-ключ (PEM)' }]}
+                        values={{ username, password, port: String(port), sshKey: sshKeyPem, sshPassphrase: sshPassPem }}
                         onApply={v => {
                           setUsername(v.username ?? '');
                           setPassword(v.password ?? '');
+                          // v0.76.4: ключ из записи vault — в конфиг скана.
+                          setSshKeyPem(v.sshKey ?? '');
+                          setSshPassPem(v.sshPassphrase ?? '');
                           // v0.53.0: порт тоже храним в записи (раньше терялся).
                           if (v.port != null && v.port !== '') {
                             const p = parseInt(v.port, 10);
@@ -946,9 +990,55 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                 )}
                 {(mode === 'snmp' || mode === 'both') && (
                   <>
+                    {/* v0.75.1: выбор версии SNMP; v3 — свои поля USM. */}
+                    <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12 }}>Версия SNMP</span>
+                      <select value={snmpVersion} onChange={e => setSnmpVersion(e.target.value as any)} style={{ ...S.input, width: 110 }}>
+                        <option value="2c">v2c</option>
+                        <option value="1">v1</option>
+                        <option value="3">v3</option>
+                      </select>
+                      {snmpVersion === '3' && (
+                        <select value={v3Level} onChange={e => setV3Level(e.target.value as any)} style={{ ...S.input, width: 150 }}>
+                          <option value="noAuthNoPriv">noAuthNoPriv</option>
+                          <option value="authNoPriv">authNoPriv</option>
+                          <option value="authPriv">authPriv</option>
+                        </select>
+                      )}
+                    </label>
+                    {snmpVersion !== '3' ? (
                     <label style={S.label}>SNMP community
                       <input value={community} onChange={e => setCommunity(e.target.value)} placeholder="public" style={S.input} />
                     </label>
+                    ) : (
+                    <>
+                      <label style={S.label}>v3 пользователь
+                        <input value={v3User} onChange={e => setV3User(e.target.value)} placeholder="admin" style={S.input} />
+                      </label>
+                      {v3Level !== 'noAuthNoPriv' && (
+                        <label style={S.label}>Auth ({v3AuthProto}) + ключ
+                          <span style={{ display: 'flex', gap: 6 }}>
+                            <select value={v3AuthProto} onChange={e => setV3AuthProto(e.target.value as any)} style={{ ...S.input, width: 90 }}>
+                              <option value="md5">md5</option><option value="sha">sha</option>
+                              <option value="sha256">sha256</option><option value="sha512">sha512</option>
+                            </select>
+                            <input type="password" value={v3AuthKey} onChange={e => setV3AuthKey(e.target.value)} placeholder="authKey" style={S.input} />
+                          </span>
+                        </label>
+                      )}
+                      {v3Level === 'authPriv' && (
+                        <label style={S.label}>Priv ({v3PrivProto}) + ключ
+                          <span style={{ display: 'flex', gap: 6 }}>
+                            <select value={v3PrivProto} onChange={e => setV3PrivProto(e.target.value as any)} style={{ ...S.input, width: 90 }}>
+                              <option value="des">des</option><option value="aes">aes</option>
+                              <option value="aes256b">aes256</option>
+                            </select>
+                            <input type="password" value={v3PrivKey} onChange={e => setV3PrivKey(e.target.value)} placeholder="privKey" style={S.input} />
+                          </span>
+                        </label>
+                      )}
+                    </>
+                    )}
                     {/* v0.51.21 */}
                     <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
                       <VaultCredsButtons
@@ -1027,8 +1117,8 @@ export function DiscoveryDialog({ open, onClose }: Props) {
               <div>
                 <div className="s-label"><DIcon n="sparkle" size={14} /> Сканирование завершено · найдено новых</div>
                 <div className="s-big">
-                  {scan.proposedDevices.filter(d => d.ip).length} <small>{plural(scan.proposedDevices.filter(d => d.ip).length, 'устройство', 'устройства', 'устройств')}</small>
-                  <span className="dot">·</span>{scan.proposedLinks.length} <small>{plural(scan.proposedLinks.length, 'связь', 'связи', 'связей')}</small>
+                  {(scan!.proposedDevices ?? []).filter(d => d.ip).length} <small>{plural((scan!.proposedDevices ?? []).filter(d => d.ip).length, 'устройство', 'устройства', 'устройств')}</small>
+                  <span className="dot">·</span>{(scan!.proposedLinks ?? []).length} <small>{plural((scan!.proposedLinks ?? []).length, 'связь', 'связи', 'связей')}</small>
                 </div>
                 {noIpTotal > 0 && (
                   <div className="s-note" title="Известен только MAC — добавить такие устройства нельзя, устройству обязательно нужен IP.">
@@ -1249,7 +1339,7 @@ export function DiscoveryDialog({ open, onClose }: Props) {
                 <span className="g-count">{visibleRowCount}</span>
                 <span className="g-hint">клик по строке — выбрать · сортировка — по заголовкам</span>
               </div>
-              {scan.proposedDevices.length === 0 ? (
+              {(scan!.proposedDevices ?? []).length === 0 ? (
                 <div className="empty show"><b>Новых устройств нет</b>Всё, что нашли — уже есть в текущей карте.</div>
               ) : visibleRowCount === 0 ? (
                 <div className="empty show"><b>Все устройства скрыты фильтрами</b>Ослабьте поиск или включите подсети/VLAN.</div>
@@ -1363,16 +1453,16 @@ export function DiscoveryDialog({ open, onClose }: Props) {
             <div ref={linksRef}>
               <div className="sec-head">
                 <h2><DIcon n="link" size={16} />Новые связи</h2>
-                <span className="g-count">{scan.proposedLinks.length}</span>
+                <span className="g-count">{(scan!.proposedLinks ?? []).length}</span>
                 <span className="g-hint">связи к скрытым устройствам пропускаются автоматически</span>
                 <button className="gtoggle" onClick={() => {
-                  const all = scan.proposedLinks.every(l => linkPick[l.tempId]);
+                  const all = (scan!.proposedLinks ?? []).every(l => linkPick[l.tempId]);
                   const next: Record<string, boolean> = {};
-                  scan.proposedLinks.forEach(l => next[l.tempId] = !all);
+                  (scan!.proposedLinks ?? []).forEach(l => next[l.tempId] = !all);
                   setLinkPick(next);
-                }}>{scan.proposedLinks.every(l => linkPick[l.tempId]) ? 'Снять все' : 'Выбрать все'}</button>
+                }}>{(scan!.proposedLinks ?? []).every(l => linkPick[l.tempId]) ? 'Снять все' : 'Выбрать все'}</button>
               </div>
-              {scan.proposedLinks.length === 0 ? (
+              {(scan!.proposedLinks ?? []).length === 0 ? (
                 <div className="empty show"><b>Связей не найдено</b>Проверьте что LLDP включён на устройствах.</div>
               ) : visibleLinks.length === 0 ? (
                 <div className="empty show"><b>Связей по запросу «{qTrim}» не найдено</b>Ослабьте поиск.</div>

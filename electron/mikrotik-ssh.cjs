@@ -23,6 +23,7 @@
  */
 
 const { Client } = require('ssh2');
+const { sshAuthFragment } = require('./sshAuth.cjs');
 
 // ---------- Low-level SSH helpers -----------------------------------------
 
@@ -157,17 +158,19 @@ function runCommand(cfg, cmd, _retryAlgos) {
     // if any name is unknown, drop it up-front instead of triggering the
     // Client's ctor throw (which is harder to recover from).
     const cleanAlgos = filterToSupported(algos);
+    // v0.76: аутентификация — пароль ИЛИ приватный ключ (из vault/формы).
+    const auth = sshAuthFragment(cfg);
     conn.connect({
       host: cfg.host,
       port: cfg.port || 22,
       username: cfg.username,
-      password: cfg.password,
+      ...auth,
       tryKeyboard: true,
       readyTimeout: cfg.timeoutMs || 12000,
       algorithms: cleanAlgos,
     });
     conn.on('keyboard-interactive', (_name, _instr, _lang, prompts, submit) => {
-      submit(prompts.map(() => cfg.password || ''));
+      submit(prompts.map(() => cfg.password || auth.passphrase || ''));
     });
   });
 }

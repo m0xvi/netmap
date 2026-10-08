@@ -16,12 +16,15 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from './store';
 import { alertDialog, confirmDialog } from './Modal';
+import { planHintRepairs } from './topoRepair';
 import { MikrotikImportDialog } from './MikrotikImportDialog';
 import { ImportDialog } from './ImportDialog';
 import { DiscoveryDialog } from './DiscoveryDialog';
 import { BackupsDialog } from './BackupsDialog';
+import { AuditHubsDialog } from './AuditHubsDialog';
 import type { ImportVendor } from './importClient';
 
 type RootKey = 'file' | 'view' | 'tools' | 'monitor' | 'help';
@@ -38,13 +41,19 @@ export function MenuBar() {
   const [importOpen, setImportOpen] = useState(false);
   const [importVendor, setImportVendor] = useState<ImportVendor | undefined>(undefined);
   const [backupsOpen, setBackupsOpen] = useState(false);
+  // v0.74: аудит сканирования хабов.
+  const [auditOpen, setAuditOpen] = useState(false);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
       if (!barRef.current) return;
-      if (!barRef.current.contains(e.target as Node)) setOpen(null);
+      // v0.76.3: дропдаун живёт порталом в body — клик по нему НЕ внешний
+      // (иначе меню закрывалось на mousedown раньше, чем срабатывал onClick
+      // пункта — «кнопки не нажимаются», отчёт пользователя на v0.76.1/2).
+      const t = e.target as Node;
+      if (!barRef.current.contains(t) && !(dropdownNode && dropdownNode.contains(t))) setOpen(null);
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
@@ -143,7 +152,7 @@ export function MenuBar() {
       )}
       {open === 'view' && (
         <Dropdown anchor={rootRefs.current.view}>
-          <ViewMenu onClose={() => setOpen(null)} />
+          <ViewMenu onClose={() => setOpen(null)} onAudit={() => { setOpen(null); setAuditOpen(true); }} />
         </Dropdown>
       )}
       {open === 'tools' && (
@@ -172,6 +181,7 @@ export function MenuBar() {
       <ImportDialog open={importOpen} initialVendor={importVendor} onClose={() => setImportOpen(false)} />
       <DiscoveryDialog open={discoveryOpen} onClose={() => setDiscoveryOpen(false)} />
       <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
+      {auditOpen && <AuditHubsDialog onClose={() => setAuditOpen(false)} />}
     </div>
   );
 }
@@ -256,7 +266,7 @@ function FileMenu({ onClose, onBackups }: { onClose: () => void; onBackups: () =
   );
 }
 
-function ViewMenu({ onClose }: { onClose: () => void }) {
+function ViewMenu({ onClose, onAudit }: { onClose: () => void; onAudit: () => void }) {
   const viewMode = useStore(s => s.viewMode);
   const setViewMode = useStore(s => s.setViewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
@@ -273,6 +283,16 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
   const toggleFocusRelated = useStore(s => s.toggleFocusRelated);
   const showGrid = useStore(s => s.showGrid);
   const toggleGrid = useStore(s => s.toggleGrid);
+  // v0.69: тумблер подписей связей (скорость/FDB/ARP на кабелях).
+  const showLinkLabels = useStore(s => s.showLinkLabels);
+  const toggleShowLinkLabels = useStore(s => s.toggleShowLinkLabels);
+  // v0.71: миникарта и старт больших карт в обзоре.
+  const showMinimap = useStore(s => s.showMinimap);
+  const toggleShowMinimap = useStore(s => s.toggleShowMinimap);
+  const preferOverviewBig = useStore(s => s.preferOverviewBig);
+  const togglePreferOverviewBig = useStore(s => s.togglePreferOverviewBig);
+  const focusMode = useStore(s => s.focusMode);
+  const toggleFocusMode = useStore(s => s.toggleFocusMode);
   const snap = useStore(s => s.snapToGrid);
   const toggleSnap = useStore(s => s.toggleSnap);
 
@@ -309,12 +329,42 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
                 setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
               } catch (e: any) { await alertDialog('Ошибка', e?.message || 'smart-layout failed'); }
             }} />
+      <Item label="Радиальная раскладка (ядро в центре)" shortcut=""
+            onClick={async () => {
+              onClose();
+              try {
+                useStore.getState().radialLayout();
+                setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
+              } catch (e: any) { await alertDialog('Ошибка', e?.message || 'radial-layout failed'); }
+            }} />
       <Item label="Разложить заново (без группировки)" shortcut=""
             onClick={async () => {
               onClose();
               try { useStore.getState().autoLayout('TB'); setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400); }
               catch (e: any) { await alertDialog('Ошибка', e?.message || 'auto-layout failed'); }
             }} />
+      {/* v0.70: ремонт звезды FDB-хинтов (шлюз → свитч по имени порта в хинте). */}
+      <Item label="Починить связи по FDB-хинтам" shortcut=""
+            onClick={async () => {
+              onClose();
+              try {
+                const plan = planHintRepairs(useStore.getState().doc);
+                if (plan.length === 0) {
+                  await alertDialog('Ремонт топологии', 'Не нашлось связей, которые можно перестроить по FDB-хинтам (имя свитча в порту шлюза не узнаётся).');
+                  return;
+                }
+                const sw = [...new Set(plan.map(p => p.switchName))].join(', ');
+                const yes = await confirmDialog('Ремонт топологии',
+                  `Переставить ${plan.length} связей со шлюза на свитчи: ${sw}? Откат — Ctrl+Z.`);
+                if (!yes) return;
+                useStore.getState().applyHintRepairs();
+                setTimeout(() => window.dispatchEvent(new CustomEvent('netmap:fit-view')), 400);
+              } catch (e: any) { await alertDialog('Ошибка', e?.message || 'hint-repair failed'); }
+            }} />
+      {/* v0.74: аудит — кто из хабов просканирован (SNMP/SSH) и что по FDB
+          должно быть к ним подключено. */}
+      <Item label="Аудит сканирования хабов…" shortcut=""
+            onClick={() => { onAudit(); }} />
       {/* v0.43.5: сколько колонок для «орфанов» без uplink-свитча. */}
       <OrphanGridInline />
       <Separator />
@@ -322,6 +372,18 @@ function ViewMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { toggleSnap(); onClose(); }} />
       <Item checked={showGrid} label="Показывать сетку" shortcut=""
             onClick={() => { toggleGrid(); onClose(); }} />
+      {/* v0.69: по умолчанию подписи только на активных рёбрах — на плотных
+          картах сотни пилюль «bridge FDB …» превращали схему в кашу. */}
+      <Item checked={showLinkLabels} label="Подписи связей на всех кабелях" shortcut=""
+            onClick={() => { toggleShowLinkLabels(); onClose(); }} />
+      {/* v0.71: навигация и старт в обзоре на больших схемах. */}
+      <Item checked={showMinimap} label="Миникарта" shortcut=""
+            onClick={() => { toggleShowMinimap(); onClose(); }} />
+      <Item checked={preferOverviewBig} label="Большие карты стартуют в обзоре" shortcut=""
+            onClick={() => { togglePreferOverviewBig(); onClose(); }} />
+      {/* v0.72: focus-first — старт с ядра, раскрытие по «+N». */}
+      <Item checked={focusMode} label="Фокус: старт с ядра (большие карты)" shortcut=""
+            onClick={() => { toggleFocusMode(); onClose(); }} />
       <Item checked={focusRelated} label="Фокус связанных при hover" shortcut=""
             onClick={() => { toggleFocusRelated(); onClose(); }} />
     </>
@@ -417,10 +479,16 @@ function HelpMenu({ onClose }: { onClose: () => void }) {
 // ---------------------------------------------------------------------------
 // Reusable UI atoms
 
+// v0.76.3: DOM-узел портал-дропадауна для проверки «клик снаружи».
+let dropdownNode: HTMLElement | null = null;
+
 function Dropdown({ anchor, children }: { anchor: HTMLElement | null; children: React.ReactNode }) {
   const rect = anchor?.getBoundingClientRect();
-  return (
-    <div style={{
+  // v0.76.1: портал в body + z10000 — меню выше ЛЮБЫХ полос и оверлеев
+  // канваса (раньше fixed-дропдаун жил в stacking-контексте своей полосы и
+  // перекрывался соседями: тулбаром, легендой подсетей — скрины пользователя).
+  return createPortal(
+    <div ref={(n) => { dropdownNode = n; }} style={{
       position: 'fixed',
       top: rect ? rect.bottom + 2 : 30,
       left: rect ? rect.left : 0,
@@ -429,11 +497,12 @@ function Dropdown({ anchor, children }: { anchor: HTMLElement | null; children: 
       border: '1px solid #E5E7EB',
       borderRadius: 8,
       boxShadow: '0 10px 30px rgba(15,23,42,0.15)',
-      zIndex: 1000,
+      zIndex: 10000,
       padding: 4,
     }}>
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -530,6 +599,9 @@ const bar: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 2,
   height: 28, padding: '0 8px',
   background: '#F8FAFC', borderBottom: '1px solid #E5E7EB',
+  // v0.75.1: stacking-контекст выше канвас-оверлеев (z30) — меню не
+  // перекрываются легендой подсетей и чипами схемы.
+  position: 'relative', zIndex: 60,
   flexShrink: 0,
   // WebkitAppRegion removed — draggable title bar reserved for Electron frame
 };

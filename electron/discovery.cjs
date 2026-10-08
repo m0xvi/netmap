@@ -540,7 +540,19 @@ async function collectSnmp(host, community, opts) {
     ifNames: {},    // ifIndex -> ifName/ifDescr
     warnings: [],
   };
-  const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1 };
+  // v0.76.2: v3-учётка едет через opts.cfg (collectSnmp вызывается из scan,
+  // где cfg есть; раньше здесь был голый `cfg` — ReferenceError у пользователя).
+  const c = (opts && opts.cfg) || {};
+  const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1,
+    // v0.75.1: версия SNMP и v3-учётка (USM) — в каждую сессию snmp.cjs.
+    snmpVersion: c.snmpVersion || '2c',
+    ...(c.snmpVersion === '3' ? { v3: {
+      user: c.v3User || c.username || 'admin',
+      level: c.v3Level || 'authNoPriv',
+      authProtocol: c.v3AuthProto, authKey: c.v3AuthKey,
+      privProtocol: c.v3PrivProto, privKey: c.v3PrivKey,
+    } } : {}),
+  };
   try {
     const probe = await snmpApi.probe(host, community, scanOpts);
     if (!probe.ok) {
@@ -959,9 +971,26 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       if (!remoteRef) continue;
       // Skip self-links
       if (remoteRef.existingId && selfDeviceRef.existingId && remoteRef.existingId === selfDeviceRef.existingId) continue;
+      // v0.70: имя порта-хинта часто содержит имя нижестоящего свитча
+      // («2G-SW_RoomOO-1-3»): эндпоинт физически за ним — связь строим от
+      // свитча, а не от цели скана, иначе от шлюза растёт звезда-«волосня».
+      // (Тот же план ремонта для готовых доков — src/topoRepair.ts в UI.)
+      let fdbFromRef = selfDeviceRef;
+      const ifn70 = String(f.onIface || '').toLowerCase();
+      if (ifn70 && doc && Array.isArray(doc.devices)) {
+        let best70 = null;
+        for (const dd of doc.devices) {
+          if (dd.kind !== 'switch') continue;
+          const nm70 = String(dd.name || '').toLowerCase();
+          if (nm70.length < 5 || !ifn70.includes(nm70)) continue;
+          if (dd.id === (selfDeviceRef.existingId || '') || dd.id === (remoteRef.existingId || '')) continue;
+          if (!best70 || nm70.length > best70.nm.length) best70 = { id: dd.id, nm: nm70 };
+        }
+        if (best70) fdbFromRef = { existingId: best70.id };
+      }
       proposedLinks.push({
         tempId: 'lnk_' + RID(),
-        fromRef: selfDeviceRef,
+        fromRef: fdbFromRef,
         fromPort: f.onIface,
         toRef: remoteRef,
         toPort: '',
@@ -1190,6 +1219,10 @@ async function scan(cfg) {
       port: cfg.port || 22,
       username: cfg.username,
       password: cfg.password,
+      // v0.76.2: ключ из диалога/vault доходит до mikrotik-ssh (sshAuthFragment).
+      privateKey: cfg.privateKey,
+      privateKeyPath: cfg.privateKeyPath,
+      passphrase: cfg.sshPassphrase || cfg.passphrase,
     }, { timeout: cfg.sshTimeout || 8000 });
     warnings.push(...(mt.warnings || []));
   }
@@ -1224,7 +1257,7 @@ async function scan(cfg) {
     if (hop > 0) hopsUsed = hop;
     await Promise.all(wave.map(async (h) => {
       scannedSet.add(h);
-      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500 });
+      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg });
       snmpResults.push(r);
       if (r.warnings && r.warnings.length) warnings.push(`[${h}] ` + r.warnings.join('; '));
       if (recursive && hop < maxHops) {
@@ -1258,6 +1291,19 @@ async function scan(cfg) {
     seeds: snmpResults.map(s => ({
       host: s.host, name: s.self.name, vendor: s.self.vendor, descr: s.self.descr, ok: s.ok,
     })),
+    // v0.74: следы сканирования по каждому опрошенному хабу — для аудита
+    // («был ли свитч просканирован, какие MAC'и видел в FDB»). Корневой
+    // MikroTik — ssh, остальные seeds — snmp.
+    scanMeta: [
+      ...(mt ? [{
+        host: rootHost, name: mt.self.name || '', via: 'ssh', ok: true,
+        fdbMacs: mt.fdb.map(f => f.mac).filter(Boolean), at: now(),
+      }] : []),
+      ...snmpResults.filter(s => s.ok).map(s => ({
+        host: s.host, name: s.self.name || '', via: 'snmp', ok: true,
+        fdbMacs: (s.fdb || []).map(f => f.mac).filter(Boolean), at: now(),
+      })),
+    ],
     proposedDevices: merged.proposedDevices,
     proposedLinks:   merged.proposedLinks,
     subnets: merged.subnets,   // v0.52.0: эталонные подсети роутера

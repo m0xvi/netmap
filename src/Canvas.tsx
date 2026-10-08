@@ -10,7 +10,21 @@ import { BUILT_IN_TEMPLATES, loadCustomTemplates, makeDeviceFromTemplate } from 
 import { promptText, confirmDialog } from './Modal';
 import { inferLayer } from './layers';
 import { KIND_META } from './icons';
-import { ENDPOINT_KINDS } from './ModernDeviceNode';
+import { ENDPOINT_KINDS, exposesPortAnchors } from './ModernDeviceNode';
+import { computeScenePlan, overviewZoomCap, BIG_MAP_DEVICES } from './scenePlan';
+import { shouldAggregate } from './edgeBundling';
+import { BundleEdge } from './BundleEdge';
+
+// v0.67: боковой якорь (_top/_right/_bottom/_left) по геометрии «кто где».
+// Используется, когда портовые якоря не отрендерены (mid/far) или у связи
+// нет порта — ребро уходит с той стороны карточки, куда идёт кабель.
+const geoSide = (a: { x: number; y: number }, b: { x: number; y: number }): string => {
+  const dx = (b.x || 0) - (a.x || 0);
+  const dy = (b.y || 0) - (a.y || 0);
+  return Math.abs(dy) >= Math.abs(dx)
+    ? (dy >= 0 ? '_bottom' : '_top')
+    : (dx >= 0 ? '_right' : '_left');
+};
 
 import '@xyflow/react/dist/style.css';
 import { useStore } from './store';
@@ -61,6 +75,8 @@ const nodeTypes: any = {
 
 const edgeTypes: any = {
   portEdge: PortEdge,
+  // v0.68: агрегированный пучок «×N» на обзоре (far).
+  bundleEdge: BundleEdge,
 };
 
 export function Canvas() {
@@ -76,10 +92,56 @@ function CanvasInner() {
   // v0.41: reference redesign — switches the node component and endpoint folding.
   const viewMode = useStore(s => s.viewMode);
   const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  // v0.71: миникарта-навигатор (тумблер в меню Вид, по умолчанию вкл).
+  const showMinimap = useStore(s => s.showMinimap);
+
+
   // v0.57: ступень семантического зума — влияет на видимость оконечных и рёбра.
   const zoomBand = useStore(s => s.zoomBand);
   // v0.60: раскраска связей по подсетям.
   const colorLinksBySubnet = useStore(s => s.colorLinksBySubnet);
+
+  // v0.65 (макет A): ховер-подсветка соседей — карточки, не связанные с
+  // наведённым устройством, затемняются. Никаких ре-рендеров React: opacity
+  // ставится напрямую на DOM-обёртки узлов (переход — CSS в index.html).
+  // Рёбра затемняет сам PortEdge (focusRelated + hoveredDeviceId).
+  const nodeDimCleanup = useRef<(() => void) | null>(null);
+  const clearNodeDim = useCallback(() => {
+    nodeDimCleanup.current?.();
+    nodeDimCleanup.current = null;
+  }, []);
+  const applyNodeDim = useCallback((nodeId: string) => {
+    const st = useStore.getState();
+    if (!st.focusRelated) return; // тумблер «Фокус связанных при hover» выключен
+    const keep = new Set<string>([nodeId]);
+    for (const l of st.doc.links) {
+      if (l.fromDeviceId === nodeId) keep.add(l.toDeviceId);
+      else if (l.toDeviceId === nodeId) keep.add(l.fromDeviceId);
+    }
+    const root = document.querySelector('.react-flow');
+    if (!root) return;
+    nodeDimCleanup.current?.();
+    root.querySelectorAll<HTMLElement>('.react-flow__node').forEach((el) => {
+      const id = el.getAttribute('data-id');
+      el.style.opacity = id && keep.has(id) ? '' : '0.22';
+    });
+    nodeDimCleanup.current = () => {
+      root.querySelectorAll<HTMLElement>('.react-flow__node').forEach((el) => {
+        el.style.opacity = '';
+      });
+    };
+  }, []);
+  // Смена ступени зума пересоздаёт карточки (маяки/листы) — сбросить затемнение.
+  useEffect(() => { clearNodeDim(); }, [zoomBand, clearNodeDim]);
+
+  // v0.66: затемнение следует за hoveredDeviceId из стора. Его ставят и карта
+  // (onNodeMouseEnter), и список «Подключённые устройства» в правой панели —
+  // так работает синхрон «список ↔ карта» из макета D.
+  const hoveredDeviceId = useStore(s => s.hoveredDeviceId);
+  useEffect(() => {
+    if (hoveredDeviceId) applyNodeDim(hoveredDeviceId);
+    else clearNodeDim();
+  }, [hoveredDeviceId, applyNodeDim, clearNodeDim]);
   const select = useStore(s => s.select);
   const selectGroup = useStore(s => s.selectGroup);
   const setPosition = useStore(s => s.setPosition);
@@ -139,6 +201,35 @@ function CanvasInner() {
       return true;
     };
   }, [filters, doc.links]);
+
+  // v0.72: focus-first — пересчёт видимого множества при смене дока/режима.
+  const focusMode = useStore(s => s.focusMode);
+  const focusVisible = useStore(s => s.focusVisible);
+  useEffect(() => { useStore.getState().syncFocus(); }, [doc, focusMode]);
+  const focusVisibleSet = focusMode && (doc.devices || []).length >= BIG_MAP_DEVICES
+    ? focusVisible : null;
+
+  // v0.68: контракт сцены — единые правила LOD и фасовки (docs/display-logic.md).
+  // Один чистый расчёт на изменение входов; initialNodes/initialEdges берут план отсюда.
+  const scenePlan = useMemo(
+    () => computeScenePlan(doc, {
+      zoomBand, collapseEndpoints, viewMode, focus: focusVisibleSet,
+      linkVisible: (l) => {
+        const cable = l.cable || 'copper';
+        if (filters.hiddenCables.has(cable)) return false;
+        if (filters.vlan != null) {
+          const carries = l.vlan === filters.vlan || l.vlans?.includes(filters.vlan);
+          if (!carries) return false;
+        }
+        const a = doc.devices.find(d => d.id === l.fromDeviceId);
+        const b = doc.devices.find(d => d.id === l.toDeviceId);
+        if (a && !isDeviceVisible(a)) return false;
+        if (b && !isDeviceVisible(b)) return false;
+        return true;
+      },
+    }),
+    [doc, zoomBand, collapseEndpoints, viewMode, filters, isDeviceVisible, focusVisibleSet],
+  );
 
   // v0.58: ориентиры дальней ступени — пилюли в ЭКРАННЫХ координатах
   // (читаются при любом зуме): ядро, группы, серверы. Список стабилен
@@ -266,7 +357,11 @@ function CanvasInner() {
       if (d.groupId) childCounts.set(d.groupId, (childCounts.get(d.groupId) || 0) + 1);
     });
 
-    const groupNodes: Node[] = groups.map(g => ({
+    // v0.68: план сцены решает, какие группы видимы: «спящие» скрыты,
+    // на обзоре (far) и при ручном коллапсе группа — пилюля 44px.
+    const groupNodes: Node[] = groups
+      .filter(g => scenePlan.groupMode.get(g.id) !== 'hidden')
+      .map(g => ({
       id: g.id,
       type: 'group',
       position: { x: g.x, y: g.y },
@@ -276,50 +371,40 @@ function CanvasInner() {
         label: g.name,
         subtitle: g.subtitle,
         color: g.color,
-        collapsed: !!g.collapsed,
+        collapsed: scenePlan.groupMode.get(g.id) === 'pill' || !!g.collapsed,
         childCount: childCounts.get(g.id) || 0,
-        width: g.width,
+        // v0.69: пилюля обзора компактна (иначе на реальных картах группа
+        // шириной в тысячи px превращалась в растянутую «полосу»).
+        width: scenePlan.groupMode.get(g.id) === 'pill' ? Math.min(g.width, 380) : g.width,
         height: g.height,
       },
-      style: { width: g.width, height: g.collapsed ? 44 : g.height },
+      style: {
+        width: scenePlan.groupMode.get(g.id) === 'pill' ? Math.min(g.width, 380) : g.width,
+        height: (scenePlan.groupMode.get(g.id) === 'pill' || g.collapsed) ? 44 : g.height,
+      },
       selectable: true,
       draggable: true,
     }));
 
-    const collapsedIds = new Set(groups.filter(g => g.collapsed).map(g => g.id));
+    const collapsedIds = new Set(
+      groups.filter(g => g.collapsed || scenePlan.groupMode.get(g.id) === 'pill').map(g => g.id)
+    );
 
     // Which servers are currently expanded → their VMs will be rendered INSIDE the server card, not on canvas
     const expandedServerIds = new Set(
       doc.devices.filter(d => d.kind === 'server' && d.display === 'rack').map(d => d.id)
     );
 
-    // v0.41: which endpoint kinds get hidden from the canvas when
-    // collapseEndpoints is on (their info lives in the parent hub's chip list).
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
-    const hideAsEndpoint = (d: Device): boolean => {
-      // v0.57: на дальней ступени оконечные прячутся в хабы всегда,
-      // независимо от ручного тумблера collapseEndpoints.
-      if (viewMode !== 'modern') return false;
-      if (!collapseEndpoints && zoomBand !== 'far') return false;
-      if (!ENDPOINT_KINDS.includes(d.kind)) return false;
-      // Only hide when this endpoint IS actually connected to a switch/router —
-      // orphan endpoints stay visible so the user can still see + wire them.
-      return doc.links.some(l =>
-        (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
-        doc.devices.some(x =>
-          (x.id === l.fromDeviceId || x.id === l.toDeviceId) &&
-          x.id !== d.id &&
-          (x.kind === 'switch' || x.kind === 'router')
-        )
-      );
-    };
-
+    // v0.68: фасовка — план сцены помечает 'folded' (оконечное с одним хабом
+    // уходит в хаб на обзоре/при collapseEndpoints; состав группы уходит в
+    // пилюлю). Заменило прежнюю локальную эвристику hideAsEndpoint.
     const deviceNodes: Node[] = doc.devices
       .filter(d => !d.groupId || !collapsedIds.has(d.groupId))
       // Hide VMs whose host is expanded (they are shown inside the server card)
       .filter(d => !(d.kind === 'vm' && d.hostDeviceId && expandedServerIds.has(d.hostDeviceId)))
-      // v0.41: hide endpoint devices when they're folded into a hub's chip list
-      .filter(d => !hideAsEndpoint(d))
+      .filter(d => scenePlan.deviceMode.get(d.id) !== 'folded')
+      // v0.72: вне фокуса — не рисуем вовсе.
+      .filter(d => scenePlan.deviceMode.get(d.id) !== 'hidden')
       // Layer filters
       .filter(isDeviceVisible)
       .map(d => {
@@ -337,7 +422,11 @@ function CanvasInner() {
           // Do not constrain children to the parent rectangle: a device must
           // be draggable out of a group and re-parented into another one.
           ...(d.groupId ? { parentId: d.groupId } : {}),
-          data: { device: d, highlighted: highlightIds.has(d.id) }
+          data: {
+            device: d, highlighted: highlightIds.has(d.id),
+            // v0.72: «+N» скрытых фокусом соседей — чип раскрытия на хабе.
+            hiddenExtra: scenePlan.hiddenExtra.get(d.id) || 0,
+          },
         };
       });
 
@@ -346,38 +435,37 @@ function CanvasInner() {
     // + collapseEndpoints is active (that's the only path that needs it).
     // Otherwise we skip the dep so the node list doesn't churn on every
     // link add/remove/update — was causing full node remount storms.
-  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
-      // Only depend on links when they actually influence node visibility.
-      // v0.57: дальняя ступень тоже прячет оконечные — ей links нужны.
-      (viewMode === 'modern' && (collapseEndpoints || zoomBand === 'far')) ? doc.links : null]);
+      // v0.68: видимость узлов целиком определяет scenePlan (внутри — links,
+      // zoomBand, collapseEndpoints, viewMode), потому deps сокращены до него.
+  }, [doc.devices, doc.groups, highlightIds, isDeviceVisible, viewMode, scenePlan]);
 
   const initialEdges: Edge[] = useMemo(() => {
-    const collapsedIds = new Set((doc.groups || []).filter(g => g.collapsed).map(g => g.id));
+    // v0.68: пилюли (обзор/коллапс) и «спящие» группы — из плана сцены.
+    const collapsedIds = new Set(
+      (doc.groups || [])
+        .filter(g => g.collapsed || scenePlan.groupMode.get(g.id) === 'pill')
+        .map(g => g.id)
+    );
     const deviceById = new Map(doc.devices.map(d => [d.id, d]));
-    // when a device's group is collapsed, its node disappears; we redirect edges to the group node
+    // when a device's group is collapsed/pilled, its node disappears; we redirect edges to the group node
     const resolve = (deviceId: string): string => {
       const dev = deviceById.get(deviceId);
       if (dev?.groupId && collapsedIds.has(dev.groupId)) return dev.groupId;
       return deviceId;
     };
 
-    // v0.41: same "hide endpoints" heuristic as in initialNodes.
-    const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
-    const hideAsEndpoint = (d: Device | undefined): boolean => {
-      if (!d) return false;
-      // v0.57: на дальней ступени прячем и рёбра к свернутым оконечным.
-      if (viewMode !== 'modern') return false;
-      if (!collapseEndpoints && zoomBand !== 'far') return false;
-      if (!ENDPOINT_KINDS.includes(d.kind)) return false;
-      return doc.links.some(l =>
-        (l.fromDeviceId === d.id || l.toDeviceId === d.id) &&
-        doc.devices.some(x =>
-          (x.id === l.fromDeviceId || x.id === l.toDeviceId) &&
-          x.id !== d.id &&
-          (x.kind === 'switch' || x.kind === 'router')
-        )
-      );
-    };
+    // v0.68: ОБЗОР — вместо сотен индивидуальных кабелей рисуем агрегированные
+    // пучки «×N» между видимыми сущностями (маяк/пилюля). Фасовка и агрегация
+    // считаются в scenePlan; здесь только отображение.
+    if (viewMode === 'modern' && zoomBand === 'far') {
+      return scenePlan.bundles.map(b => ({
+        id: b.id,
+        source: b.a,
+        target: b.b,
+        type: 'bundleEdge',
+        data: { count: b.count, trunk: b.trunk },
+      } as Edge));
+    }
 
     const visibleLinks = doc.links.filter(l => {
       // Cable-type filter
@@ -388,8 +476,13 @@ function CanvasInner() {
       const tgtD = deviceById.get(l.toDeviceId);
       if (srcD && !isDeviceVisible(srcD)) return false;
       if (tgtD && !isDeviceVisible(tgtD)) return false;
-      // v0.41: hide edges to endpoints that are folded into their hub.
-      if (hideAsEndpoint(srcD) || hideAsEndpoint(tgtD)) return false;
+      // v0.68: связи к фасованным (folded) оконечным скрыты — их показывает
+      // счётчик в хабе, а на обзоре они вошли в пучки.
+      // v0.72: связи со скрытым фокусом концом тоже не рисуем.
+      if (scenePlan.deviceMode.get(l.fromDeviceId) === 'folded'
+        || scenePlan.deviceMode.get(l.toDeviceId) === 'folded'
+        || scenePlan.deviceMode.get(l.fromDeviceId) === 'hidden'
+        || scenePlan.deviceMode.get(l.toDeviceId) === 'hidden') return false;
       // VLAN filter on the link itself — the link carries the VLAN if
       // it's the access VLAN OR listed in trunk allowed vlans.
       if (filters.vlan != null) {
@@ -430,25 +523,52 @@ function CanvasInner() {
         // Attach to specific port handle if both endpoints are visible and the port exists
         const srcDev = deviceById.get(l.fromDeviceId);
         const tgtDev = deviceById.get(l.toDeviceId);
+        // v0.69: пара с >N параллельных кабелей рисуется ОДНИМ пучком «×N»
+        // (edgeBundling.shouldAggregate) — десятки FDB-линков больше не
+        // строят частокол. Детали пары — во вкладке «Порты»/списке связей.
+        const bInfo = bundleIdx.get(l.id);
+        if (bInfo && shouldAggregate(bInfo.total) && srcDev && tgtDev) {
+          if (bInfo.index !== 0) return null;
+          const aggTrunk = !ENDPOINT_KINDS.includes(srcDev.kind) && srcDev.kind !== 'vm'
+            && !ENDPOINT_KINDS.includes(tgtDev.kind) && tgtDev.kind !== 'vm';
+          return {
+            id: 'agg:' + (src < tgt ? `${src}|${tgt}` : `${tgt}|${src}`),
+            source: src,
+            target: tgt,
+            type: 'bundleEdge',
+            sourceHandle: geoSide(srcDev, tgtDev),
+            targetHandle: geoSide(tgtDev, srcDev),
+            data: { count: bInfo.total, trunk: aggTrunk },
+          } as Edge;
+        }
         const srcVisible = src === l.fromDeviceId; // not redirected to a collapsed group
         const tgtVisible = tgt === l.toDeviceId;
-        // A device shows port handles when:
-        //  - it's a switch/router (BOTH compact and rack — v0.31 fix: compact
-        //    now exposes per-port handles distributed across all 4 edges), OR
-        //  - it's a patch panel (both compact and expanded expose handles), OR
-        //  - it's a normal device (AP/camera/PC/…): our new DeviceNode always draws port dots
-        const srcExposesPorts = srcVisible && srcDev;
-        const tgtExposesPorts = tgtVisible && tgtDev;
+        // v0.67: портовые якоря отрендерены только на near / при выделении /
+        // ховере (exposesPortAnchors — тот же предикат, что в PortHandles).
+        // На mid/far рёбра цепляются к боковым якорям по геометрии.
+        const srcExposesPorts = srcVisible && srcDev
+          && exposesPortAnchors(zoomBand, selectedId === l.fromDeviceId, hoveredDeviceId === l.fromDeviceId);
+        const tgtExposesPorts = tgtVisible && tgtDev
+          && exposesPortAnchors(zoomBand, selectedId === l.toDeviceId, hoveredDeviceId === l.toDeviceId);
 
-        const sourceHandle = srcExposesPorts && l.fromPortId && srcDev?.ports.some(p => p.id === l.fromPortId)
+        let sourceHandle = srcExposesPorts && l.fromPortId && srcDev?.ports.some(p => p.id === l.fromPortId)
           ? l.fromPortId : undefined;
-        const targetHandle = tgtExposesPorts && l.toPortId && tgtDev?.ports.some(p => p.id === l.toPortId)
+        let targetHandle = tgtExposesPorts && l.toPortId && tgtDev?.ports.some(p => p.id === l.toPortId)
           ? l.toPortId : undefined;
+        if (!sourceHandle && srcDev && tgtDev) sourceHandle = geoSide(srcDev, tgtDev);
+        if (!targetHandle && srcDev && tgtDev) targetHandle = geoSide(tgtDev, srcDev);
 
         // Distinguish inter-group backbone links from intra-group / local ones.
         const isInterGroup = !!(srcDev && tgtDev
           && (srcDev.groupId || tgtDev.groupId)
           && srcDev.groupId !== tgtDev.groupId);
+
+        // v0.65 (макет A): магистраль = связь двух «хабов» (роутер/свитч/
+        // патч-панель/сервер/облако/VPS). PortEdge рисует её двойным штрихом:
+        // толстая полупрозрачная подложка + обычная сердцевина.
+        const isTrunk = !!(srcDev && tgtDev
+          && !ENDPOINT_KINDS.includes(srcDev.kind) && srcDev.kind !== 'vm'
+          && !ENDPOINT_KINDS.includes(tgtDev.kind) && tgtDev.kind !== 'vm');
 
         // Uplink detection: does either endpoint sit on a port flagged as uplink?
         // Also, direction — the "uplink" side is the destination (arrow points there).
@@ -526,6 +646,7 @@ function CanvasInner() {
             centerBadgeColor: speedColor,
             isUplink,
             isInterGroup,
+            trunk: isTrunk, // v0.65: двойной штрих магистрали
             vlan:  l.vlan,
             vlans: l.vlans,
             // v0.23: bundle info for parallel-cable offset
@@ -547,10 +668,12 @@ function CanvasInner() {
       })
       .filter(Boolean) as Edge[];
    }, [doc.links, doc.devices, doc.groups, filters, isDeviceVisible, viewMode, collapseEndpoints, zoomBand,
-       colorLinksBySubnet, subnetPalette]);
+       colorLinksBySubnet, subnetPalette, selectedId, hoveredDeviceId, scenePlan]);
 
   // Additional "host" edges for VMs (skip VMs already rendered inside expanded server card)
   const hostEdges: Edge[] = useMemo(() => {
+    // v0.68: на обзоре синтетические VM↔host рёбра не рисуем (обзор = пучки).
+    if (viewMode === 'modern' && zoomBand === 'far') return [] as Edge[];
     const collapsedIds = new Set((doc.groups || []).filter(g => g.collapsed).map(g => g.id));
     const deviceById = new Map(doc.devices.map(d => [d.id, d]));
     const expandedServerIds = new Set(
@@ -641,6 +764,32 @@ function CanvasInner() {
     return () => window.removeEventListener('netmap:layout-applied', onLayout);
   }, [rf]);
 
+  // v0.68: двойной клик по группе (в т.ч. по «пилюле» обзора) — приблизить
+  // сцену к её прямоугольнику («нырок» в фасовку).
+  useEffect(() => {
+    const onZoom = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      const g = (useStore.getState().doc.groups || []).find(x => x.id === id);
+      if (!g) return;
+      try {
+        const el = document.querySelector('.react-flow') as HTMLElement | null;
+        const cw = el?.clientWidth || 1200;
+        const ch = el?.clientHeight || 800;
+        const pad = 120;
+        const zoom = Math.min(2, Math.max(0.25, Math.min(
+          cw / (g.width + pad * 2), ch / ((g.collapsed ? 44 : g.height) + pad * 2),
+        )));
+        rf.setViewport({
+          zoom,
+          x: cw / 2 - zoom * (g.x + g.width / 2),
+          y: ch / 2 - zoom * (g.y + (g.collapsed ? 44 : g.height) / 2),
+        }, { duration: 400 });
+      } catch { /* rf may not be ready */ }
+    };
+    window.addEventListener('netmap:focus-group', onZoom);
+    return () => window.removeEventListener('netmap:focus-group', onZoom);
+  }, [rf]);
+
   // v0.41.1: safety net for "empty canvas" bug — when the project is loaded
   // from SQLite/localStorage AFTER the initial mount, React Flow's `fitView`
   // prop doesn't re-fire and nodes may end up outside the visible viewport.
@@ -661,9 +810,23 @@ function CanvasInner() {
       };
       requestAnimationFrame(tick);
     };
+    // v0.71: большие карты (≥BIG_MAP_DEVICES) стартуют в обзоре — потолок
+    // зума 0.28 (far-ступень): пилюли и маяки вместо стены карточек.
+    // Ручной fit-view (F, кнопка) остаётся без потолка.
+    const doInitialFit = () => {
+      const st = useStore.getState();
+      const cap = overviewZoomCap(st.doc.devices.length, st.preferOverviewBig);
+      let tries = 0;
+      const tick = () => {
+        try { rf.fitView({ padding: 0.15, duration: 300, maxZoom: cap }); } catch {}
+        tries++;
+        if (tries < 3) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    };
     const onHydrated = () => {
       // Wait a bit so React Flow has ingested the new nodes.
-      setTimeout(doFitView, 250);
+      setTimeout(doInitialFit, 250);
     };
     const onFit = () => doFitView();
     window.addEventListener('netmap:hydrated', onHydrated);
@@ -867,6 +1030,15 @@ function CanvasInner() {
   const selectEdge = useStore(s => s.selectEdge);
   const knifeMode  = useStore(s => s.knifeMode);
   const toggleKnife = useStore(s => s.toggleKnifeMode);
+
+  // v0.65 (макет A): на близком зуме связи уходят ПОД карточки — кабели не
+  // режут текст. На mid/far (обзор) и в режиме «нож» остаются поверх
+  // (иначе кабель не порезать). Класс разбирается правилом в index.html.
+  useEffect(() => {
+    const root = document.querySelector('.react-flow');
+    if (!root) return;
+    root.classList.toggle('nm-edges-below', zoomBand === 'near' && !knifeMode);
+  }, [zoomBand, knifeMode]);
   const onEdgeClick = useCallback((_: any, edge: Edge) => {
     if (knifeMode) {
       // Knife mode: instantly cut
@@ -965,8 +1137,9 @@ function CanvasInner() {
     if (node.type === 'group') return;
     const dev = useStore.getState().doc.devices.find(d => d.id === node.id);
     if (!dev) return;
+    clearNodeDim(); // v0.65: во время перетаскивания затемнение не нужно
     dragOrigins.current.set(node.id, { x: dev.x, y: dev.y, groupId: dev.groupId ?? null });
-  }, []);
+  }, [clearNodeDim]);
 
   // v0.51.19: контекстное меню «сменить группу?» в точке дропа.
   // Вместо центрированного диалога — меню прямо там, куда отпустили
@@ -1594,10 +1767,12 @@ function CanvasInner() {
       onPaneClick={() => {
         select(null); selectGroup(null); selectEdge(null);
         useStore.getState().setPortHighlight(null, null);
-        useStore.getState().setHoveredDevice(null);
+        useStore.getState().setHoveredDevice(null); // v0.66: эффект снимет затемнение
       }}
       onNodeMouseEnter={(_e, n) => {
         // Only devices (not groups) trigger the "focus related" dim effect.
+        // v0.66: само затемнение навешено на hoveredDeviceId эффектом выше —
+        // тот же путь использует список устройств в правой панели.
         if (n.type !== 'group') useStore.getState().setHoveredDevice(n.id);
       }}
       onNodeMouseLeave={() => useStore.getState().setHoveredDevice(null)}
@@ -1617,6 +1792,21 @@ function CanvasInner() {
     >
       {showGrid && <Background gap={20} size={1} color="#E5E7EB" />}
       <Controls style={{ background: '#F9FAFB', border: '1px solid #D1D5DB' }} />
+      {/* v0.71: миникарта — «где я» на больших схемах; цвета по типам/группам. */}
+      {showMinimap && viewMode === 'modern' && (
+        <MiniMap
+          pannable
+          zoomable
+          position="bottom-right"
+          nodeStrokeWidth={3}
+          nodeColor={(n: any) =>
+            n.type === 'group'
+              ? (n.data?.color || '#94A3B8')
+              : (KIND_META[(n.data as any)?.device?.kind as DeviceKind]?.color || '#94A3B8')}
+          maskColor="rgba(248, 250, 252, 0.72)"
+          style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10 }}
+        />
+      )}
       {!heavyDoc && (
       <MiniMap
         style={{ background: '#FFFFFF', border: '1px solid #D1D5DB', cursor: 'crosshair' }}
@@ -1649,6 +1839,7 @@ function CanvasInner() {
     <ZoomBandChip />
     <FarLandmarks marks={farMarks} moveRef={landmarkMoveRef} />
     <EndpointsFoldedChip />
+    <FocusChip />
     <SubnetLegend palette={subnetPalette} />
 
     {/* v0.51.19: контекстное меню «сменить группу?» в точке дропа:
@@ -1678,6 +1869,36 @@ const chipBtn: React.CSSProperties = {
   borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
   cursor: 'pointer', whiteSpace: 'nowrap',
 };
+
+// v0.72: focus-first — чип «Фокус: X из Y» в верхней полосе. Кнопки:
+// «Показать всё» (раскрыть до всей карты) и «Сбросить» (вернуть к ядру).
+function FocusChip() {
+  const focusMode = useStore(s => s.focusMode);
+  const focusVisible = useStore(s => s.focusVisible);
+  const total = useStore(s => s.doc.devices.length);
+  const big = total >= BIG_MAP_DEVICES;
+  if (!focusMode || !big) return null;
+  const shownN = focusVisible.size;
+  const hiddenN = total - shownN;
+  if (hiddenN <= 0) return null;
+  return (
+    <div data-netmap-overlay="true" style={{
+      position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1D4ED8',
+      borderRadius: 8, padding: '6px 8px 6px 12px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(15,23,42,0.12)', whiteSpace: 'nowrap',
+    }}>
+      <span>Фокус: {shownN} из {total} · скрыто {hiddenN}</span>
+      <button onClick={() => useStore.getState().revealAllFocus()} style={chipBtnBlue}>
+        Показать всё
+      </button>
+      <button onClick={() => useStore.getState().resetFocus()} style={chipBtnBlue}>
+        Сбросить
+      </button>
+    </div>
+  );
+}
 
 function HiddenEdgesChip({ linksTotal, shown }: { linksTotal: number; shown: number }) {
   const hideEdges = useStore(s => s.hideEdges);
@@ -1809,8 +2030,11 @@ function EndpointsFoldedChip() {
   const zoomBand = useStore(s => s.zoomBand);
   const devices = useStore(s => s.doc.devices);
   const links = useStore(s => s.doc.links);
+  // v0.72: под focus-first раскрытием управляет чип «Фокус» и «+N» на хабах —
+  // этот чип был бы вторым противоречивым каналом управления.
+  const focusMode = useStore(s => s.focusMode);
   const folded = useMemo(() => {
-    if (viewMode !== 'modern' || !collapseEndpoints || zoomBand === 'far') return 0;
+    if (viewMode !== 'modern' || !collapseEndpoints || zoomBand === 'far' || focusMode) return 0;
     const ENDPOINT_KINDS: DeviceKind[] = ['ap', 'camera', 'pc', 'pos', 'printer', 'lock', 'other'];
     let n = 0;
     for (const d of devices) {
@@ -1826,7 +2050,7 @@ function EndpointsFoldedChip() {
       if (wired) n++;
     }
     return n;
-  }, [devices, links, viewMode, collapseEndpoints, zoomBand]);
+  }, [devices, links, viewMode, collapseEndpoints, zoomBand, focusMode]);
   if (folded === 0) return null;
   return (
     <div data-netmap-overlay="true" style={{

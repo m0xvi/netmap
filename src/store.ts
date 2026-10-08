@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { Device, Group, Link, NetMapDoc, StickyNote, StickyColor, Vlan } from './types';
+import type { Device, Group, Link, NetMapDoc, ScannedHubMeta, StickyNote, StickyColor, Vlan } from './types';
 import { usadbaSeed, donaSeed, chaikovskySeed } from './seed';
+import { computeFocusSet, BIG_MAP_DEVICES } from './scenePlan';
 
 /** Single ping sample retained in the ring buffer for the sparkline. */
 export interface PingSample {
@@ -66,12 +67,24 @@ import {
   persistLoadFilters, persistSaveFilters,
 } from './persistence';
 import { computeAutoLayout, type LayoutDirection } from './autoLayout';
-import { autoGroupDevices, type GroupingStrategy } from './smartLayout';
+import { autoGroupDevices, restoreUserGroups, type GroupingStrategy } from './smartLayout';
+import { computeRadialLayout } from './radialLayout';
+import { planHintRepairs, applyHintRepairsToDoc } from './topoRepair';
+import { planAuditFixes, type AuditFix } from './topoAudit';
 // v0.32: when a device's display flips between compact ↔ rack its size can
 // jump by 200+ px — nearby siblings suddenly overlap and cards may spill
 // past the group border. Reflow after the update commits.
 import { reflowGroupsForDevices } from './collide';
 import { loadWorkspace, saveWorkspace, makeProject, type Workspace, type Project } from './workspace';
+
+/** v0.75.1: уникальное имя проекта: при коллизии — « (2)», « (3)»… */
+function uniqueProjectName(projects: Array<{ id: string; name: string }>, desired: string, exceptId?: string): string {
+  const taken = new Set(projects.filter(p => p.id !== exceptId).map(p => p.name));
+  if (!taken.has(desired)) return desired;
+  let n = 2;
+  while (taken.has(`${desired} (${n})`)) n++;
+  return `${desired} (${n})`;
+}
 import { traceCable } from './traceCable';
 
 export interface CtxMenuState {
@@ -301,6 +314,32 @@ interface State {
   /** v0.43.6: hide all edges on the canvas (useful for busy 200+ device maps). */
   hideEdges: boolean;
   toggleHideEdges: () => void;
+  /** v0.69: показывать центральные подписи связей (скорость/FDB/ARP) на всех
+   *  рёбрах; по умолчанию выключено — лейблы только на активных рёбрах. */
+  showLinkLabels: boolean;
+  toggleShowLinkLabels: () => void;
+  /** v0.71: миникарта-навигатор (MiniMap) в углу схемы. */
+  showMinimap: boolean;
+  toggleShowMinimap: () => void;
+  /** v0.71: большие карты (≥100 устройств) стартуют в обзоре (far-ступень). */
+  preferOverviewBig: boolean;
+  togglePreferOverviewBig: () => void;
+  /** v0.72: focus-first — большие карты стартуют с ядра + 2 кольца соседей,
+   *  остальное раскрывается кликом по «+N» на хабе. */
+  focusMode: boolean;
+  toggleFocusMode: () => void;
+  /** v0.72: видимое под фокусом множество (view-state; НЕ в history). */
+  focusVisible: Set<string>;
+  /** v0.72: документ, для которого focusVisible рассчитан (для пересчёта). */
+  focusBuiltFor: NetMapDoc | null;
+  /** Пересчитать фокус, если режим включён и карта большая. */
+  syncFocus: () => void;
+  /** Раскрыть устройство и его соседей (клик по «+N»). */
+  expandFocus: (id: string) => void;
+  /** Сбросить фокус к ядру + 2 кольца. */
+  resetFocus: () => void;
+  /** Показать всё (раскрыть фокус до всей карты, режим остаётся включён). */
+  revealAllFocus: () => void;
   /**
    * v0.41: UI chrome visibility. By default (first launch) sidebar and
    * right panel are HIDDEN so the map takes the whole screen. Toolbar
@@ -352,6 +391,12 @@ interface State {
 
   /** Auto-arrange devices via dagre. Direction TB or LR. Writes to history. */
   autoLayout: (direction?: LayoutDirection, opts?: { preserveDisplay?: boolean; groupBy?: GroupingStrategy }) => void;
+  /** v0.66.0: радиальная раскладка «радуга» (ядро в центре, хабы по орбите,
+   *  оконечные дугами вокруг хабов). Приём макета C (map-variants.html). */
+  radialLayout: () => void;
+  /** v0.70.0: best-effort ремонт звезды FDB-хинтов: концы связей со шлюза на
+   *  узнаваемый в хинте свитч. Возвращает число переставленных связей. */
+  applyHintRepairs: () => number;
   /** v0.31: expand/collapse EVERY rack-capable device at once.
    *  `mode='rack'`  → open every switch / router / patchpanel / server in rack view
    *  `mode='compact'` → collapse all of them back to compact cards */
@@ -389,7 +434,12 @@ interface State {
   applyDiscovery: (diff: {
     devices: Array<Partial<Device> & { id: string; name: string; kind: string }>;
     links: Array<Partial<Link> & { id: string; fromDeviceId: string; toDeviceId: string }>;
+    /** v0.74: следы SNMP/SSH-сканирований по хабам — в doc.scanMeta. */
+    scanMeta?: ScannedHubMeta[];
   }) => { addedDevices: number; addedLinks: number };
+  /** v0.74: аудит хабов — подключить устройства по FDB просканированных
+   *  свитчей (move/add). Откат Ctrl+Z. Возвращает число правок. */
+  applyAuditFixes: () => number;
   removeLink: (id: string) => void;
 
   // sticky notes
@@ -739,14 +789,18 @@ export const useStore = create<State>((set, get) => ({
       pathA: null, pathB: null, pathIds: new Set(), pathLinkIds: new Set(), pathSteps: [],
     };
   }),
+  // v0.75.1: одинаковых имён проектов быть не должно — при коллизии
+  // добавляем « (2)», « (3)»… (баг: «Новый проект» несколько раз без
+  // переименования плодил одинаковые «Новая схема»).
   createProject: (name: string, fromExisting?: string): string => {
     const s = get();
     const src = fromExisting ? s.workspace.projects.find((p: Project) => p.id === fromExisting)?.doc : null;
     const newDoc: NetMapDoc = src
       ? JSON.parse(JSON.stringify(src))
       : { version: 3, name, groups: [], devices: [], links: [], stickies: [], vlans: [] };
-    newDoc.name = name;
-    const p = makeProject(name, newDoc);
+    const uniq = uniqueProjectName(s.workspace.projects, name);
+    newDoc.name = uniq;
+    const p = makeProject(uniq, newDoc);
     const nextWs: Workspace = { ...s.workspace, projects: [...s.workspace.projects, p], activeId: p.id };
     saveWorkspace(nextWs);
     set({
@@ -759,9 +813,10 @@ export const useStore = create<State>((set, get) => ({
     return p.id;
   },
   renameProject: (id: string, name: string) => set((s) => {
+    const uniq = uniqueProjectName(s.workspace.projects, name, id);
     const nextWs: Workspace = {
       ...s.workspace,
-      projects: s.workspace.projects.map((p: Project) => p.id === id ? { ...p, name, doc: { ...p.doc, name } } : p),
+      projects: s.workspace.projects.map((p: Project) => p.id === id ? { ...p, name: uniq, doc: { ...p.doc, name: uniq } } : p),
     };
     saveWorkspace(nextWs);
     return { workspace: nextWs, doc: activeDoc(nextWs) };
@@ -1061,6 +1116,61 @@ export const useStore = create<State>((set, get) => ({
     try { localStorage.setItem('netmap:hideEdges', next ? '1' : '0'); } catch {}
     return { hideEdges: next };
   }),
+  showLinkLabels: (typeof window !== 'undefined' && localStorage.getItem('netmap:showLinkLabels') === '1'),
+  toggleShowLinkLabels: () => set(s => {
+    const next = !s.showLinkLabels;
+    try { localStorage.setItem('netmap:showLinkLabels', next ? '1' : '0'); } catch {}
+    return { showLinkLabels: next };
+  }),
+  // v0.71: по умолчанию ВКЛ (persist «0» выключает).
+  showMinimap: (typeof window === 'undefined' || localStorage.getItem('netmap:showMinimap') !== '0'),
+  toggleShowMinimap: () => set(s => {
+    const next = !s.showMinimap;
+    try { localStorage.setItem('netmap:showMinimap', next ? '1' : '0'); } catch {}
+    return { showMinimap: next };
+  }),
+  preferOverviewBig: (typeof window === 'undefined' || localStorage.getItem('netmap:preferOverviewBig') !== '0'),
+  togglePreferOverviewBig: () => set(s => {
+    const next = !s.preferOverviewBig;
+    try { localStorage.setItem('netmap:preferOverviewBig', next ? '1' : '0'); } catch {}
+    return { preferOverviewBig: next };
+  }),
+  // v0.72: focus-first. По умолчанию ВКЛ для больших карт.
+  focusMode: (typeof window === 'undefined' || localStorage.getItem('netmap:focusMode') !== '0'),
+  toggleFocusMode: () => set(s => {
+    const next = !s.focusMode;
+    try { localStorage.setItem('netmap:focusMode', next ? '1' : '0'); } catch {}
+    return { focusMode: next };
+  }),
+  focusVisible: new Set<string>(),
+  focusBuiltFor: null as unknown as NetMapDoc | null,
+  syncFocus: () => set(s => {
+    const big = (s.doc.devices || []).length >= BIG_MAP_DEVICES;
+    if (!s.focusMode || !big) {
+      return s.focusVisible.size === 0 && !s.focusBuiltFor ? {} : { focusVisible: new Set<string>(), focusBuiltFor: null };
+    }
+    // Пересчитываем, только если док сменился или множество ещё пустое.
+    if (s.focusBuiltFor === s.doc && s.focusVisible.size > 0) return {};
+    return { focusVisible: computeFocusSet(s.doc), focusBuiltFor: s.doc };
+  }),
+  expandFocus: (id: string) => set(s => {
+    if (!s.focusMode) return {};
+    const vis = new Set(s.focusVisible);
+    vis.add(id);
+    for (const l of s.doc.links || []) {
+      if (l.fromDeviceId === id) vis.add(l.toDeviceId);
+      if (l.toDeviceId === id) vis.add(l.fromDeviceId);
+    }
+    return { focusVisible: vis };
+  }),
+  resetFocus: () => set(s => {
+    if (!s.focusMode) return {};
+    return { focusVisible: computeFocusSet(s.doc), focusBuiltFor: s.doc };
+  }),
+  revealAllFocus: () => set(s => {
+    if (!s.focusMode) return {};
+    return { focusVisible: new Set(s.doc.devices.map(d => d.id)), focusBuiltFor: s.doc };
+  }),
   // v0.41: sidebar & right-panel default to CLOSED (map takes whole viewport).
   // '0' = closed, '1' = open. Persisted in localStorage so user's choice sticks.
   sidebarOpen: (typeof window !== 'undefined' && localStorage.getItem('netmap:sidebarOpen') === '1'),
@@ -1315,7 +1425,13 @@ export const useStore = create<State>((set, get) => ({
               : d
           ),
         };
-    const compacted = groupBy === 'none' ? withDisplay : autoGroupDevices(withDisplay, { groupBy });
+    // v0.67: стратегия переорганизует ВСЮ карту (takeOverUserGroups) — иначе
+    // на карте с пользовательскими группами режимы выглядели «мёртвыми»:
+    // устройства уже были в группах, и автогруппировке доставались нули.
+    // «Без группировки» возвращает устройства в их «домашние» группы.
+    const compacted = groupBy === 'none'
+      ? restoreUserGroups(withDisplay)
+      : autoGroupDevices(withDisplay, { groupBy, takeOverUserGroups: true });
     const { positions, groupPositions } = computeAutoLayout(compacted, { direction });
     if (positions.size === 0 && groupPositions.size === 0) return {};
     // v0.35.8: NEVER commit non-finite coords from autoLayout — a corner-case
@@ -1352,6 +1468,105 @@ export const useStore = create<State>((set, get) => ({
     }
     return { ...historyPush(s), doc };
   }),
+
+  // v0.66.0: «радуга» — радиальная раскладка (макет C). Ядро в центре,
+  // хабы по орбите, оконечные — дугами вокруг своего хаба. Группы остаются
+  // рамками (состав раскладывается сеткой внутри). Как и autoLayout:
+  // компакт перед раскладкой, safeFinite, история (Ctrl+Z), fit-view.
+  radialLayout: () => set((s) => {
+    const withDisplay = {
+      ...s.doc,
+      devices: s.doc.devices.map(d =>
+        (d.kind === 'switch' || d.kind === 'router' || d.kind === 'patchpanel' || d.kind === 'server')
+          && d.display === 'rack'
+          ? { ...d, display: 'compact' as const }
+          : d
+      ),
+    };
+    const { positions, groupPositions } = computeRadialLayout(withDisplay);
+    if (positions.size === 0 && groupPositions.size === 0) return {};
+    const safeFinite = (v: number, fallback: number) => Number.isFinite(v) ? v : fallback;
+    const devices = withDisplay.devices.map(d => {
+      const p = positions.get(d.id);
+      if (!p) return d;
+      return { ...d, x: safeFinite(p.x, d.x), y: safeFinite(p.y, d.y) };
+    });
+    const groups = (withDisplay.groups || []).map(g => {
+      const p = groupPositions.get(g.id);
+      if (!p) return g;
+      return {
+        ...g,
+        x: safeFinite(p.x, g.x), y: safeFinite(p.y, g.y),
+        width: safeFinite(p.width, g.width), height: safeFinite(p.height, g.height),
+      };
+    });
+    const doc = { ...withDisplay, devices, groups };
+    persist(doc);
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent('netmap:layout-applied'))
+      ));
+    }
+    return { ...historyPush(s), doc };
+  }),
+
+  // v0.70.0: ремонт топологии по FDB-хинтам (topoRepair.ts): конец связи
+  // со шлюза переставляется на свитч, узнаваемый в имени порта-хинта.
+  applyHintRepairs: () => {
+    const s = get();
+    const repairs = planHintRepairs(s.doc);
+    if (repairs.length === 0) return 0;
+    const doc = applyHintRepairsToDoc(s.doc, repairs);
+    persist(doc);
+    const perSwitch = new Map<string, number>();
+    repairs.forEach(r => perSwitch.set(r.switchName, (perSwitch.get(r.switchName) || 0) + 1));
+    s.pushAlert({
+      severity: 'success', origin: 'user', title: 'Ремонт топологии по FDB',
+      message: `Перестроено связей: ${repairs.length} → ${[...perSwitch.entries()].map(([n, c]) => `${n} (+${c})`).join(', ')}`,
+    });
+    set(st => ({ ...historyPush(st), doc }));
+    return repairs.length;
+  },
+  // v0.74: подключение оконечных к просканированным хабам по FDB.
+  // move — переставляем конец существующей связи (DHCP-звезда → реальный
+  // свитч), add — создаём связь. Один шаг истории на весь пакет.
+  applyAuditFixes: () => {
+    const s = get();
+    const fixes = planAuditFixes(s.doc);
+    if (fixes.length === 0) return 0;
+    const links = [...s.doc.links];
+    const linkById = new Map(links.map(l => [l.id, l]));
+    let added = 0, moved = 0;
+    for (const f of fixes) {
+      if (f.action === 'move' && f.linkId && f.side) {
+        const l = linkById.get(f.linkId);
+        if (!l) continue;
+        const next = { ...l };
+        if (f.side === 'from') { next.fromDeviceId = f.hubId; next.fromPortId = undefined; }
+        else { next.toDeviceId = f.hubId; next.toPortId = undefined; }
+        if (next.fromDeviceId === next.toDeviceId) continue;
+        linkById.set(f.linkId, next);
+        moved++;
+      } else if (f.action === 'add') {
+        links.push({
+          id: `audit-${f.deviceId}-${f.hubId}`,
+          fromDeviceId: f.hubId, toDeviceId: f.deviceId,
+          cable: 'copper',
+          label: 'audit FDB → ' + f.hubName,
+        });
+        added++;
+      }
+    }
+    const nextLinks = [...linkById.values(), ...links.filter(l => !linkById.has(l.id))];
+    const doc = { ...s.doc, links: nextLinks };
+    persist(doc);
+    s.pushAlert({
+      severity: 'success', origin: 'user', title: 'Аудит хабов по FDB',
+      message: `Переставлено связей: ${moved}, добавлено: ${added}. Откат — Ctrl+Z.`,
+    });
+    set(st => ({ ...historyPush(st), doc }));
+    return moved + added;
+  },
   setPosition: (id, x, y, parentId) => set((s) => {
     // v0.35.4: reject NaN / Infinity outright — otherwise a garbage coord
     // sneaks into `doc.devices`, React Flow's `extent:'parent'` clips the
@@ -1422,6 +1637,8 @@ export const useStore = create<State>((set, get) => ({
               ...((dev as any).vlan != null ? { vlan: (dev as any).vlan } : {}) },
           ],
           tags: Array.isArray(dev.tags) ? [...dev.tags, 'discovered'] : ['discovered'],
+          // v0.74: откуда устройство (dhcp|snmp|ssh) — для аудита хабов.
+          ...((dev as any).origin ? { origin: (dev as any).origin } : {}),
           x: 40 + col * 220,
           y: startY + row * 160,
           display: 'compact',
@@ -1457,7 +1674,14 @@ export const useStore = create<State>((set, get) => ({
         addedLinks++;
       }
 
-      const doc = { ...s.doc, devices: nextDevices, links: nextLinks };
+      // v0.74: следы сканирований — мержим по host (свежие побеждают).
+      let scanMeta = s.doc.scanMeta;
+      if (Array.isArray(diff.scanMeta) && diff.scanMeta.length) {
+        const byHost = new Map((s.doc.scanMeta || []).map(m => [m.host, m]));
+        for (const m of diff.scanMeta) byHost.set(m.host, m);
+        scanMeta = [...byHost.values()];
+      }
+      const doc = { ...s.doc, devices: nextDevices, links: nextLinks, ...(scanMeta ? { scanMeta } : {}) };
       persist(doc);
       return { ...historyPush(s), doc };
     });
