@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from './store';
 import { alertDialog, confirmDialog } from './Modal';
 import { planHintRepairs } from './topoRepair';
@@ -476,7 +477,10 @@ function HelpMenu({ onClose }: { onClose: () => void }) {
 
 function Dropdown({ anchor, children }: { anchor: HTMLElement | null; children: React.ReactNode }) {
   const rect = anchor?.getBoundingClientRect();
-  return (
+  // v0.76.1: портал в body + z10000 — меню выше ЛЮБЫХ полос и оверлеев
+  // канваса (раньше fixed-дропдаун жил в stacking-контексте своей полосы и
+  // перекрывался соседями: тулбаром, легендой подсетей — скрины пользователя).
+  return createPortal(
     <div style={{
       position: 'fixed',
       top: rect ? rect.bottom + 2 : 30,
@@ -486,11 +490,12 @@ function Dropdown({ anchor, children }: { anchor: HTMLElement | null; children: 
       border: '1px solid #E5E7EB',
       borderRadius: 8,
       boxShadow: '0 10px 30px rgba(15,23,42,0.15)',
-      zIndex: 1000,
+      zIndex: 10000,
       padding: 4,
     }}>
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
