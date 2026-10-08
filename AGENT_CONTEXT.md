@@ -19,6 +19,40 @@
 
 ## 2. Где остановились
 
+**Сессия 2026-10-08 (эта ветка, `arena/01a0da42-netmap`)** — закрыта серия
+v0.75.0 → v0.76.5, всё выпущено и в CI success:
+- **v0.75.0**: WinBox (`electron/winbox.cjs`, аргументы `winbox.exe <ip> [login [password]]`,
+  путь в localStorage `netmap:winboxPath`), автообнаружение с устройства в фокусе,
+  фикс крестика в focus-виде.
+- **v0.75.1**: z-index шапок MenuBar/Toolbar 60 (попапы не наезжают); уникальные имена
+  проектов `uniqueProjectName` (« (2)»/« (3)» в create/rename); SNMPv3 в discovery
+  (форма USM + `buildV3Options`/`createV3Session` в snmp.cjs).
+- **v0.76.0**: SSH-ключи во всём стеке: `electron/sshAuth.cjs` (privateKey | privateKeyPath |
+  password + passphrase), подключено в mikrotik-ssh.cjs и ssh-shell.cjs; vault-поля
+  sshKey/sshKeyPath/sshPassphrase (секция «SSH-ключ» в VaultStudio); терминал,
+  ContextMenuHost и discovery берут ключ из vault.
+- **v0.76.1**: дропдауны MenuBar — `createPortal(document.body)` + z10000 (перекрывались
+  тулбаром/легендой); guard в onScan discovery («proposedDevices is not iterable»):
+  валидация r.ok/proposedDevices ДО setScan + alertDialog.
+- **v0.76.2**: collectSnmp читал голый `cfg` (ReferenceError) — v3 через `opts.cfg`;
+  scan() передаёт SSH-ключ в collectMikrotik (в 0.76.0 терялся по дороге).
+- **v0.76.3**: после портала outside-click закрывал меню на mousedown по пункту —
+  «кнопки не нажимаются». Фикс: `dropdownNode` (ref портал-дива) в проверке.
+  jsdom-стенд на реальном MenuBar: PASS.
+- **v0.76.4** (полный аудит по жалобе «проверь полностью»): (1) vault.cjs secretPart —
+  whitelist без ssh-полей → ключи молча не сохранялись; (2) VaultCreds save/pick —
+  ssh-поля top-level, а не fields{}; (3) DiscoveryDialog: sshKeyPem/sshPassPem + values/
+  onApply + privateKey/sshPassphrase в currentCfg (ранее поле было пустышкой).
+- **v0.76.5**: SNMPv3 не работал НИКАКОЙ — net-snmp ждёт USM в объекте пользователя,
+  а мы слали имя строкой + level в options → пустой msgUserName → authorizationError.
+  `buildV3User()` + `createV3Session(host, userObj)`. Живой прогон против независимого
+  pysnmp-агента: 4 комбинации probe + walk OK (рецепт стенда — грабля 9).
+
+**Следующее по плану пользователя** (не начато): плавность карты по
+`docs/comfyui-analysis.md` — кандидаты A (FPS-метр) и B (canvas-обзор);
+ждём подтверждения. Новые задачи — только по указанию пользователя
+(«всегда задавай уточняющие вопросы, если непонятно»).
+
 **Текущая сессия (2026-09-25, ветка `arena/01a0da42-netmap`):** разбор макетов
 `map-variants.html` → `docs/map-variants-analysis.md`; план «гибрид» из трёх релизов
 **ВЫПОЛНЕН ПОЛНОСТЬЮ**:
@@ -98,6 +132,12 @@ VLAN / подсети). Меню закрывается Escape, кликом м�
 3. ~~**Стратегии умной раскладки**~~ **ЗАКРЫТО в v0.63.0**: меню из 4 стратегий на полосе
    (шеврон у «Умной раскладки»).
 4. `main` отстал (заморожен на `ad8ced0`). Сливать в `main` только по явной просьбе пользователя.
+5. **Плавность больших карт** — кандидаты A–E в `docs/comfyui-analysis.md` (173a1d4):
+   A FPS-метр, B canvas-обзор вместо DOM на far и т.д. Пользователь может вернуться.
+6. **Аудит хабов v0.74**: ждём новый экспорт пользователя после скана 0.74+, чтобы
+   проверить topoAudit на живых данных (старые файлы без scanMeta — «нет данных»).
+7. SNMPv3 aes256r (Cisco/Reeder) против реального железа не проверен (стенд pysnmp
+   покрывает aes256b/Blumenthal); при жалобе — сверять со snmpwalk -x AES-256-C.
 
 ## 4. Карта репозитория (что где)
 
@@ -130,12 +170,18 @@ electron/
 ## 5. Как работать (кратко, детали — HANDOFF.md)
 
 - **Сборка `.exe` — только GitHub Actions по git-тегу.** Агент: правки → `tsc --noEmit` →
-  `vite build` → commit → push в `arena/01a0ced4-netmap` → тег `vX.Y.Z` → push тега → `gh run watch`.
+  `vite build` → **fetch + `git reset --mixed origin/arena/01a0da42-netmap`** (снепшот
+  откатывает HEAD) → commit → push в `arena/01a0da42-netmap` → тег `vX.Y.Z` **только для
+  релизов** → push тега → `gh run list`/`gh release view`. Сессия привязана к
+  `arena/01a0da42-netmap` — другие ветки не трогать.
 - **Зависимости в песочнице:** `npm ci --ignore-scripts` (обычный `npm ci` падает на
   `better-sqlite3`/node-gyp: sandbox без тулчейна и с обрезанной сетью). Для tsc/vite этого хватает.
 - **UI-правила:** никаких `alert()/confirm()/prompt()` (только `Modal.tsx`); никаких эмодзи/
   экзотики в UI (только SVG); `base: './'`; стабильные референсы селекторов; `safeFinite()` для координат.
 - **Отвечать пользователю по-русски.** Каждый релиз — запись в историю версий README.md.
+- **Формат каждого ответа пользователю** (требование): что сделал → как это подробно
+  выглядит → как проверить → точечно изменения. При неоднозначности — сначала
+  `ask_user`, а не догадки.
 - Новые диалоги/окна — только через `DialogShell` из `DialogTheme.tsx` (единый стиль, §2).
 
 ## 6. Грабли песочницы (прочитай, иначе потеряешь время)
@@ -180,6 +226,23 @@ electron/
    коммит `15de20f`, ветки/теги отсутствовали, но remote был цел). Лечение то же: `fetch`
    arena-веток и тегов, затем `merge --allow-unrelated-histories` актуальной ветки (даёт полную
    историю в ветке сессии) — `reset --hard` не нужен, если рабочее дерево уже содержит свежий код.
+9. **Правки `s.replace(...)` в AGENT_CONTEXT без assert молча не применялись**
+  (якоря не находились — файл оставался stale, хотя код говорил «ok»). Любые
+  автозамены в документах — только с assert/проверкой вхождения, и после — grep.
+10. **`node_modules` и `/tmp` вытираются и МЕЖДУ ХОДАМИ внутри сессии.** Каждый ход:
+  `npm ci --ignore-scripts`; jsdom — `npm i --no-save jsdom`; стенды/скрипты в `/tmp`
+  пересоздавать. `npx tsc` ставит мусорный tsc@2 — только `./node_modules/.bin/tsc`.
+11. **apt недоступен** (прокси режет deb-индексы), но **sudo работает**; pip ставится
+  через `python3 -m venv /tmp/venv`. Рецепт SNMP-interop-стенда (проверено 2026-10-08):
+  venv + `pip install pysnmp cryptography` (pysnmp 7: API asyncio `get_cmd`,
+  Debug('secmod','acl','msgproc') для вердиктов агента; AES требует cryptography);
+  агент на 127.0.0.1:16100 с v3-юзерами (addV3User/addVacmUser) — независимая
+  реализация для сверки net-snmp(npm). tcpdump НЕ установлен.
+12. **net-snmp (npm) API v3**: USM-параметры — ТОЛЬКО в объекте пользователя
+  `{name, level, authProtocol, authKey, privProtocol, privKey}` (числовые коды из
+  AuthProtocols/PrivProtocols: sha256=5, sha512=7, aes=4, aes256b=6, aes256r=8);
+  в options сессии они игнорируются. Ошибка «AuthorizationError» от библиотеки =
+  error-status 16 от агента (VACM/пустой user), а не report usmStats.
 
 ## 7. Быстрая проверка после правок
 
@@ -189,6 +252,14 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
 ```
 
 ## 8. История этого файла
+
+- 2026-10-08: сессия `arena/01a0da42-netmap` — серия релизов v0.75.0 → v0.76.5
+  (подробности в блоке §2 и в истории README): stacking/имена/SNMPv3 (0.75.1),
+  SSH-ключи (0.76.0), портал-меню + guard discovery (0.76.1), cfg в collectSnmp +
+  ключ в MikroTik-скан (0.76.2), кликабельность меню (0.76.3), аудит vault/VaultCreds/
+  DiscoveryDialog (0.76.4), buildV3User SNMPv3 (0.76.5). Добавлены грабли 8a–11,
+  обновлены §2/§3/§5. Файл приведён в актуальное состояние для передачи другому
+  агенту: снимок (§1) + где остановились (§2) + открытые задачи (§3) — источник правды.
 
 - 2026-09-25: создан при передаче проекта между сессиями (v0.62.2, HEAD `4467e13`).
 - 2026-09-25: сессия Arena на ветке-двойнике `arena/01a0da2c-netmap` (та же история, что
