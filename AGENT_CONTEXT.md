@@ -24,6 +24,8 @@
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
 
+**v0.76.8 (Vault, 2026-10-09)** — `VaultCreds.tsx`: «В Vault» обновляет запись с тем же хостом/логином/портом (`findSameRecord`, `sameRecord`), а не создаёт дубль; `mergeIntoExisting` не затирает notes/totp/history; папка пишется по id (`resolveFolderId`); пикер показывает детали и «что заполнится», дубли помечены. Тест разбора: `/tmp/vt/vault_test.cjs` (вне репо) — ALL PASS.
+
 **v0.76.7 (автообнаружение, 2026-10-08)** — VLAN находятся полностью (bridge без комментария,
 trunk-only, назначение по FDB `vid` и по подсети на транке, `vlanSource`); пошагово предлагается
 опросить найденные ядро/распределение (`hubCandidates`, `scannedHosts`, `snmpRecursive` по умолчанию
