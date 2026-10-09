@@ -262,6 +262,8 @@ function registerIpc() {
   // ---- v0.44: auto-discovery (LLDP+FDB+ARP → diff proposal) ----
   ipcMain.handle('netmap:discoveryTest', safeInvoke((_e, cfg) => getDiscovery().test(cfg)));
   ipcMain.handle('netmap:discoveryScan', safeInvoke((_e, cfg) => getDiscovery().scan(cfg)));
+  // v0.76.9: подбор протокола SNMPv3 (auth/priv) по форме
+  ipcMain.handle('netmap:discoveryDetectV3', safeInvoke((_e, cfg) => getDiscovery().detectV3(cfg)));
 
   // ---- v0.36.2: auto-updater (electron-updater + GitHub Releases) ----
   ipcMain.handle('netmap:updateCheck',    safeInvoke(() => getUpdater().checkNow()));

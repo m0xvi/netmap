@@ -121,6 +121,24 @@ function hasBackend() {
   return typeof window !== 'undefined' && !!(window as any).netmap && typeof (window as any).netmap.discoveryScan === 'function';
 }
 
+export interface DetectV3Result {
+  ok: boolean;
+  authProtocol?: string;
+  privProtocol?: string;
+  sysName?: string;
+  sysDescr?: string;
+  error?: string;
+  tried?: Array<{ authProtocol: string; privProtocol: string; ok: boolean; error: string }>;
+}
+
+/** v0.76.9: подбор протокола SNMPv3 (MD5/SHA/SHA-2 и AES/DES) по введённым user/ключам. */
+export async function discoveryDetectV3(cfg: DiscoveryConfig): Promise<DetectV3Result> {
+  if (!hasBackend() || typeof (window as any).netmap.discoveryDetectV3 !== 'function') {
+    return { ok: false, error: 'Подбор протокола доступен только в приложении.', tried: [] };
+  }
+  return (window as any).netmap.discoveryDetectV3(cfg);
+}
+
 export async function discoveryTest(cfg: DiscoveryConfig): Promise<DiscoveryTestResult> {
   if (!hasBackend()) {
     // Browser-preview mock

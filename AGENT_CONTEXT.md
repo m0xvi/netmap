@@ -12,7 +12,7 @@
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
 | HEAD | v0.76.7 (автообнаружение: VLAN, пошаговый обход, SSH-ключи в UI) поверх v0.76.6 (аудит). Ранее v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.76.5` (package.json), тег `v0.76.5` запушен |
+| Версия | `0.76.9` (package.json), тег `v0.76.9` (см. §2) |
 | Релиз | v0.76.5 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.5.exe`, `NetMap-Portable-0.76.5.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
@@ -23,6 +23,8 @@
 Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
+**v0.76.9 (SNMPv3/TP-Link/D-Link/меню, 2026-10-09)** — DES для SNMPv3: `electron/desCompat.cjs` подменяет `crypto` для `des-cbc` на `des.js` (net-snmp DES — заглушка, OpenSSL 3 без DES). Подбор протокола: `snmp.cjs` `detectV3` ← `discovery.cjs` `detectV3` ← IPC `netmap:discoveryDetectV3` ← кнопка в `DiscoveryDialog`. `discovery.test()` теперь передаёт v3-опции (`snmpSessionOpts`). Ошибки v3 переводятся (`humanizeError`). Классификация: `kindByDescr` (роутеры TL-R/Archer/DIR перед общими «wireless»), `guessVendor` (TP-Link OID 11863). Меню стратегий: `ToolsStrip.tsx` — `smartMenuRef` в глобальном mousedown. Тесты вне репо: `/tmp/vt/sim_scan.cjs`, `detect_check.cjs`, `kind_check.cjs`, `des_check.cjs` (эмуляторы snmpsim на 127.0.0.2–4:1161; без root порт 161 недоступен). Открыто: правило «MAC-only без IP» (решение пользователя); OUI TP-Link/D-Link.
 
 **v0.76.8 (Vault, 2026-10-09)** — `VaultCreds.tsx`: «В Vault» обновляет запись с тем же хостом/логином/портом (`findSameRecord`, `sameRecord`), а не создаёт дубль; `mergeIntoExisting` не затирает notes/totp/history; папка пишется по id (`resolveFolderId`); пикер показывает детали и «что заполнится», дубли помечены. Тест разбора: `/tmp/vt/vault_test.cjs` (вне репо) — ALL PASS.
 
@@ -272,6 +274,8 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
 ```
 
 ## 8. История этого файла
+
+- 2026-10-09: сессия `arena/cbcdb62e-netmap` — v0.76.9: DES для SNMPv3 (desCompat), подбор протокола v3, ошибки v3, TP-Link/D-Link классификация, меню стратегий. Грабли: порт 161 без root недоступен (эмуляторы на 1161), net-snmp DES — заглушка.
 
 - 2026-10-08: сессия `arena/01a0da42-netmap` — серия релизов v0.75.0 → v0.76.5
   (подробности в блоке §2 и в истории README): stacking/имена/SNMPv3 (0.75.1),

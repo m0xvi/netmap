@@ -17,7 +17,7 @@ import type { DeviceKind } from './types';
 import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
 import {
-  discoveryScan, discoveryTest,
+  discoveryScan, discoveryTest, discoveryDetectV3,
   type DiscoveryConfig, type DiscoveryScanResult,
   type DiscoveryDeviceProposal, type DiscoveryLinkProposal,
   type DiscoveryNameSource,
@@ -385,7 +385,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [snmpVersion, setSnmpVersion] = useState<'1' | '2c' | '3'>('2c');
   const [v3User, setV3User] = useState('admin');
   const [v3Level, setV3Level] = useState<'noAuthNoPriv' | 'authNoPriv' | 'authPriv'>('authNoPriv');
-  const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>('sha256');
+  // v0.76.9: 'sha' — самый частый протокол auth у TP-Link/D-Link; при несовпадении — «Подобрать протокол».
+  const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>('sha');
+  const [v3Detecting, setV3Detecting] = useState(false);
+  const [v3DetectMsg, setV3DetectMsg] = useState<string>('');
   const [v3AuthKey, setV3AuthKey] = useState('');
   const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>('aes');
   const [v3PrivKey, setV3PrivKey] = useState('');
@@ -461,6 +464,29 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   };
 
   // --- helpers -----------------------------------------------------------
+  // v0.76.9: подбор auth/priv протокола SNMPv3 перебором (см. snmp.cjs detectV3).
+  async function onDetectV3() {
+    setV3Detecting(true); setV3DetectMsg('');
+    try {
+      const r = await discoveryDetectV3(currentCfg);
+      if (r.ok) {
+        const a = (r.authProtocol || '') as any;
+        if (a && ['md5', 'sha', 'sha256', 'sha512'].includes(a)) setV3AuthProto(a);
+        const p = (r.privProtocol || '') as any;
+        if (p && ['des', 'aes', 'aes256b', 'aes256r'].includes(p)) setV3PrivProto(p);
+        const parts = [`auth ${r.authProtocol || '—'}`];
+        if (r.privProtocol) parts.push(`priv ${r.privProtocol}`);
+        setV3DetectMsg(`Подошло: ${parts.join(', ')}${r.sysName ? ` (${r.sysName})` : ''}`);
+      } else {
+        setV3DetectMsg(r.error || 'Не подошло ни одной комбинации.');
+      }
+    } catch (e: any) {
+      setV3DetectMsg('Ошибка: ' + (e?.message || String(e)));
+    } finally {
+      setV3Detecting(false);
+    }
+  }
+
   async function onTest() {
     setPhase('testing'); setTestMsg('');
     try {
@@ -1165,6 +1191,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                           </span>
                         </label>
                       )}
+                      <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <button style={S.btnSecondary} disabled={v3Detecting || phase === 'testing'} onClick={onDetectV3}>
+                          {v3Detecting ? 'Подбираем…' : 'Подобрать протокол'}
+                        </button>
+                        {v3DetectMsg && <span style={{ fontSize: 12, color: '#334155' }}>{v3DetectMsg}</span>}
+                      </div>
                     </>
                     )}
                     {/* v0.51.21 */}
@@ -1251,6 +1283,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                 {noIpTotal > 0 && (
                   <div className="s-note" title="Известен только MAC — добавить такие устройства нельзя, устройству обязательно нужен IP.">
                     <DIcon n="warn" size={13} /> {noIpTotal} без IP — не добавятся
+                  </div>
+                )}
+                {noIpTotal > 0 && mode === 'snmp' && (
+                  // v0.76.9: L2-коммутатор не отдаёт ARP, поэтому IP у его соседей по FDB неизвестен.
+                  <div className="s-note" style={{ fontSize: 12, lineHeight: 1.4 }}>
+                    Коммутатор (L2) не знает IP своих клиентов — видны только MAC и порты. Чтобы получить IP, опросите роутер режимом «Оба» (SSH): его ARP-таблица даёт IP.
                   </div>
                 )}
               </div>

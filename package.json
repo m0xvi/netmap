@@ -1,7 +1,7 @@
 {
   "name": "netmap",
   "productName": "NetMap",
-  "version": "0.76.8",
+  "version": "0.76.9",
   "description": "Interactive network map & inventory for sysadmins (Hotel Usadba prototype)",
   "author": {
     "name": "NetMap",
@@ -87,6 +87,7 @@
     "argon2-browser": "^1.18.0",
     "better-sqlite3": "^11.3.0",
     "dagre": "^0.8.5",
+    "des.js": "^1.1.0",
     "electron-updater": "^6.8.9",
     "html-to-image": "^1.11.13",
     "https-proxy-agent": "^9.1.0",

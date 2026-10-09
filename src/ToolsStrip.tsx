@@ -20,7 +20,7 @@
  * (toolsStripOpen) и переживает перезапуск через localStorage.
  */
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type RefObject } from 'react';
 import { useStore } from './store';
 import { alertDialog } from './Modal';
 import { summarizeAutoGrouping } from './smartLayout';
@@ -198,15 +198,18 @@ function SmartSplit({ def, menuOpen, onToggleMenu }: {
 
 /** Меню стратегий. position: fixed — потому что полоса имеет overflow-x: auto
  *  и absolute-поповер внутри неё обрезался бы по вертикали. */
-function SmartMenu({ pos, onPick, onRadial }: {
+function SmartMenu({ pos, onPick, onRadial, menuRef }: {
   pos: { top: number; left: number };
   onPick: (g: GroupStrategy) => void;
   onRadial: () => void;
+  menuRef: RefObject<HTMLDivElement>;
 }) {
   const [hov, setHov] = useState<GroupStrategy | null>(null);
   const [hovRadial, setHovRadial] = useState(false);
   return (
-    <div data-netmap-overlay="true" style={{
+    // v0.76.9: ref нужен глобальному mousedown: меню рендерится вне полосы-якоря,
+    // без проверки по ref клик по пункту закрывал меню до срабатывания onClick.
+    <div ref={menuRef} data-netmap-overlay="true" style={{
       position: 'fixed', top: pos.top, left: pos.left, zIndex: 9000,
       background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10,
       boxShadow: '0 12px 32px rgba(15,23,42,0.18)', padding: 6, minWidth: 266,
@@ -376,6 +379,7 @@ export function ToolsStrip() {
   const [smartMenu, setSmartMenu] = useState(false);
   const [smartPos, setSmartPos] = useState<{ top: number; left: number } | null>(null);
   const smartAnchorRef = useRef<HTMLSpanElement>(null);
+  const smartMenuRef = useRef<HTMLDivElement>(null);
 
   const closeSmartMenu = () => { setSmartMenu(false); setSmartPos(null); };
 
@@ -398,9 +402,11 @@ export function ToolsStrip() {
       // target может быть не-узлом (например, само window) — тогда меню закрываем,
       // а не бросаем исключение на contains().
       const t = e.target as unknown as Node | null;
-      const inside = !!t && typeof (t as Node).nodeType === 'number'
-        && !!smartAnchorRef.current?.contains(t);
-      if (!inside) closeSmartMenu();
+      // v0.76.9: «внутри» = кнопка-якорь ИЛИ само меню (пункты стратегий).
+      const isNode = !!t && typeof (t as Node).nodeType === 'number';
+      const inAnchor = isNode && !!smartAnchorRef.current?.contains(t);
+      const inMenu = isNode && !!smartMenuRef.current?.contains(t);
+      if (!inAnchor && !inMenu) closeSmartMenu();
     };
     const onViewport = () => closeSmartMenu();
     window.addEventListener('keydown', onKey);
@@ -544,6 +550,7 @@ export function ToolsStrip() {
       </div>
       {smartMenu && smartPos && (
         <SmartMenu
+          menuRef={smartMenuRef}
           pos={smartPos}
           onPick={pickStrategy}
           onRadial={() => { doRadial(); closeSmartMenu(); }}

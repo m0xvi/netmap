@@ -15,6 +15,10 @@
 'use strict';
 
 const snmp = require('net-snmp');
+// v0.76.9: DES для SNMPv3 authPriv. net-snmp шифрует DES через OpenSSL 'des-cbc'
+// (выключен в OpenSSL 3) и содержит заглушку вместо DES — см. desCompat.cjs.
+const { installDesCompat } = require('./desCompat.cjs');
+installDesCompat();
 
 // ---------- Standard OIDs -------------------------------------------------
 
@@ -105,6 +109,28 @@ function buildV3Options(v3) {
   return { version: snmp.Version3, level: u.level,
     ...(u.authProtocol != null ? { authProtocol: u.authProtocol, authKey: u.authKey } : {}),
     ...(u.privProtocol != null ? { privProtocol: u.privProtocol, privKey: u.privKey } : {}) };
+}
+
+// v0.76.9: понятные причины отказа SNMPv3. Исходный текст ошибки сохраняется в скобках.
+const V3_ERRORS = [
+  [/Wrong Digest/i, 'SNMPv3: неверный пароль аутентификации или протокол auth (MD5/SHA/SHA-2). Проверьте ключ или нажмите «Подобрать протокол».'],
+  [/Unknown User Name/i, 'SNMPv3: такого пользователя нет на устройстве. Проверьте имя (например, zbx) и что SNMPv3 включён.'],
+  [/Unknown Engine ID/i, 'SNMPv3: устройство не приняло engine ID. Обычно это временная рассинхронизация — повторите попытку.'],
+  [/Decryption Error/i, 'SNMPv3: ошибка расшифровки. Неверный ключ шифрования (priv) или протокол шифрования (DES/AES).'],
+  [/Unsupported Security Level/i, 'SNMPv3: устройство не поддерживает выбранный уровень безопасности. Попробуйте уровень authNoPriv или authPriv.'],
+  [/Not In Time Window/i, 'SNMPv3: расхождение времени с устройством. Повторите попытку.'],
+];
+function humanizeError(msg, v3) {
+  const text = String(msg || '');
+  if (!v3 || !v3.user) return text;
+  for (const [re, human] of V3_ERRORS) if (re.test(text)) return `${human} (${text})`;
+  if (/timed out/i.test(text)) {
+    return `SNMPv3: нет ответа. Чаще всего неверное имя пользователя, выключенный SNMPv3 или неверный протокол auth. Нажмите «Подобрать протокол». (${text})`;
+  }
+  return text;
+}
+function errText(e, opts) {
+  return humanizeError(e && e.message ? e.message : String(e), opts && opts.v3);
 }
 
 function mkSession(host, community, opts = {}) {
@@ -234,7 +260,7 @@ async function probe(host, community, opts) {
       sysObjectID: r[OID.sysObjectID] || '',
     };
   } catch (e) {
-    return { ok: false, error: e && e.message ? e.message : String(e) };
+    return { ok: false, error: errText(e, opts) };
   }
 }
 
@@ -242,21 +268,50 @@ async function probe(host, community, opts) {
 
 async function getSafe(host, community, oids, opts) {
   try { return { ok: true, values: await get(host, community, oids, opts) }; }
-  catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+  catch (e) { return { ok: false, error: errText(e, opts) }; }
 }
 
 async function walkSafe(host, community, rootOid, opts) {
   try { return { ok: true, items: await walk(host, community, rootOid, opts) }; }
-  catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+  catch (e) { return { ok: false, error: errText(e, opts) }; }
 }
 
 async function tableSafe(host, community, rootOid, opts) {
   try { return { ok: true, rows: await table(host, community, rootOid, opts) }; }
-  catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+  catch (e) { return { ok: false, error: errText(e, opts) }; }
+}
+
+// v0.76.9: подбор протокола SNMPv3. Пробуем комбинации auth×priv от самой частой
+// к редкой; первый успешный ответ фиксирует протокол. Неверный протокол обычно
+// отвечает «Wrong Digest» почти мгновенно, молчащий агент режется таймаутом.
+const V3_AUTH_CANDIDATES = ['sha', 'md5', 'sha256', 'sha512'];
+const V3_PRIV_CANDIDATES = ['aes', 'des'];
+async function detectV3(host, v3Base, opts = {}) {
+  const level = v3Base.level || 'authNoPriv';
+  const authList = level === 'noAuthNoPriv' ? [null] : V3_AUTH_CANDIDATES;
+  const privList = level === 'authPriv' ? V3_PRIV_CANDIDATES : [null];
+  const tried = [];
+  for (const a of authList) {
+    for (const p of privList) {
+      const v3 = {
+        ...v3Base,
+        ...(a ? { authProtocol: a } : {}),
+        ...(p ? { privProtocol: p } : {}),
+      };
+      const r = await probe(host, '', { timeout: opts.timeout || 1500, retries: 0, snmpVersion: '3', v3 });
+      tried.push({ authProtocol: a || '', privProtocol: p || '', ok: !!r.ok, error: r.ok ? '' : r.error });
+      if (r.ok) {
+        return { ok: true, authProtocol: a || '', privProtocol: p || '', sysName: r.sysName || '', sysDescr: r.sysDescr || '', tried };
+      }
+    }
+  }
+  return { ok: false, error: 'Ни одна комбинация протоколов не подошла. Проверьте имя пользователя, ключ и уровень безопасности.', tried };
 }
 
 module.exports = {
   OID,
+  detectV3,
+  humanizeError,
   get,
   walk,
   table,

@@ -179,11 +179,14 @@ function kindByNameTokens(name) {
 function kindByDescr(descr, vendor) {
   const s = String(descr || '').toLowerCase();
   if (!s) return null;
+  // v0.76.9: раньше общих правил (wireless → ap): TP-Link TL-R/Archer и D-Link DIR/DSR — роутеры, DAP/EAP — точки.
+  if (/archer|tl-r\d|tl-wr\d|\bdir-\d|\bdsr-/.test(s)) return 'router';
+  if (/eap\d|tl-wa\d|\bdap-\d/.test(s)) return 'ap';
   if (/hap|cap|wap|lhg|sxt|nray|disc|omnitik|groove|metal|sextant|dynadish|audios|hap ax|cap ax/i.test(s)) return 'ap';
   if (/unifi|ubnt|uap[^a-z]|nanostation/.test(s)) return 'ap';
   if (/access ?point|wireless/.test(s)) return 'ap';
   if (/ccr\d|cloud core|hex( |$)|rb750|rb95|rb2011|rb3011|rb4011|rb5009|chr |isr\d|asr\d|edgerouter|vyos|pfsense|keenetic/.test(s)) return 'router';
-  if (/crs\d|css\d|netpower|switch|catalyst|nexus|procurve|edgeswitch|\bdes-|\bdgs|sg\d{2,}|sf\d{2,}|cbs\d/.test(s)) return 'switch';
+  if (/crs\d|css\d|netpower|switch|catalyst|nexus|procurve|edgeswitch|\bdes-|\bdgs|\bdxs-|sg\d{2,}|sf\d{2,}|sl\d{2,}|cbs\d|jetstream|easy ?smart|\bt\d{4}g|tl-s[a-z]\d/.test(s)) return 'switch';
   if (/dvr|nvr|video recorder|trassir|xeoma/.test(s)) return 'dvr';
   if (/pbx|asterisk|freepbx|voip gateway|yeastar|grandstream ucm|\b3cx\b/.test(s)) return 'pbx';
   if (/camera|ipcam|hikvision|dahua|axis/.test(s)) return 'camera';
@@ -235,11 +238,12 @@ function guessVendor(descr, oid) {
   const s = (descr || '').toLowerCase();
   if (/mikrotik|routeros/.test(s)) return 'MikroTik';
   if (/unifi|ubnt|ubiquiti/.test(s)) return 'Ubiquiti';
-  if (/tp-link|tplink|omada/.test(s)) return 'TP-Link';
+  // v0.76.9: модели TP-Link без слова «TP-Link» (TL-SG2008, T1500G, JetStream, Archer).
+  if (/tp-link|tplink|omada|\btl-[a-z]{1,3}\d|jetstream|easy ?smart|\bt\d{4}g|archer/.test(s)) return 'TP-Link';
   if (/cisco/.test(s)) return 'Cisco';
   if (/hikvision/.test(s)) return 'Hikvision';
   if (/dahua/.test(s)) return 'Dahua';
-  if (/d-link|dlink|dgs-/.test(s)) return 'D-Link';
+  if (/d-link|dlink|\bdgs-|\bdxs-|\bdes-\d|\bdir-\d|\bdsr-|\bdap-\d/.test(s)) return 'D-Link';
   if (/ruijie|reyee/.test(s)) return 'Ruijie';
   if (/hp |hpe |procurve|aruba/.test(s)) return 'HPE/Aruba';
   if (/juniper/.test(s)) return 'Juniper';
@@ -250,6 +254,8 @@ function guessVendor(descr, oid) {
     if (/^1\.3\.6\.1\.4\.1\.9\b/.test(oid)) return 'Cisco';
     if (/^1\.3\.6\.1\.4\.1\.11\b/.test(oid)) return 'HPE';
     if (/^1\.3\.6\.1\.4\.1\.171\b/.test(oid)) return 'D-Link';
+    // v0.76.9: TP-Link Technologies — enterprise 11863 (sysObjectID TL-SG2008: 1.3.6.1.4.1.11863.*).
+    if (/^1\.3\.6\.1\.4\.1\.11863\b/.test(oid)) return 'TP-Link';
     if (/^1\.3\.6\.1\.4\.1\.4526\b/.test(oid)) return 'Netgear';
     if (/^1\.3\.6\.1\.4\.1\.25506\b/.test(oid)) return 'H3C';
     if (/^1\.3\.6\.1\.4\.1\.25461\b/.test(oid)) return 'Palo Alto';
@@ -576,16 +582,7 @@ async function collectSnmp(host, community, opts) {
   // v0.76.2: v3-учётка едет через opts.cfg (collectSnmp вызывается из scan,
   // где cfg есть; раньше здесь был голый `cfg` — ReferenceError у пользователя).
   const c = (opts && opts.cfg) || {};
-  const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1,
-    // v0.75.1: версия SNMP и v3-учётка (USM) — в каждую сессию snmp.cjs.
-    snmpVersion: c.snmpVersion || '2c',
-    ...(c.snmpVersion === '3' ? { v3: {
-      user: c.v3User || c.username || 'admin',
-      level: c.v3Level || 'authNoPriv',
-      authProtocol: c.v3AuthProto, authKey: c.v3AuthKey,
-      privProtocol: c.v3PrivProto, privKey: c.v3PrivKey,
-    } } : {}),
-  };
+  const scanOpts = { timeout: (opts && opts.timeout) || 2500, retries: 1, ...snmpSessionOpts(c) };
   try {
     const probe = await snmpApi.probe(host, community, scanOpts);
     if (!probe.ok) {
@@ -1246,6 +1243,31 @@ function aggregateWarnings(list) {
  *   snmpPort?: 161,
  * }
  */
+/** v0.76.9: SNMP-опции сессии из конфига формы (v2c/v1 или SNMPv3 USM).
+ *  Общая точка для scan и test: раньше test() шёл всегда по v2c и SNMPv3 не проверял. */
+function snmpSessionOpts(c) {
+  const v3 = v3FromCfg(c);
+  return {
+    snmpVersion: c.snmpVersion || '2c',
+    ...(c.snmpVersion === '3' ? { v3 } : {}),
+  };
+}
+function v3FromCfg(c) {
+  return {
+    user: c.v3User || c.username || 'admin',
+    level: c.v3Level || 'authNoPriv',
+    authProtocol: c.v3AuthProto, authKey: c.v3AuthKey,
+    privProtocol: c.v3PrivProto, privKey: c.v3PrivKey,
+  };
+}
+
+/** v0.76.9: подбор протокола SNMPv3 для формы (кнопка «Подобрать протокол»). */
+async function detectV3(cfg) {
+  const host = String((cfg && cfg.host) || '').trim();
+  if (!host) return { ok: false, error: 'Укажите IP устройства.', tried: [] };
+  return snmpApi.detectV3(host, v3FromCfg(cfg || {}), { timeout: 1500 });
+}
+
 async function test(cfg) {
   const out = { ok: false, mikrotik: null, snmp: null };
   const promises = [];
@@ -1262,7 +1284,7 @@ async function test(cfg) {
   }
   if (cfg.mode === 'snmp' || cfg.mode === 'both') {
     promises.push((async () => {
-      const p = await snmpApi.probe(cfg.host, cfg.snmpCommunity || 'public', { timeout: 2000 });
+      const p = await snmpApi.probe(cfg.host, cfg.snmpCommunity || 'public', { timeout: 2000, ...snmpSessionOpts(cfg) });
       out.snmp = p;
     })());
   }
@@ -1418,4 +1440,4 @@ async function scan(cfg) {
 }
 
 // makeProposal экспортирован для модульных проверок (node -e / будущие тесты).
-module.exports = { scan, test, makeProposal };
+module.exports = { scan, test, makeProposal, detectV3 };
