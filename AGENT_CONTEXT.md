@@ -12,7 +12,7 @@
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
 | HEAD | v0.76.7 (автообнаружение: VLAN, пошаговый обход, SSH-ключи в UI) поверх v0.76.6 (аудит). Ранее v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.83.0` (package.json), тег `v0.83.0` (см. §2) |
+| Версия | `0.84.0` (package.json), тег `v0.84.0` (см. §2) |
 | Релиз | v0.76.5 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.5.exe`, `NetMap-Portable-0.76.5.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
@@ -23,6 +23,8 @@
 Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
+**v0.84.0 (автообнаружение: плановый скан, 2026-10-10)** — `src/discoveryScheduler.ts` (без React): `startSchedule({cfg, intervalMs, runScan})`, `stopSchedule`, `runScheduledOnce` (скан → `makeSnapshot`/`diffSnapshots`/`saveSnapshot`; без `applyDiscovery`), `setDiscoveryBusy` (пропуск при ручном скане), `subscribeSchedule`. Конфиг с паролями — только в памяти модуля. `DiscoveryDialog.tsx`: блок «Плановый скан» в форме; `trackProgress()` выставляет busy на время ручного скана.
 
 **v0.83.0 (автообнаружение: MAC за аплинком, 2026-10-10)** — `electron/discovery.cjs`, `makeProposal`: в блоке SNMP results `uplinkByPort` (LLDP-сосед на порту); `findPolled(nb)` по mgmtIp/sysName; для FDB на аплинке — пропуск, если опрошенный сосед видит тот же MAC в своём `fdb`, иначе `fromRef = сосед`, `fromPort = ''`, evidence «за аплинком …». Счётчик `uplink` → `stats.fdbUplink`. MikroTik-FDB не менялся.
 
@@ -291,6 +293,7 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
 
 ## 8. История этого файла
 
+- 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.84.0: плановый скан автообнаружения (пока приложение открыто, без автоприменения).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.83.0: MAC за аплинком привязываются к соседу, без дублей на аплинке (SNMP-коммутаторы).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.82.0: IP для устройств только по MAC из вывода arp -a/ip neigh с ПК.
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.81.0: профили сети автообнаружения (несекретные настройки, до 20 профилей).

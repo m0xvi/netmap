@@ -25,6 +25,7 @@ const prog = loadTs('src/discoveryProgress.ts');
 const rep = loadTs('src/discoveryReport.ts');
 const dif = loadTs('src/discoveryDiff.ts');
 const arp = loadTs('src/arpHints.ts');
+const sch = loadTs('src/discoveryScheduler.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
@@ -250,6 +251,39 @@ t('аплинк: MAC за аплинком не дублируется, а пр�
   assert.strictEqual(to55[0].fromRef.tempId, child.tempId);
   assert.ok(/за аплинком/.test(to55[0].evidence), to55[0].evidence);
   assert.ok(r.stats.fdbUplink.skipped >= 1 && r.stats.fdbUplink.attached >= 1, JSON.stringify(r.stats.fdbUplink));
+});
+
+t('плановый скан: снимок и сравнение, пропуск при ручном скане, ошибка, выключение', async () => {
+  const store = new Map();
+  global.localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  const dev = (tempId, mac, name) => ({ tempId, mac, ip: '10.5.0.' + mac.slice(-1), name, nameSource: 'sysname', kind: 'switch' });
+  let calls = 0;
+  let result = { ok: true, proposedDevices: [dev('a', 'AA:00:00:00:00:01', 'SW-1')], proposedLinks: [] };
+  const runScan = async (cfg) => { calls++; assert.strictEqual(cfg.doc.devices.length, 0); return result; };
+  // первый прогон — снимок без сравнения
+  sch.startSchedule({ cfg: { host: '10.5.0.1', mode: 'snmp' }, intervalMs: 60000, runScan });
+  await sch.runScheduledOnce();
+  assert.strictEqual(calls, 1);
+  assert.ok(sch.getScheduleStatus().lastSummary.startsWith('первый снимок'));
+  // второй прогон — есть что сравнивать: одно новое, одно пропало
+  result = { ok: true, proposedDevices: [dev('b', 'AA:00:00:00:00:02', 'PC-2')], proposedLinks: [] };
+  await sch.runScheduledOnce();
+  assert.strictEqual(sch.getScheduleStatus().lastSummary, 'новых 1, пропало 1, изменилось 0');
+  // ручной скан занят — плановый пропускает и не вызывает runScan
+  sch.setDiscoveryBusy(true);
+  await sch.runScheduledOnce();
+  assert.strictEqual(calls, 2);
+  assert.ok(sch.getScheduleStatus().lastSummary.includes('пропущен'));
+  sch.setDiscoveryBusy(false);
+  // ошибка скана не роняет планировщик
+  result = { ok: false, error: 'SNMP недоступен' };
+  await sch.runScheduledOnce();
+  assert.strictEqual(sch.getScheduleStatus().lastError, 'SNMP недоступен');
+  assert.strictEqual(sch.getScheduleStatus().running, false);
+  // выключение очищает таймер и статус
+  sch.stopSchedule();
+  assert.strictEqual(sch.getScheduleStatus().enabled, false);
+  delete global.localStorage;
 });
 
 (async () => {

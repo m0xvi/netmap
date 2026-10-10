@@ -22,6 +22,9 @@ import {
 } from './discoveryPrefs';
 import { buildDevicesCsv, buildMarkdownReport, reportFileName } from './discoveryReport';
 import { parseArpOutput, applyArpHints } from './arpHints';
+import {
+  startSchedule, stopSchedule, subscribeSchedule, getScheduleStatus, setDiscoveryBusy, type ScheduleStatus,
+} from './discoveryScheduler';
 import { makeSnapshot, diffSnapshots, loadSnapshot, saveSnapshot, type ScanDiff, type Snapshot, type SnapDevice } from './discoveryDiff';
 import {
   reduceProgress, initialProgress, summarizeProgress,
@@ -432,6 +435,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [activeProfile, setActiveProfile] = useState<string>('');
   const [profileName, setProfileName] = useState<string>('');
   const [profileMsg, setProfileMsg] = useState<string>('');
+  // v0.77.0: плановый скан (пока приложение открыто)
+  const [sched, setSched] = useState<ScheduleStatus>(() => getScheduleStatus());
+  const [schedMin, setSchedMin] = useState<number>(30);
+  useEffect(() => subscribeSchedule(setSched), []);
   // v0.77.0: подсказка IP для MAC-only устройств из вывода arp -a с ПК
   const [arpText, setArpText] = useState<string>('');
   const [arpMsg, setArpMsg] = useState<string>('');
@@ -701,7 +708,15 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   /** v0.77.0: подписка на прогресс на время одного скана. */
   function trackProgress(): () => void {
     setProgress(initialProgress());
-    return onDiscoveryProgress(ev => setProgress(p => reduceProgress(p, ev)));
+    // v0.77.0: пока идёт ручной скан, плановый не запускается (бэкенд ведёт один скан)
+    setDiscoveryBusy(true);
+    const unsub = onDiscoveryProgress(ev => setProgress(p => reduceProgress(p, ev)));
+    return () => { unsub(); setDiscoveryBusy(false); };
+  }
+
+  /** v0.77.0: включить плановый скан с текущими настройками (в памяти, не на диск). */
+  function enableSchedule() {
+    startSchedule({ cfg: { ...currentCfg }, intervalMs: schedMin * 60000, runScan: discoveryScan });
   }
 
   /** v0.77.0: отмена опроса. Скан сам вернёт частичный результат — дальше обычный просмотр. */
@@ -1246,6 +1261,33 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               </div>
               {profileMsg && <div style={{ fontSize: 12, color: '#334155' }}>{profileMsg}</div>}
               <div style={S.hint}>В профиль сохраняются адрес, режим, логин, SNMP-опции и фильтры. Пароли, community и SSH/SNMPv3-ключи — нет.</div>
+            </div>
+
+            {/* v0.77.0: плановый скан — только пока приложение открыто; в документ ничего не применяет */}
+            <div style={{ ...S.section, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={S.sectionTitle}>Плановый скан</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select value={schedMin} disabled={sched.enabled} onChange={e => setSchedMin(Number(e.target.value))} style={{ ...S.input, minWidth: 140 }}>
+                  <option value={15}>каждые 15 мин</option>
+                  <option value={30}>каждые 30 мин</option>
+                  <option value={60}>каждый час</option>
+                </select>
+                {sched.enabled
+                  ? <button style={S.btnSecondary} onClick={() => stopSchedule()}>Выключить</button>
+                  : <button style={S.btnSecondary} disabled={!host} onClick={enableSchedule}>Включить</button>}
+                {sched.running && <span style={{ fontSize: 12, color: '#2563EB' }}>скан идёт…</span>}
+              </div>
+              {sched.enabled && (
+                <div style={{ fontSize: 12, color: '#334155' }}>
+                  Включён: {sched.intervalMin} мин.
+                  {sched.lastAt ? ` Последний: ${new Date(sched.lastAt).toLocaleTimeString('ru-RU')}` : ''}
+                  {sched.lastSummary ? ` — ${sched.lastSummary}` : ''}
+                  {sched.lastError ? <span style={{ color: '#b45309' }}> Ошибка: {sched.lastError}</span> : null}
+                </div>
+              )}
+              <div style={S.hint}>
+                Работает, пока NetMap открыт. Настройки (включая пароли) остаются в памяти до выключения или закрытия приложения и на диск не пишутся. Найденное не добавляется в документ автоматически: сравнение появится при следующем ручном скане.
+              </div>
             </div>
 
             <div style={S.section}>
