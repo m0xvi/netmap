@@ -27,6 +27,7 @@ const rep = loadTs('src/discoveryReport.ts');
 const dif = loadTs('src/discoveryDiff.ts');
 const arp = loadTs('src/arpHints.ts');
 const sch = loadTs('src/discoveryScheduler.ts');
+const wiz = loadTs('src/discoveryWizard.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
@@ -356,6 +357,114 @@ t('сегменты VLAN: подсети, коммутаторы и число �
   assert.deepStrictEqual(seg.subnets, ['10.10.0.0/24']);
   assert.ok(seg.switches.includes('GW'));
   assert.ok(seg.endpoints >= 1);
+});
+
+// v0.87.0: мастер уточнений — вопросы, ответы → правки, память, сводка
+const WKIND = ['router', 'switch', 'ap', 'pc', 'other'];
+const wizScan = () => ({
+  ok: true, rootHost: '10.0.0.1', source: 'snmp',
+  proposedDevices: [
+    { tempId: 'gw', ip: '10.0.0.1', name: 'GW', nameSource: 'sysname', kind: 'router', kindConfident: true },
+    { tempId: 'sw', ip: '10.0.0.2', name: 'SW-A', nameSource: 'sysname', kind: 'switch', kindConfident: true },
+    { tempId: 'cam', ip: '10.0.0.30', mac: 'AA:00:00:00:00:30', name: '10.0.0.30', nameSource: 'ip', kind: 'other', kindConfident: false, vendor: 'Hikvision' },
+    { tempId: 'pc', ip: '10.0.0.40', mac: 'AA:00:00:00:00:40', name: 'AA:00:00:00:00:40', nameSource: 'mac', kind: 'pc', kindConfident: true },
+    { tempId: 'm1', mac: 'AA:00:00:00:00:51', name: 'AA:00:00:00:00:51', nameSource: 'mac', kind: 'other', kindConfident: true, vlan: 20 },
+  ],
+  proposedLinks: [
+    { tempId: 'l1', fromRef: { tempId: 'gw' }, toRef: { tempId: 'pc' }, fromPort: 'ether2', evidence: 'MikroTik /ip neighbor on ether2' },
+    { tempId: 'l2', fromRef: { tempId: 'gw' }, toRef: { tempId: 'm1' }, fromPort: 'ether5', evidence: 'FDB on GW:ether5 (за аплинком SW-A)' },
+  ],
+  vlans: [{ id: 10, name: 'Office' }, { id: 20, name: '' }],
+  subnets: [{ cidr: '10.0.0.0/24', interface: 'bridge', comment: '' }, { cidr: '172.16.0.0/16', interface: 'guest', comment: 'гости' }],
+  hubCandidates: [{ ip: '10.0.0.9', name: 'CORE-X', kind: 'switch', via: 'LLDP' }],
+});
+const wizOpts = { kindOptions: WKIND, memory: {} };
+
+t('мастер: вопросы строятся только там, где есть неясности', () => {
+  const steps = wiz.buildWizardSteps(wizScan(), wizOpts);
+  const ids = steps.map(s2 => s2.id);
+  assert.deepStrictEqual(ids, ['hubs', 'kind', 'name', 'uplink', 'vlan', 'subnet', 'macOnly']);
+  const count = id => steps.find(s2 => s2.id === id).items.length;
+  assert.strictEqual(count('hubs'), 1);
+  assert.strictEqual(count('kind'), 1, 'только камера с неуверенным типом');
+  assert.strictEqual(count('uplink'), 1);
+  assert.strictEqual(count('vlan'), 1, 'VLAN 20 без имени');
+  assert.strictEqual(count('subnet'), 2);
+  assert.strictEqual(count('macOnly'), 1);
+  const up = steps.find(s2 => s2.id === 'uplink').items[0];
+  assert.ok(up.candidates.some(c => c.name === 'SW-A'), 'кандидат — коммутатор');
+  assert.ok(!up.candidates.some(c => c.tempId === 'gw'), 'текущий коммутатор не предлагается');
+});
+
+t('мастер: пустой скан без вопросов не даёт шагов', () => {
+  const steps = wiz.buildWizardSteps({ ok: true, proposedDevices: [], proposedLinks: [], vlans: [], subnets: [] }, wizOpts);
+  assert.strictEqual(steps.length, 0);
+});
+
+t('мастер: ответы по умолчанию ничего не меняют', () => {
+  const sc = wizScan();
+  const steps = wiz.buildWizardSteps(sc, wizOpts);
+  const fx = wiz.wizardEffects(sc, wiz.defaultAnswers(steps));
+  assert.ok(wiz.summarizeEffects(fx).some(l => l.includes('Опросим ядро')), 'ядро в сводке');
+  const none = wiz.defaultAnswers(steps); none.hubs['10.0.0.9'] = false;
+  assert.deepStrictEqual(wiz.summarizeEffects(wiz.wizardEffects(sc, none)), ['Ответов нет: ничего не изменится.']);
+  assert.deepStrictEqual(fx.kinds, {});
+  assert.deepStrictEqual(fx.moveLinks, {});
+  assert.deepStrictEqual(fx.excludeVlans, []);
+  assert.deepStrictEqual(fx.skipDevices, []);
+  assert.deepStrictEqual(fx.hubs, ['10.0.0.9'], 'ядро по умолчанию отмечено, как и в панели');
+});
+
+t('мастер: ответы переходят в правки (тип, имя, перенос клиента, VLAN, подсеть, MAC-only)', () => {
+  const sc = wizScan();
+  const steps = wiz.buildWizardSteps(sc, wizOpts);
+  const a = wiz.defaultAnswers(steps);
+  a.kinds.cam = 'ap';                                       // тип из допустимых
+  a.names.pc = '  Бухгалтерия  ';
+  a.uplinks.l2 = { mode: 'move', toTempId: 'sw' };
+  a.vlans['20'] = { exclude: true, name: '' };
+  a.vlans['10'] = { exclude: false, name: '' };
+  a.subnets['172.16.0.0/16'] = true;
+  a.macOnly = 'skip';
+  a.hubs['10.0.0.9'] = false;
+  const fx = wiz.wizardEffects(sc, a);
+  assert.deepStrictEqual(fx.kinds, { cam: 'ap' });
+  assert.deepStrictEqual(fx.names, { pc: 'Бухгалтерия' });
+  assert.deepStrictEqual(fx.moveLinks, { l2: 'sw' });
+  assert.deepStrictEqual(fx.excludeVlans, [20]);
+  assert.deepStrictEqual(fx.excludeCidrs, ['172.16.0.0/16']);
+  assert.deepStrictEqual(fx.skipDevices, ['m1']);
+  assert.deepStrictEqual(fx.hubs, []);
+  const lines = wiz.summarizeEffects(fx).join('\n');
+  assert.ok(/VLAN исключим: 20/.test(lines) && /Клиентов переставим/.test(lines));
+});
+
+t('мастер: память ответов — запоминание, предвыбор, отбраковка мусора и лимит', () => {
+  const sc = wizScan();
+  const steps = wiz.buildWizardSteps(sc, wizOpts);
+  const a = wiz.defaultAnswers(steps);
+  a.kinds.cam = 'ap';
+  a.names.pc = 'Бухгалтерия';
+  const mem = wiz.rememberAnswers({}, sc, a);
+  assert.deepStrictEqual(mem['AA:00:00:00:00:30'], { kind: 'ap' });
+  assert.deepStrictEqual(mem['AA:00:00:00:00:40'], { name: 'Бухгалтерия' });
+  // при следующем скане тот же MAC получает предвыбор
+  const again = wiz.buildWizardSteps(sc, { kindOptions: WKIND, memory: mem });
+  const kindItem = again.find(s2 => s2.id === 'kind').items[0];
+  assert.strictEqual(kindItem.remembered, 'ap');
+  assert.strictEqual(wiz.defaultAnswers(again).kinds.cam, 'ap');
+  // мусор отбрасывается: тип вне списка, длинный ключ, не-объект
+  const clean = wiz.sanitizeMemory({
+    'AA:00:00:00:00:30': { kind: 'hacker', name: 'X' },
+    ['k'.repeat(70)]: { name: 'Y' },
+    'AA:00:00:00:00:41': 'строка',
+    'AA:00:00:00:00:42': { kind: 'pc' },
+  }, WKIND);
+  assert.deepStrictEqual(clean, { 'AA:00:00:00:00:30': { name: 'X' }, 'AA:00:00:00:00:42': { kind: 'pc' } });
+  // лимит 500 записей
+  const big = {};
+  for (let i = 0; i < 600; i++) big['M' + i] = { name: 'n' + i };
+  assert.strictEqual(Object.keys(wiz.sanitizeMemory(big, WKIND)).length, 500);
 });
 
 (async () => {

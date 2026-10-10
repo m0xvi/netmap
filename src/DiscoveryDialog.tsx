@@ -16,6 +16,11 @@ import { useStore } from './store';
 import type { DeviceKind } from './types';
 import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
+import { DiscoveryWizard } from './DiscoveryWizard';
+import {
+  buildWizardSteps, defaultAnswers, loadWizardMemory, saveWizardMemory, rememberAnswers, wizardEffects,
+  type WizardAnswers, type WizardStep,
+} from './discoveryWizard';
 import {
   loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols,
   loadProfiles, saveProfiles, sanitizePrefs, MAX_PROFILES, MAX_PROFILE_NAME, type ProfileMap, type DiscoveryPrefs,
@@ -460,6 +465,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
   // v0.53.0: ручной выбор типа устройства прямо в предпросмотре.
   const [kindEdits, setKindEdits] = useState<Record<string, DeviceKind>>({});
+  // v0.87.0: мастер уточнений — имена VLAN, уже отвеченные пункты, видимость окна
+  const [vlanNameEdits, setVlanNameEdits] = useState<Record<number, string>>({});
+  const [wizardAnswered, setWizardAnswered] = useState<Set<string>>(() => new Set());
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   // Reset when re-opened
   useEffect(() => {
@@ -587,6 +596,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
         return;
       }
       setScan(r);
+      setWizardAnswered(new Set());
       // v0.77.0: снимок для следующего сравнения и сравнение с предыдущим снимком
       {
         const root = (r.rootHost || host).trim();
@@ -782,6 +792,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       for (const h of r.hubCandidates ?? []) hp[h.ip] = true;
 
       setScan(r);
+      setWizardAnswered(new Set());
       setDevPick(dp); setLinkPick(lp);
       setNameEdits(ne); setKindEdits(ke);
       setHubPick(hp); setHubDismissed(false);
@@ -855,7 +866,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     const report = applyDiscovery({
       devices: devicesToCreate, links: linksToCreate,
       // v0.76.7: все VLAN, найденные сканом (в т.ч. без устройств), — в проект.
-      vlans: (scan.vlans || []).map(v => ({ id: v.id, name: v.name || '' })),
+      // v0.87.0: исключённые в мастере или фильтре VLAN не добавляем; переименованные — с новым именем
+      vlans: (scan.vlans || []).filter(v => !excludedVlans.has(v.id))
+        .map(v => ({ id: v.id, name: vlanNameEdits[v.id] ?? v.name ?? '' })),
       // v0.74: следы сканирований — в doc.scanMeta для аудита хабов.
       scanMeta: (scan as any).scanMeta,
     });
@@ -982,6 +995,56 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const noVlanCount = useMemo(
     () => scan ? (scan!.proposedDevices ?? []).filter(d => d.ip && d.vlan == null).length : 0,
     [scan]);
+
+  // v0.87.0: вопросы мастера — только по пунктам, на которые ещё не ответили
+  const wizardSteps: WizardStep[] = useMemo(() => {
+    if (!scan) return [];
+    const all = buildWizardSteps(scan, { kindOptions: ALL_KINDS, memory: loadWizardMemory(ALL_KINDS) });
+    return all
+      .map(st => ({ ...st, items: st.items.filter(it => !wizardAnswered.has(`${it.step}:${it.key}`)) }))
+      .filter(st => st.items.length > 0);
+  }, [scan, wizardAnswered]);
+  const wizardInitial = useMemo(() => defaultAnswers(wizardSteps), [wizardSteps]);
+  const wizardCount = wizardSteps.reduce((n, st) => n + st.items.length, 0);
+
+  // v0.87.0: ответы мастера переводятся в существующие правки. Ничего не применяется
+  // в базу: это делает кнопка «Применить выбранное», как и раньше.
+  function onWizardFinish(answers: WizardAnswers) {
+    if (!scan) return;
+    const fx = wizardEffects(scan, answers);
+    if (Object.keys(fx.kinds).length) setKindEdits(p => ({ ...p, ...(fx.kinds as Record<string, DeviceKind>) }));
+    if (Object.keys(fx.names).length) setNameEdits(p => ({ ...p, ...fx.names }));
+    if (fx.excludeVlans.length) setExcludedVlans(p => new Set([...Array.from(p), ...fx.excludeVlans]));
+    if (fx.excludeCidrs.length) setExcludedCidrs(p => new Set([...Array.from(p), ...fx.excludeCidrs]));
+    if (Object.keys(fx.vlanNames).length) setVlanNameEdits(p => ({ ...p, ...fx.vlanNames }));
+    if (fx.skipDevices.length) {
+      setDevPick(p => { const n = { ...p }; for (const id of fx.skipDevices) n[id] = false; return n; });
+    }
+    if (fx.dropLinks.length) {
+      setLinkPick(p => { const n = { ...p }; for (const id of fx.dropLinks) n[id] = false; return n; });
+    }
+    if (Object.keys(fx.moveLinks).length) {
+      setScan(s0 => s0 ? {
+        ...s0,
+        proposedLinks: s0.proposedLinks.map(l => fx.moveLinks[l.tempId]
+          ? { ...l, fromRef: { tempId: fx.moveLinks[l.tempId] }, fromPort: '', evidence: 'вручную (мастер уточнений)' }
+          : l),
+      } : s0);
+    }
+    if (fx.hubs.length) {
+      const hp: Record<string, boolean> = {};
+      for (const ip of fx.hubs) hp[ip] = true;
+      setHubPick(hp);
+      setHubDismissed(false);
+    }
+    setWizardAnswered(prev => {
+      const n = new Set(prev);
+      for (const st of wizardSteps) for (const it of st.items) n.add(`${it.step}:${it.key}`);
+      return n;
+    });
+    saveWizardMemory(rememberAnswers(loadWizardMemory(ALL_KINDS), scan, answers), ALL_KINDS);
+    setWizardOpen(false);
+  }
 
   const exclCidrArr = useMemo(() => Array.from(excludedCidrs), [excludedCidrs]);
   const qTrim = q.trim().toLowerCase();
@@ -1775,6 +1838,25 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
             )}
             {/* v0.77.0: сравнение с прошлым сканом */}
             {diffInfo && <DiffSummary info={diffInfo} />}
+            {/* v0.87.0: мастер уточнений — вопросы о неясных местах результата */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: '#475569' }}>
+              <button style={S.btnSecondary} disabled={wizardCount === 0}
+                title={wizardCount === 0 ? 'Вопросов нет' : 'Ответьте на вопросы о неясных местах результата'}
+                onClick={() => setWizardOpen(true)}>
+                Мастер уточнений{wizardCount > 0 ? ` (${wizardCount})` : ''}
+              </button>
+              {wizardCount === 0 && <span>Вопросов нет: всё найдено однозначно или уже уточнено.</span>}
+            </div>
+            {wizardOpen && scan && (
+              <DiscoveryWizard
+                scan={scan}
+                steps={wizardSteps}
+                initial={wizardInitial}
+                kindLabel={k => KIND_META[k as DeviceKind]?.label || k}
+                onClose={() => setWizardOpen(false)}
+                onFinish={onWizardFinish}
+              />
+            )}
             {/* v0.77.0: экспорт результата; файл отражает выбранные галочки, имена и типы */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: '#475569' }}>
               <span>Скачать отчёт:</span>

@@ -12,7 +12,7 @@
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
 | HEAD | v0.76.7 (автообнаружение: VLAN, пошаговый обход, SSH-ключи в UI) поверх v0.76.6 (аудит). Ранее v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.86.0` (package.json), тег `v0.86.0` (см. §2) |
+| Версия | `0.87.0` (package.json), тег `v0.87.0` (см. §2) |
 | Релиз | v0.76.5 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.5.exe`, `NetMap-Portable-0.76.5.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
@@ -23,6 +23,8 @@
 Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
+**v0.87.0 (автообнаружение: мастер уточнений, 2026-10-10)** — `src/discoveryWizard.ts` (чистая логика: `buildWizardSteps`, `defaultAnswers`, `wizardEffects`, `summarizeEffects`, память ответов в `netmap.discovery.wizard.v1`); `src/DiscoveryWizard.tsx` (окно поверх диалога, zIndex 9600); `DiscoveryDialog.tsx`: кнопка «Мастер уточнений (N)», `onWizardFinish` переводит ответы в существующие правки (`kindEdits`, `nameEdits`, `excludedVlans`, `excludedCidrs`, `vlanNameEdits`, `devPick`, `linkPick`, `hubPick`); исключённые VLAN не уходят в `applyDiscovery`. Тесты: 27 проверок.
 
 **v0.86.0 (автообнаружение: сегменты VLAN в отчёте, 2026-10-10)** — `src/discoveryClient.ts`: тип `segments` в `DiscoveryScanResult`; `src/discoveryReport.ts`: раздел «## Сегменты VLAN» в `buildMarkdownReport`. CSV не менялся. Диалог сегменты пока не показывает. Тесты: 22 проверки.
 
@@ -297,6 +299,7 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
 
 ## 8. История этого файла
 
+- 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.87.0: мастер уточнений автообнаружения (ядро, типы, имена, клиенты за аплинком, VLAN, подсети, MAC-only; ответы не применяются без кнопки; память ответов в localStorage).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.86.0: раздел «Сегменты VLAN» в отчёте автообнаружения (подсети, коммутаторы, число клиентов по VLAN).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.85.0: привязка клиентов к коммутаторам одним проходом (порядок опроса не влияет; клиенты за аплинком — к соседу; MAC инфраструктуры не становятся клиентами; в результат добавлены сегменты VLAN).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.84.0: плановый скан автообнаружения (пока приложение открыто, без автоприменения).
