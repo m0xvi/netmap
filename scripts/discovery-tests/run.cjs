@@ -22,6 +22,7 @@ const fake = makeFake(path.join(ELEC, 'snmp.cjs'), { delay: 10 });
 const disc = require(path.join(ELEC, 'discovery.cjs'));
 const prefs = loadTs('src/discoveryPrefs.ts');
 const prog = loadTs('src/discoveryProgress.ts');
+const rep = loadTs('src/discoveryReport.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
@@ -101,6 +102,41 @@ t('настройки: секреты не сохраняются, мусор о
   assert.deepStrictEqual(s.v3Protocols, { '10.0.0.1': { auth: 'sha', priv: 'aes' } });
   assert.deepStrictEqual(s.excludedVlans, [1, 20]);
   assert.deepStrictEqual(prefs.sanitizePrefs(null), {});
+});
+
+t('отчёт CSV: BOM, ;, кавычки, правки и галочки учитываются', () => {
+  const scan = { ok: true, proposedDevices: [
+    { tempId: 'a', ip: '10.0.0.1', mac: 'AA:BB:CC:00:00:01', name: 'SW "core"; main', nameSource: 'sysname', kind: 'switch', vendor: 'TP-Link', vlan: 10 },
+    { tempId: 'b', mac: 'AA:BB:CC:00:00:02', name: 'AA:BB:CC:00:00:02', nameSource: 'mac', kind: 'pc' },
+  ], proposedLinks: [] };
+  const csv = rep.buildDevicesCsv(scan, { devPick: { b: false }, nameEdits: { a: 'Ядро' } });
+  assert.ok(csv.startsWith('\uFEFF'));
+  const lines = csv.replace(/^\uFEFF/, '').split('\r\n').filter(Boolean);
+  assert.strictEqual(lines[0], 'Имя;IP;MAC;Тип;Вендор;VLAN;Источник имени;Выбрано для добавления;Подсказка');
+  assert.ok(lines[1].startsWith('Ядро;10.0.0.1;'), lines[1]);
+  assert.ok(lines[1].endsWith(';да;'));
+  assert.ok(lines[2].endsWith(';нет;'), lines[2]);
+  assert.strictEqual(rep.csvCell('a;"b"'), '"a;""b"""');
+});
+
+t('отчёт Markdown: связи с именами, экранирование |, отмена', () => {
+  const scan = { ok: true, cancelled: true, rootHost: '10.0.0.1', source: 'snmp',
+    proposedDevices: [
+      { tempId: 'a', ip: '10.0.0.1', name: 'SW|A', nameSource: 'sysname', kind: 'switch' },
+      { tempId: 'b', ip: '10.0.0.2', name: 'PC', nameSource: 'ip', kind: 'pc' },
+    ],
+    proposedLinks: [{ tempId: 'l', fromRef: { tempId: 'a' }, toRef: { tempId: 'b' }, fromPort: 'ether2', toPort: 'eth0', evidence: 'LLDP' }],
+    vlans: [{ id: 10, name: 'Office' }], warnings: ['тест'] };
+  const md = rep.buildMarkdownReport(scan, { when: new Date(2026, 9, 10, 15, 30) });
+  assert.ok(md.includes('SW\\|A'));
+  assert.ok(md.includes('| SW\\|A | ether2 | PC | eth0 | LLDP |'));
+  assert.ok(md.includes('Опрос отменён'));
+  assert.ok(md.includes('- VLAN 10 — Office'));
+  assert.ok(md.includes('Найдено устройств: 2'));
+});
+
+t('имя файла отчёта', () => {
+  assert.strictEqual(rep.reportFileName('csv', new Date(2026, 9, 10, 5, 7)), 'netmap-discovery-2026-10-10-0507.csv');
 });
 
 (async () => {

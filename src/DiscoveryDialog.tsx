@@ -17,6 +17,7 @@ import type { DeviceKind } from './types';
 import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
 import { loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols } from './discoveryPrefs';
+import { buildDevicesCsv, buildMarkdownReport, reportFileName } from './discoveryReport';
 import {
   reduceProgress, initialProgress, summarizeProgress,
   type ScanProgressState, type HostStatus,
@@ -581,6 +582,23 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setPhase('form');
       await alertDialog('Не удалось выполнить сканирование', e?.message || String(e));
     }
+  }
+
+  /** v0.77.0: экспорт результата в CSV (устройства) или Markdown (полный отчёт). */
+  function exportReport(ext: 'csv' | 'md') {
+    if (!scan) return;
+    const dec = { devPick, nameEdits, kindEdits, when: new Date() };
+    const text = ext === 'csv' ? buildDevicesCsv(scan, dec) : buildMarkdownReport(scan, dec);
+    const type = ext === 'csv' ? 'text/csv;charset=utf-8' : 'text/markdown;charset=utf-8';
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = reportFileName(ext, dec.when);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   /** v0.77.0: подписка на прогресс на время одного скана. */
@@ -1578,6 +1596,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               )}
             </div>
 
+            {/* v0.77.0: экспорт результата; файл отражает выбранные галочки, имена и типы */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: '#475569' }}>
+              <span>Скачать отчёт:</span>
+              <button style={S.btnSecondary} onClick={() => exportReport('csv')}>CSV (устройства)</button>
+              <button style={S.btnSecondary} onClick={() => exportReport('md')}>Markdown (полный)</button>
+            </div>
             {/* v0.77.0: опрос отменён — данные неполные */}
             {scan!.cancelled && (
               <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, fontSize: 12, color: '#92400e' }}>
