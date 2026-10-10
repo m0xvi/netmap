@@ -946,6 +946,194 @@ async function collectSnmp(host, community, opts) {
 const NAME_RANK = { mac: 0, ip: 1, hostname: 2, sysname: 3, dhcp: 4 };
 function rankOf(src) { return NAME_RANK[src] != null ? NAME_RANK[src] : 0; }
 
+// ---------- v0.85.0: привязка MAC к коммутаторам (один проход) -------------
+// Раньше роутер и коммутаторы записывали MAC по очереди, и первый источник
+// «забирал» клиента (шлюз получал всех клиентов, связь с коммутатором терялась).
+// Теперь собираем все наблюдения (коммутатор, порт, VLAN) и выбираем одно:
+// аплинк-порты отбрасываем, берём самый глубокий коммутатор (дальше от шлюза),
+// при равенстве — тот, где VLAN совпадает с подсетью клиента, затем SNMP-данные.
+// Если все наблюдения на аплинках — клиент за соседом по аплинку.
+
+function ipAsInt(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(v || ''));
+  if (!m) return null;
+  const p = m.slice(1).map(Number);
+  if (p.some(x => x > 255)) return null;
+  return ((p[0] * 256 + p[1]) * 256 + p[2]) * 256 + p[3];
+}
+
+function ipInCidrNet(ip, cidr) {
+  const [net, bitsS] = String(cidr || '').split('/');
+  const bits = Number(bitsS);
+  const a = ipAsInt(ip);
+  const b = ipAsInt(net);
+  if (a == null || b == null || !(bits >= 0 && bits <= 32)) return false;
+  const size = 2 ** (32 - bits);
+  return Math.floor(a / size) === Math.floor(b / size);
+}
+
+// сравнение кортежей оценок: >0 — a лучше b
+function betterScore(a, b) {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
+  return 0;
+}
+
+function resolveFdbAttachments(ctx) {
+  const { mt, snmpOk, rootHost, doc, proposedLinks, seenTempByKey, idx, refFor, arpIpOf, refOfHost, uplink } = ctx;
+
+  // 1. коммутаторы: соседи (LLDP / neighbour роутера), опорная ссылка
+  const sw = new Map();
+  const addSw = (key, name) => {
+    if (!sw.has(key)) {
+      sw.set(key, { key, name: name || key, depth: key === rootHost ? 0 : Infinity,
+        nb: [], ports: new Map(), ref: null, isRoot: key === rootHost });
+    }
+    return sw.get(key);
+  };
+  if (mt) {
+    const x = addSw(rootHost, mt.self && mt.self.name);
+    for (const n of mt.neighbors || []) {
+      x.nb.push({ port: n.localIface || '', ip: n.ip || '', name: n.name || '', mac: String(n.mac || '').toUpperCase() });
+    }
+  }
+  for (const s2 of snmpOk) {
+    const x = addSw(s2.host, s2.self && s2.self.name);
+    for (const l of s2.lldp || []) {
+      x.nb.push({ port: l.localPortName || '', ip: l.mgmtIp || '', name: l.sysName || '',
+        mac: String(normMac(l.chassisId) || normMac(l.portId) || '').toUpperCase() });
+    }
+  }
+  for (const k of Array.from(sw.keys())) {
+    const x = sw.get(k);
+    x.ref = refOfHost(k);
+    if (!x.ref) sw.delete(k);
+  }
+  for (const x of sw.values()) {
+    for (const nb of x.nb) if (nb.port && !x.ports.has(nb.port)) x.ports.set(nb.port, nb);
+  }
+
+  // 2. глубина от шлюза: сосед — на единицу дальше от того, кто его видит
+  const byKey = new Map(Array.from(sw.values()).map(x => [x.key, x]));
+  const byName = new Map(Array.from(sw.values()).map(x => [x.name, x]));
+  for (let it = 0; it < 8; it++) {
+    let changed = false;
+    for (const x of sw.values()) {
+      if (x.depth === Infinity) continue;
+      for (const nb of x.nb) {
+        const p2 = (nb.ip && byKey.get(nb.ip)) || (nb.name && byName.get(nb.name)) || null;
+        if (p2 && p2.depth > x.depth + 1) { p2.depth = x.depth + 1; changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
+  for (const x of sw.values()) if (x.depth === Infinity) x.depth = 1;
+
+  // 3. наблюдения MAC: коммутатор, порт, VLAN (один коммутатор — одно наблюдение; первым идёт роутер)
+  const obs = new Map();
+  const addObs = (mac, key, port, vlan, src) => {
+    const x = sw.get(key);
+    if (!x || !mac || !port) return;
+    const list = obs.get(mac) || [];
+    if (list.some(o => o.key === key)) return;
+    list.push({ key, port, vlan: vlan != null ? vlan : undefined, src, uplink: x.ports.has(port) });
+    obs.set(mac, list);
+  };
+  if (mt) for (const f of mt.fdb || []) {
+    addObs(f.mac, rootHost, f.onIface, f.vlan ?? (mt.vlanByPort || {})[f.onIface], 'mt');
+  }
+  for (const s2 of snmpOk) for (const f of s2.fdb || []) addObs(f.mac, s2.host, f.ifName, f.vlan, 'snmp');
+
+  // сами коммутаторы и роутеры (их MAC из LLDP/neighbour) — не клиенты
+  const infra = new Set();
+  for (const x of sw.values()) for (const nb of x.nb) if (nb.mac) infra.add(nb.mac);
+
+  const vlanOfIp = (ip) => {
+    if (!ip || !mt) return undefined;
+    for (const sv of mt.subnetVlans || []) if (ipInCidrNet(ip, sv.cidr)) return sv.vlanId;
+    return undefined;
+  };
+  const scoreOf = (o, hint) => [sw.get(o.key).depth, hint != null && o.vlan === hint ? 1 : 0, o.src === 'snmp' ? 1 : 0];
+  // v0.70: имя порта роутера часто содержит имя нижестоящего свитча из документа
+  const docSwitchFor = (port, exclude) => {
+    const pl = String(port || '').toLowerCase();
+    let best = null;
+    for (const dd of (doc && Array.isArray(doc.devices) ? doc.devices : [])) {
+      if (dd.kind !== 'switch') continue;
+      const nm = String(dd.name || '').toLowerCase();
+      if (nm.length < 5 || !pl.includes(nm)) continue;
+      if (dd.id === exclude) continue;
+      if (!best || nm.length > best.nm.length) best = { id: dd.id, nm };
+    }
+    return best ? { existingId: best.id } : null;
+  };
+
+  // 4. выбор наблюдения и связь
+  for (const [mac, list] of obs) {
+    if (infra.has(mac)) continue;
+    const known = seenTempByKey.get('m:' + mac) || idx.byMac.get(mac);
+    if (known && proposedLinks.some(l => String(l.evidence || '').startsWith('LLDP')
+        && (l.toRef.tempId === known || l.toRef.existingId === known))) continue;
+
+    const ip = arpIpOf(mac);
+    const hint = vlanOfIp(ip);
+    const access = list.filter(o => !o.uplink);
+    const pool = access.length ? access : list;
+    let pick = pool[0];
+    for (const o of pool) if (betterScore(scoreOf(o, hint), scoreOf(pick, hint)) > 0) pick = o;
+    if (access.length) uplink.skipped += list.length - access.length;
+
+    const x = sw.get(pick.key);
+    const via = pick.uplink ? x.ports.get(pick.port) : null;
+    let fromRef;
+    let fromPort = '';
+    let evidence;
+    if (via) {
+      const nbRef = (via.ip || via.name)
+        ? refFor({ ip: via.ip, mac: via.mac, name: via.name || via.ip, nameSrc: via.name ? 'sysname' : 'ip',
+            hint: 'LLDP neighbour via ' + x.name })
+        : null;
+      fromRef = nbRef || x.ref;
+      uplink.attached++;
+      evidence = 'FDB on ' + x.name + ':' + pick.port + ' (за аплинком ' + (via.name || via.ip || 'сосед') + ')';
+    } else {
+      fromRef = x.ref;
+      fromPort = pick.port;
+      evidence = (x.isRoot ? 'bridge FDB on ' : 'FDB on ') + x.name + ':' + pick.port;
+      if (x.isRoot) fromRef = docSwitchFor(pick.port, x.ref.existingId) || fromRef;
+      uplink.placed++;
+    }
+
+    const epVlan = pick.vlan != null ? pick.vlan : hint;
+    const remoteRef = refFor({
+      ip, mac, name: ip || mac, nameSrc: ip ? 'ip' : 'mac',
+      vendor: '', descr: '', vlan: epVlan,
+      hint: (x.isRoot ? 'via bridge FDB on ' : 'FDB on ') + x.name,
+    });
+    if (!remoteRef) continue;
+    if (remoteRef.existingId && fromRef.existingId && remoteRef.existingId === fromRef.existingId) continue;
+    if (remoteRef.tempId && fromRef.tempId && remoteRef.tempId === fromRef.tempId) continue;
+    proposedLinks.push({
+      tempId: 'lnk_' + RID(), fromRef, fromPort, toRef: remoteRef, toPort: '', cable: 'copper', evidence,
+    });
+  }
+}
+
+// v0.85.0: сегменты — VLAN роутера/коммутаторов: подсети, коммутаторы, число клиентов
+function buildSegments(mt, snmpOk, devices, vlans) {
+  const out = [];
+  for (const v of vlans || []) {
+    const subnets = (mt && mt.ok) ? (mt.subnetVlans || []).filter(sv => sv.vlanId === v.id).map(sv => sv.cidr) : [];
+    const switches = [];
+    if (mt && mt.ok && (mt.switchVlanIds || []).includes(v.id)) switches.push((mt.self && mt.self.name) || 'шлюз');
+    for (const s2 of snmpOk) {
+      if ((s2.vlanList || []).some(x => x.id === v.id)) switches.push((s2.self && s2.self.name) || s2.host);
+    }
+    const endpoints = devices.filter(d => d.vlan === v.id && d.mac).length;
+    out.push({ vlan: v.id, name: v.name || '', subnets, switches: Array.from(new Set(switches)), endpoints });
+  }
+  return out;
+}
+
 function makeProposal({ doc, rootHost, mt, snmpResults }) {
   const idx = indexDoc(doc);
   const proposedDevices = [];
@@ -1068,6 +1256,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
   }
 
   // --- MikroTik as seed --------------------------------------------------
+  let mtSelfRef = null; // v0.85.0: опорная ссылка на роутер для привязки MAC
   if (mt && mt.ok) {
     const selfRef = matchDevice(idx, { ip: rootHost, name: mt.self.name });
     const selfMatched = !!selfRef;
@@ -1080,6 +1269,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       hint: 'MikroTik seed',
     });
 
+    mtSelfRef = selfDeviceRef;
     if (!selfMatched) {
       // Update the just-created proposed device to be a router
       const pd = proposedDevices.find(p => selfDeviceRef.tempId && p.tempId === selfDeviceRef.tempId);
@@ -1112,72 +1302,16 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       });
     }
 
-    // FDB — every MAC on a bridge port. If we see it in ARP too, we know the IP.
-    const arpByMac = new Map(mt.arp.map(a => [a.mac, a]));
-    for (const f of mt.fdb) {
-      if (!f.mac || !f.onIface) continue;
-      const arp = arpByMac.get(f.mac);
-      const ip = arp ? arp.ip : '';
-      // Skip if we already added a neighbor with same MAC (avoid dup link).
-      // v0.52.0: ключи seenTempByKey теперь с префиксами ('m:'/'i:'/...).
-      const fdbKnownTemp = seenTempByKey.get('m:' + f.mac);
-      const fdbKnownExisting = idx.byMac.get(f.mac);
-      if ((fdbKnownTemp || fdbKnownExisting) && proposedLinks.some(l =>
-        (l.toRef.tempId && l.toRef.tempId === fdbKnownTemp) ||
-        (l.toRef.existingId && l.toRef.existingId === fdbKnownExisting))) continue;
-      const remoteRef = refFor({
-        ip, mac: f.mac,
-        name: ip || f.mac,
-        nameSrc: ip ? 'ip' : 'mac', // refFor сам подтянет DHCP-имя, если есть
-        vendor: '',
-        descr: '',
-        hint: 'via bridge FDB on ' + (mt.self.name || rootHost),
-        // v0.52.0: FDB на access-порту → VLAN известен из bridge vlan table.
-        vlan: f.vlan ?? (mt.vlanByPort || {})[f.onIface],
-      });
-      if (!remoteRef) continue;
-      // Skip self-links
-      if (remoteRef.existingId && selfDeviceRef.existingId && remoteRef.existingId === selfDeviceRef.existingId) continue;
-      // v0.70: имя порта-хинта часто содержит имя нижестоящего свитча
-      // («2G-SW_RoomOO-1-3»): эндпоинт физически за ним — связь строим от
-      // свитча, а не от цели скана, иначе от шлюза растёт звезда-«волосня».
-      // (Тот же план ремонта для готовых доков — src/topoRepair.ts в UI.)
-      let fdbFromRef = selfDeviceRef;
-      const ifn70 = String(f.onIface || '').toLowerCase();
-      if (ifn70 && doc && Array.isArray(doc.devices)) {
-        let best70 = null;
-        for (const dd of doc.devices) {
-          if (dd.kind !== 'switch') continue;
-          const nm70 = String(dd.name || '').toLowerCase();
-          if (nm70.length < 5 || !ifn70.includes(nm70)) continue;
-          if (dd.id === (selfDeviceRef.existingId || '') || dd.id === (remoteRef.existingId || '')) continue;
-          if (!best70 || nm70.length > best70.nm.length) best70 = { id: dd.id, nm: nm70 };
-        }
-        if (best70) fdbFromRef = { existingId: best70.id };
-      }
-      proposedLinks.push({
-        tempId: 'lnk_' + RID(),
-        fromRef: fdbFromRef,
-        fromPort: f.onIface,
-        toRef: remoteRef,
-        toPort: '',
-        cable: 'copper',
-        evidence: 'bridge FDB on ' + f.onIface + (ip ? ` (ARP ${ip})` : ''),
-      });
-    }
   }
 
   // --- SNMP results ------------------------------------------------------
-  // v0.77.0: группировка MAC по аплинкам. Порт с LLDP-соседом — аплинк: MAC за ним
-  // не тянем напрямую к этому коммутатору. Если сосед опрошен и его FDB содержит MAC,
-  // связь будет на его access-порту (пропускаем); иначе MAC привязываем к соседу.
-  const uplink = { skipped: 0, attached: 0 };
+  // v0.85.0: MAC к коммутаторам привязываются ниже одним проходом (resolveFdbAttachments).
+  // Здесь — LLDP-связи и опорные ссылки на коммутаторы.
+  const uplink = { skipped: 0, attached: 0, placed: 0 };
   const snmpOk = (snmpResults || []).filter(x => x && x.ok);
-  const findPolled = (nb) => snmpOk.find(x =>
-    (nb.mgmtIp && x.host === nb.mgmtIp) || (nb.sysName && x.self && x.self.name === nb.sysName)) || null;
+  const snmpSeedRefByHost = new Map();
   for (const s of (snmpResults || [])) {
     if (!s || !s.ok) continue;
-    const uplinkByPort = new Map(); // localPortName -> { ref, neighbour }
     const seedRef = matchDevice(idx, { ip: s.host, name: s.self.name }) || refFor({
       ip: s.host, name: s.self.name || s.host,
       nameSrc: s.self.name ? 'sysname' : 'ip',
@@ -1185,6 +1319,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       hint: 'SNMP seed',
     });
     if (!seedRef) continue;
+    snmpSeedRefByHost.set(s.host, seedRef);
 
     for (const l of s.lldp) {
       const macCandidate = normMac(l.chassisId) || normMac(l.portId);
@@ -1204,9 +1339,6 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         stableKey: l.chassisId || l.portId || l.sysName || '',
       });
       if (!remoteRef) continue;
-      if (l.localPortName && !uplinkByPort.has(l.localPortName)) {
-        uplinkByPort.set(l.localPortName, { ref: remoteRef, neighbour: l });
-      }
       proposedLinks.push({
         tempId: 'lnk_' + RID(),
         fromRef: seedRef,
@@ -1217,51 +1349,17 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         evidence: 'LLDP on ' + s.self.name + ':' + l.localPortName,
       });
     }
-    for (const f of s.fdb) {
-      if (!f.mac) continue;
-      // Skip if link already exists via LLDP for this pair
-      // v0.52.0: ключи seenTempByKey теперь с префиксами.
-      const snmpKnownTemp = seenTempByKey.get('m:' + f.mac);
-      const snmpKnownExisting = idx.byMac.get(f.mac);
-      const dupe = (snmpKnownTemp || snmpKnownExisting) && proposedLinks.some(l =>
-        (l.toRef.tempId && l.toRef.tempId === snmpKnownTemp) ||
-        (l.toRef.existingId && l.toRef.existingId === snmpKnownExisting));
-      if (dupe) continue;
-      // v0.77.0: MAC на аплинке — см. начало блока SNMP results
-      const up = uplinkByPort.get(f.ifName);
-      let fromRef = seedRef;
-      let fromPort = f.ifName;
-      let evidence = 'FDB on ' + s.self.name + ':' + f.ifName;
-      if (up) {
-        const peer = findPolled(up.neighbour);
-        if (peer && Array.isArray(peer.fdb) && peer.fdb.some(x => x.mac === f.mac)) {
-          uplink.skipped++;
-          continue;
-        }
-        uplink.attached++;
-        fromRef = up.ref;
-        fromPort = '';
-        evidence = 'FDB on ' + s.self.name + ':' + f.ifName + ' (за аплинком ' + (up.neighbour.sysName || up.neighbour.mgmtIp || 'сосед') + ')';
-      }
-      const fdbIp = snmpArpByMac.get(f.mac) || '';
-      const remoteRef = refFor({
-        ip: fdbIp, mac: f.mac,
-        name: fdbIp || f.mac,
-        nameSrc: fdbIp ? 'ip' : 'mac',
-        vlan: f.vlan, // v0.52.0: из Q-BRIDGE-MIB, если коммутатор отдал
-        hint: 'FDB on ' + s.self.name,
-      });
-      if (!remoteRef) continue;
-      proposedLinks.push({
-        tempId: 'lnk_' + RID(),
-        fromRef,
-        fromPort,
-        toRef: remoteRef,
-        toPort: '',
-        cable: 'copper',
-        evidence,
-      });
-    }
+  }
+
+  // v0.85.0: привязка MAC к коммутаторам — один проход после всех источников
+  {
+    const mtArpIp = new Map(((mt && mt.ok && mt.arp) || []).map(a => [a.mac, a.ip]));
+    resolveFdbAttachments({
+      mt: (mt && mt.ok) ? mt : null, snmpOk, rootHost, doc, proposedLinks, seenTempByKey, idx, refFor,
+      arpIpOf: (mac) => mtArpIp.get(mac) || snmpArpByMac.get(mac) || '',
+      refOfHost: (h) => (h === rootHost && mtSelfRef) || snmpSeedRefByHost.get(h) || null,
+      uplink,
+    });
   }
 
   // Dedupe links: same (from,to,port) pairs
@@ -1341,7 +1439,8 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     name: vlanNameById.get(id) || '',
   }));
 
-  return { proposedDevices, proposedLinks: finalLinks, warnings, subnets, vlans, uplink };
+  const segments = buildSegments(mt, snmpOk, proposedDevices, vlans);
+  return { proposedDevices, proposedLinks: finalLinks, warnings, subnets, vlans, uplink, segments };
 }
 
 // v0.51.23: сотни одинаковых «[ip] SNMP probe failed: Request timed out»
@@ -1592,6 +1691,7 @@ async function scanInner(cfg, emit = () => {}) {
     proposedLinks:   merged.proposedLinks,
     subnets: merged.subnets,   // v0.52.0: эталонные подсети роутера
     vlans: merged.vlans,       // v0.52.0: {id, name} для фильтра по VLAN
+    segments: merged.segments || [], // v0.85.0: сегменты VLAN (подсети, коммутаторы, клиенты)
     warnings: aggregateWarnings([...warnings, ...merged.warnings]),
     stats,
   };

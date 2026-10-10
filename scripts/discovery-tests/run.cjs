@@ -20,6 +20,7 @@ function loadTs(rel) {
 const makeFake = require('./fakesnmp.cjs');
 const fake = makeFake(path.join(ELEC, 'snmp.cjs'), { delay: 10 });
 const disc = require(path.join(ELEC, 'discovery.cjs'));
+const { makeProposal } = disc;
 const prefs = loadTs('src/discoveryPrefs.ts');
 const prog = loadTs('src/discoveryProgress.ts');
 const rep = loadTs('src/discoveryReport.ts');
@@ -284,6 +285,68 @@ t('плановый скан: снимок и сравнение, пропуск
   sch.stopSchedule();
   assert.strictEqual(sch.getScheduleStatus().enabled, false);
   delete global.localStorage;
+});
+
+// v0.85.0: привязка MAC к коммутаторам (один проход, независимо от порядка источников)
+const swFix = (host, name, lldp, fdb) => ({ ok: true, host, self: { name, descr: '', vendor: '', kind: 'switch' },
+  lldp, fdb, ifNames: {}, arpByMac: {}, vlanList: [], mgmtAddrs: [], warnings: [] });
+const mtFix = (over) => Object.assign({ ok: true, self: { name: 'GW' }, neighbors: [], arp: [], leases: [],
+  addresses: [], subnetVlans: [], vlanByPort: {}, vlanIfaceByName: {}, switchVlanIds: [], fdb: [] }, over);
+const devOf = (r, mac) => r.proposedDevices.find(d => d.mac === mac);
+const nameOfRef = (r, ref) => {
+  const d = r.proposedDevices.find(p => (ref.tempId && p.tempId === ref.tempId) || (ref.existingId && p.existingId === ref.existingId));
+  return d ? d.name : null;
+};
+
+t('привязка MAC: порядок источников не меняет результат', async () => {
+  const MAC = '00:11:22:33:44:77';
+  const child = swFix('10.0.0.2', 'SW-CHILD', [], [{ mac: MAC, bridgePort: '3', ifName: 'ether3' }]);
+  const root = swFix('10.0.0.1', 'GW-SW', [{ localPortName: 'ether5', chassisId: 'aa:bb:cc:00:00:02', portId: 'ether2',
+    portDesc: '', sysName: 'SW-CHILD', sysDesc: '', mgmtIp: '10.0.0.2' }], []);
+  const mt = mtFix({ fdb: [{ mac: MAC, onIface: 'ether5', vlan: 10 }] });
+  const res = [];
+  for (const [m, snmp] of [[mt, [root, child]], [null, [root, child]]]) {
+    const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.1', mt: m, snmpResults: snmp });
+    const dev = devOf(r, MAC);
+    const ls = r.proposedLinks.filter(l => l.toRef.tempId === dev.tempId);
+    assert.strictEqual(ls.length, 1, 'одна связь');
+    res.push(nameOfRef(r, ls[0].fromRef) + ' ' + ls[0].fromPort);
+  }
+  assert.deepStrictEqual(res, ['SW-CHILD ether3', 'SW-CHILD ether3']);
+});
+
+t('привязка MAC: клиент на access-порту шлюза → шлюз', async () => {
+  const MAC = '00:11:22:33:44:66';
+  const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.1', mt: mtFix({ fdb: [{ mac: MAC, onIface: 'ether2', vlan: 10 }] }), snmpResults: [] });
+  const ls = r.proposedLinks.filter(l => l.toRef.tempId === devOf(r, MAC).tempId);
+  assert.strictEqual(ls.length, 1);
+  assert.strictEqual(nameOfRef(r, ls[0].fromRef), 'GW');
+  assert.strictEqual(ls[0].fromPort, 'ether2');
+});
+
+t('привязка MAC: аплинк к неопрошенному соседу → сосед через LLDP-порт', async () => {
+  const MAC = '00:11:22:33:44:88';
+  const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.1',
+    mt: mtFix({ neighbors: [{ localIface: 'ether5', ip: '10.0.0.9', mac: 'AA:BB:CC:00:00:09', name: 'SW-FAR', platform: '', version: '', board: '' }],
+      fdb: [{ mac: MAC, onIface: 'ether5', vlan: 10 }] }), snmpResults: [] });
+  const ls = r.proposedLinks.filter(l => l.toRef.tempId === devOf(r, MAC).tempId);
+  assert.strictEqual(ls.length, 1);
+  assert.strictEqual(nameOfRef(r, ls[0].fromRef), 'SW-FAR');
+  assert.ok(/за аплинком/.test(ls[0].evidence), ls[0].evidence);
+});
+
+t('сегменты VLAN: подсети, коммутаторы и число клиентов', async () => {
+  const MAC = '00:11:22:33:44:99';
+  const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.1',
+    mt: mtFix({ subnetVlans: [{ cidr: '10.10.0.0/24', vlanId: 10, iface: 'vlan10' }], switchVlanIds: [10],
+      fdb: [{ mac: MAC, onIface: 'ether2', vlan: 10 }] }),
+    snmpResults: [] });
+  assert.ok(Array.isArray(r.segments), 'segments есть');
+  const seg = r.segments.find(x => x.vlan === 10);
+  assert.ok(seg, 'сегмент VLAN 10');
+  assert.deepStrictEqual(seg.subnets, ['10.10.0.0/24']);
+  assert.ok(seg.switches.includes('GW'));
+  assert.ok(seg.endpoints >= 1);
 });
 
 (async () => {
