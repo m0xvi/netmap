@@ -21,6 +21,7 @@ import {
   loadProfiles, saveProfiles, sanitizePrefs, MAX_PROFILES, MAX_PROFILE_NAME, type ProfileMap, type DiscoveryPrefs,
 } from './discoveryPrefs';
 import { buildDevicesCsv, buildMarkdownReport, reportFileName } from './discoveryReport';
+import { parseArpOutput, applyArpHints } from './arpHints';
 import { makeSnapshot, diffSnapshots, loadSnapshot, saveSnapshot, type ScanDiff, type Snapshot, type SnapDevice } from './discoveryDiff';
 import {
   reduceProgress, initialProgress, summarizeProgress,
@@ -431,6 +432,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [activeProfile, setActiveProfile] = useState<string>('');
   const [profileName, setProfileName] = useState<string>('');
   const [profileMsg, setProfileMsg] = useState<string>('');
+  // v0.77.0: подсказка IP для MAC-only устройств из вывода arp -a с ПК
+  const [arpText, setArpText] = useState<string>('');
+  const [arpMsg, setArpMsg] = useState<string>('');
   // v0.77.0: сравнение с прошлым сканом того же корня (только при полном скане)
   const [diffInfo, setDiffInfo] = useState<{ prev: Snapshot; diff: ScanDiff } | null>(null);
 
@@ -662,6 +666,19 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     saveProfiles(next);
     setProfileMsg(`Профиль «${activeProfile}» удалён.`);
     setActiveProfile('');
+  }
+
+  /** v0.77.0: применить вывод arp -a / ip neigh к устройствам без IP. */
+  function applyArp() {
+    if (!scan) return;
+    const parsed = parseArpOutput(arpText);
+    if (parsed.pairs === 0) { setArpMsg('В тексте не нашлось строк с IP и MAC. Вставьте вывод arp -a или ip neigh.'); return; }
+    const withoutIp = scan.proposedDevices.filter(d => !d.ip && d.mac).length;
+    const res = applyArpHints(scan.proposedDevices, parsed.map);
+    setScan({ ...scan, proposedDevices: res.devices });
+    setArpMsg(res.filled > 0
+      ? `IP найден для ${res.filled} из ${withoutIp} устройств без IP. Они теперь добавляются как обычные.`
+      : `Совпадений нет: MAC устройств без IP не встретился в тексте (${parsed.pairs} пар IP-MAC).`);
   }
 
   /** v0.77.0: экспорт результата в CSV (устройства) или Markdown (полный отчёт). */
@@ -1696,6 +1713,24 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               )}
             </div>
 
+            {/* v0.77.0: подсказка IP из ARP-таблицы ПК — для устройств, известных только по MAC */}
+            {scan!.proposedDevices.some(d => !d.ip && d.mac) && (
+              <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: 10, fontSize: 12, color: '#334155' }}>
+                <div style={{ fontWeight: 600 }}>
+                  Устройств только по MAC: {scan!.proposedDevices.filter(d => !d.ip && d.mac).length}. Узнать их IP?
+                </div>
+                <div style={{ marginTop: 2, color: '#64748b' }}>
+                  Вставьте сюда вывод <code>arp -a</code> (Windows/Linux) или <code>ip neigh</code> с ПК, который в той же сети. Найденные IP подставятся по MAC.
+                </div>
+                <textarea value={arpText} onChange={e => setArpText(e.target.value)} rows={4}
+                  placeholder={'Interface: 192.168.1.10\n  192.168.1.5    aa-bb-cc-dd-ee-ff    dynamic'}
+                  style={{ ...S.input, width: '100%', marginTop: 6, fontFamily: 'monospace', fontSize: 11, height: 'auto' }} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                  <button style={S.btnSecondary} disabled={!arpText.trim()} onClick={applyArp}>Подставить IP</button>
+                  {arpMsg && <span>{arpMsg}</span>}
+                </div>
+              </section>
+            )}
             {/* v0.77.0: сравнение с прошлым сканом */}
             {diffInfo && <DiffSummary info={diffInfo} />}
             {/* v0.77.0: экспорт результата; файл отражает выбранные галочки, имена и типы */}

@@ -24,6 +24,7 @@ const prefs = loadTs('src/discoveryPrefs.ts');
 const prog = loadTs('src/discoveryProgress.ts');
 const rep = loadTs('src/discoveryReport.ts');
 const dif = loadTs('src/discoveryDiff.ts');
+const arp = loadTs('src/arpHints.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
@@ -193,6 +194,39 @@ t('профили сети: секреты и SNMPv3-протоколы не с�
   assert.ok(!('' in map));
   assert.ok(Object.keys(map).length <= 20, 'лимит 20 профилей');
   assert.ok(Object.keys(map).every(k => k.length <= 40));
+});
+
+t('ARP ПК: Windows, Linux, ip neigh; мусор и multicast отбрасываются', () => {
+  const win = [
+    'Interface: 192.168.1.10 --- 0xb',
+    '  Internet Address      Physical Address      Type',
+    '  192.168.1.1           00-11-22-33-44-55     dynamic',
+    '  192.168.1.255         ff-ff-ff-ff-ff-ff     static',
+    '  224.0.0.22            01-00-5e-00-00-16     static',
+  ].join('\r\n');
+  const lin = '? (192.168.1.20) at aa:bb:cc:00:11:22 [ether] on eth0\n? (192.168.1.21) at <incomplete> on eth0';
+  const neigh = '192.168.1.30 dev eth0 lladdr de:ad:be:ef:00:01 REACHABLE';
+  const r = arp.parseArpOutput([win, lin, neigh].join('\n'));
+  assert.strictEqual(r.map['00:11:22:33:44:55'], '192.168.1.1');
+  assert.strictEqual(r.map['AA:BB:CC:00:11:22'], '192.168.1.20');
+  assert.strictEqual(r.map['DE:AD:BE:EF:00:01'], '192.168.1.30');
+  assert.ok(!Object.keys(r.map).some(m => m.startsWith('FF:FF') || m.startsWith('01:00:5E')));
+  assert.ok(!Object.values(r.map).includes('192.168.1.255'));
+  assert.strictEqual(arp.parseArpOutput('nothing here').pairs, 0);
+});
+
+t('ARP ПК: подстановка IP только устройствам без IP', () => {
+  const devs = [
+    { tempId: 'a', mac: 'AA:BB:CC:00:11:22', name: 'AA:BB:CC:00:11:22' },
+    { tempId: 'b', mac: 'AA:BB:CC:00:11:99', ip: '10.0.0.9', name: 'x' },
+    { tempId: 'c', mac: 'AA:BB:CC:00:11:33', name: 'y' },
+  ];
+  const r = arp.applyArpHints(devs, { 'AA:BB:CC:00:11:22': '192.168.1.20', 'AA:BB:CC:00:11:99': '1.1.1.1' });
+  assert.strictEqual(r.filled, 1);
+  assert.strictEqual(r.devices[0].ip, '192.168.1.20');
+  assert.strictEqual(r.devices[0].hint, 'IP из ARP ПК');
+  assert.strictEqual(r.devices[1].ip, '10.0.0.9');
+  assert.strictEqual(r.devices[2].ip, undefined);
 });
 
 (async () => {
