@@ -18,6 +18,7 @@ import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
 import { loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols } from './discoveryPrefs';
 import { buildDevicesCsv, buildMarkdownReport, reportFileName } from './discoveryReport';
+import { makeSnapshot, diffSnapshots, loadSnapshot, saveSnapshot, type ScanDiff, type Snapshot, type SnapDevice } from './discoveryDiff';
 import {
   reduceProgress, initialProgress, summarizeProgress,
   type ScanProgressState, type HostStatus,
@@ -422,6 +423,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [cancelling, setCancelling] = useState(false);
   // v0.77.0: реальный прогресс опроса (события бэкенда)
   const [progress, setProgress] = useState<ScanProgressState>(() => initialProgress());
+  // v0.77.0: сравнение с прошлым сканом того же корня (только при полном скане)
+  const [diffInfo, setDiffInfo] = useState<{ prev: Snapshot; diff: ScanDiff } | null>(null);
 
   // --- scan state --------------------------------------------------------
   const [phase, setPhase] = useState<Phase>('form');
@@ -551,6 +554,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     setPhase('scanning');
     setScan(null);
     setCancelling(false);
+    setDiffInfo(null);
     try {
       const stopTrack = trackProgress();
       let r: DiscoveryScanResult;
@@ -564,6 +568,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
         return;
       }
       setScan(r);
+      // v0.77.0: снимок для следующего сравнения и сравнение с предыдущим снимком
+      {
+        const root = (r.rootHost || host).trim();
+        const nowSnap = makeSnapshot(r, root, Date.now());
+        const prevSnap = loadSnapshot(root);
+        setDiffInfo(prevSnap ? { prev: prevSnap, diff: diffSnapshots(prevSnap, nowSnap) } : null);
+        saveSnapshot(nowSnap);
+      }
       // Default: all rows selected (MAC-only rows are visible but never apply —
       // v0.52.0 requires every added device to have an IP).
       const dp: Record<string, boolean> = {};
@@ -1596,6 +1608,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               )}
             </div>
 
+            {/* v0.77.0: сравнение с прошлым сканом */}
+            {diffInfo && <DiffSummary info={diffInfo} />}
             {/* v0.77.0: экспорт результата; файл отражает выбранные галочки, имена и типы */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: '#475569' }}>
               <span>Скачать отчёт:</span>
@@ -1994,6 +2008,40 @@ function ScanProgressView({ mode, progress }: { mode: 'mikrotik' | 'snmp' | 'bot
         </div>
       )}
     </div>
+  );
+}
+
+/** v0.77.0: блок «что изменилось с прошлого скана». Списки — в раскрывающихся деталях. */
+function DiffSummary({ info }: { info: { prev: Snapshot; diff: ScanDiff } }) {
+  const { prev, diff } = info;
+  const when = new Date(prev.at).toLocaleString('ru-RU');
+  const devLabel = (d: SnapDevice) => `${d.name || d.key} ${d.ip ? `(${d.ip})` : ''}`.trim();
+  const list = (items: string[]) => (
+    <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12, lineHeight: 1.5, maxHeight: 180, overflowY: 'auto' }}>
+      {items.slice(0, 200).map((t, i) => <li key={i}>{t}</li>)}
+      {items.length > 200 && <li>…и ещё {items.length - 200}</li>}
+    </ul>
+  );
+  const counts = `новых: ${diff.added.length} · пропало: ${diff.removedIgnored ? 'не считаем' : diff.removed.length} · изменилось: ${diff.changed.length} · связей +${diff.linksAdded.length} −${diff.removedIgnored ? '?' : diff.linksRemoved.length}`;
+  return (
+    <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: 10, fontSize: 12, color: '#334155' }}>
+      <div style={{ fontWeight: 600 }}>Сравнение с прошлым сканом ({when})</div>
+      <div style={{ marginTop: 2 }}>{counts}</div>
+      {diff.removedIgnored && (
+        <div style={{ marginTop: 4, color: '#92400e' }}>Текущий опрос отменён: устройства, которых не видно, не считаем пропавшими.</div>
+      )}
+      {prev.cancelled && (
+        <div style={{ marginTop: 4, color: '#92400e' }}>Прошлый опрос был отменён: часть «новых» могла быть просто не опрошена раньше.</div>
+      )}
+      <details style={{ marginTop: 6 }}>
+        <summary style={{ cursor: 'pointer' }}>Показать список</summary>
+        {diff.added.length > 0 && <><div style={{ marginTop: 6, fontWeight: 600 }}>Новые</div>{list(diff.added.map(devLabel))}</>}
+        {!diff.removedIgnored && diff.removed.length > 0 && <><div style={{ marginTop: 6, fontWeight: 600 }}>Пропали</div>{list(diff.removed.map(devLabel))}</>}
+        {diff.changed.length > 0 && <><div style={{ marginTop: 6, fontWeight: 600 }}>Изменились</div>{list(diff.changed.map(c => `${devLabel(c.after)}: ${c.fields.join(', ')}`))}</>}
+        {diff.linksAdded.length > 0 && <><div style={{ marginTop: 6, fontWeight: 600 }}>Новые связи</div>{list(diff.linksAdded.map(l => `${l.from}${l.fromPort ? ' ' + l.fromPort : ''} → ${l.to}${l.toPort ? ' ' + l.toPort : ''}`))}</>}
+        {!diff.removedIgnored && diff.linksRemoved.length > 0 && <><div style={{ marginTop: 6, fontWeight: 600 }}>Пропавшие связи</div>{list(diff.linksRemoved.map(l => `${l.from}${l.fromPort ? ' ' + l.fromPort : ''} → ${l.to}${l.toPort ? ' ' + l.toPort : ''}`))}</>}
+      </details>
+    </section>
   );
 }
 

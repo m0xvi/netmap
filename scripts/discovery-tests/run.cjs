@@ -23,6 +23,7 @@ const disc = require(path.join(ELEC, 'discovery.cjs'));
 const prefs = loadTs('src/discoveryPrefs.ts');
 const prog = loadTs('src/discoveryProgress.ts');
 const rep = loadTs('src/discoveryReport.ts');
+const dif = loadTs('src/discoveryDiff.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
@@ -137,6 +138,45 @@ t('отчёт Markdown: связи с именами, экранирование
 
 t('имя файла отчёта', () => {
   assert.strictEqual(rep.reportFileName('csv', new Date(2026, 9, 10, 5, 7)), 'netmap-discovery-2026-10-10-0507.csv');
+});
+
+t('сравнение со прошлым сканом: новые, пропавшие, изменённые, связи', () => {
+  const mk = (devs, links) => ({ ok: true, proposedDevices: devs, proposedLinks: links });
+  const A = { tempId: 'a', mac: 'aa:bb:cc:00:00:01', ip: '10.0.0.1', name: 'SW', kind: 'switch' };
+  const B = { tempId: 'b', mac: 'aa:bb:cc:00:00:02', ip: '10.0.0.2', name: 'PC', kind: 'pc' };
+  const C = { tempId: 'c', mac: 'aa:bb:cc:00:00:03', ip: '10.0.0.3', name: 'AP', kind: 'ap' };
+  const D = { tempId: 'd', mac: 'aa:bb:cc:00:00:04', ip: '10.0.0.4', name: 'NEW', kind: 'pc' };
+  const prev = dif.makeSnapshot(mk([A, B, C], [{ tempId: 'l1', fromRef: { tempId: 'a' }, toRef: { tempId: 'b' }, fromPort: 'ether2' }]), '10.0.0.1', 1);
+  const next = dif.makeSnapshot(mk([{ ...A, name: 'SW-2' }, C, D],
+    [{ tempId: 'l2', fromRef: { tempId: 'a' }, toRef: { tempId: 'd' }, fromPort: 'ether3' }]), '10.0.0.1', 2);
+  const diff = dif.diffSnapshots(prev, next);
+  assert.deepStrictEqual(diff.added.map(d => d.name), ['NEW']);
+  assert.deepStrictEqual(diff.removed.map(d => d.name), ['PC']);
+  assert.strictEqual(diff.changed.length, 1);
+  assert.deepStrictEqual(diff.changed[0].fields, ['name']);
+  assert.strictEqual(diff.linksAdded.length, 1);
+  assert.strictEqual(diff.linksRemoved.length, 1);
+  assert.strictEqual(diff.removedIgnored, false);
+  // отмена в текущем скане: пропавшие не считаем
+  const cancelled = dif.makeSnapshot({ ...mk([C], []), cancelled: true }, '10.0.0.1', 3);
+  const d2 = dif.diffSnapshots(prev, cancelled);
+  assert.strictEqual(d2.removedIgnored, true);
+  assert.deepStrictEqual(d2.removed, []);
+  assert.deepStrictEqual(d2.linksRemoved, []);
+});
+
+t('сравнение: хранение снимков по корням, не больше 5', () => {
+  const store = new Map();
+  global.localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  for (let i = 0; i < 7; i++) {
+    dif.saveSnapshot({ at: 1000 + i, rootHost: '10.9.0.' + i, cancelled: false, devices: [], links: [] });
+  }
+  const map = JSON.parse(store.get(dif.SNAPSHOT_KEY));
+  assert.strictEqual(Object.keys(map).length, 5);
+  assert.ok(map['10.9.0.6'] && !map['10.9.0.0']);
+  assert.strictEqual(dif.loadSnapshot('10.9.0.6').at, 1006);
+  assert.strictEqual(dif.loadSnapshot('10.9.0.0'), null);
+  delete global.localStorage;
 });
 
 (async () => {
