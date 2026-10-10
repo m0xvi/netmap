@@ -30,6 +30,7 @@ module.exports = function makeFake(realSnmpPath, opts = {}) {
       dot1qTpFdbPort: [
         { oid: `${OID.dot1qTpFdbPort}.1.0.17.34.51.68.85`, value: '5' },
         { oid: `${OID.dot1qTpFdbPort}.1.0.17.34.51.68.102`, value: '1' },
+        { oid: `${OID.dot1qTpFdbPort}.1.0.17.34.51.68.119`, value: '5' },
       ],
       dot1dTpFdbPort: [],
     },

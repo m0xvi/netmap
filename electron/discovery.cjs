@@ -1168,8 +1168,16 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
   }
 
   // --- SNMP results ------------------------------------------------------
+  // v0.77.0: группировка MAC по аплинкам. Порт с LLDP-соседом — аплинк: MAC за ним
+  // не тянем напрямую к этому коммутатору. Если сосед опрошен и его FDB содержит MAC,
+  // связь будет на его access-порту (пропускаем); иначе MAC привязываем к соседу.
+  const uplink = { skipped: 0, attached: 0 };
+  const snmpOk = (snmpResults || []).filter(x => x && x.ok);
+  const findPolled = (nb) => snmpOk.find(x =>
+    (nb.mgmtIp && x.host === nb.mgmtIp) || (nb.sysName && x.self && x.self.name === nb.sysName)) || null;
   for (const s of (snmpResults || [])) {
     if (!s || !s.ok) continue;
+    const uplinkByPort = new Map(); // localPortName -> { ref, neighbour }
     const seedRef = matchDevice(idx, { ip: s.host, name: s.self.name }) || refFor({
       ip: s.host, name: s.self.name || s.host,
       nameSrc: s.self.name ? 'sysname' : 'ip',
@@ -1196,6 +1204,9 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         stableKey: l.chassisId || l.portId || l.sysName || '',
       });
       if (!remoteRef) continue;
+      if (l.localPortName && !uplinkByPort.has(l.localPortName)) {
+        uplinkByPort.set(l.localPortName, { ref: remoteRef, neighbour: l });
+      }
       proposedLinks.push({
         tempId: 'lnk_' + RID(),
         fromRef: seedRef,
@@ -1216,6 +1227,22 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
         (l.toRef.tempId && l.toRef.tempId === snmpKnownTemp) ||
         (l.toRef.existingId && l.toRef.existingId === snmpKnownExisting));
       if (dupe) continue;
+      // v0.77.0: MAC на аплинке — см. начало блока SNMP results
+      const up = uplinkByPort.get(f.ifName);
+      let fromRef = seedRef;
+      let fromPort = f.ifName;
+      let evidence = 'FDB on ' + s.self.name + ':' + f.ifName;
+      if (up) {
+        const peer = findPolled(up.neighbour);
+        if (peer && Array.isArray(peer.fdb) && peer.fdb.some(x => x.mac === f.mac)) {
+          uplink.skipped++;
+          continue;
+        }
+        uplink.attached++;
+        fromRef = up.ref;
+        fromPort = '';
+        evidence = 'FDB on ' + s.self.name + ':' + f.ifName + ' (за аплинком ' + (up.neighbour.sysName || up.neighbour.mgmtIp || 'сосед') + ')';
+      }
       const fdbIp = snmpArpByMac.get(f.mac) || '';
       const remoteRef = refFor({
         ip: fdbIp, mac: f.mac,
@@ -1227,12 +1254,12 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       if (!remoteRef) continue;
       proposedLinks.push({
         tempId: 'lnk_' + RID(),
-        fromRef: seedRef,
-        fromPort: f.ifName,
+        fromRef,
+        fromPort,
         toRef: remoteRef,
         toPort: '',
         cable: 'copper',
-        evidence: 'FDB on ' + s.self.name + ':' + f.ifName,
+        evidence,
       });
     }
   }
@@ -1314,7 +1341,7 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     name: vlanNameById.get(id) || '',
   }));
 
-  return { proposedDevices, proposedLinks: finalLinks, warnings, subnets, vlans };
+  return { proposedDevices, proposedLinks: finalLinks, warnings, subnets, vlans, uplink };
 }
 
 // v0.51.23: сотни одинаковых «[ip] SNMP probe failed: Request timed out»
@@ -1535,6 +1562,7 @@ async function scanInner(cfg, emit = () => {}) {
     hops:           hopsUsed,
     lldpEntries:    snmpResults.reduce((n, s) => n + (s.lldp ? s.lldp.length : 0), 0),
     dnsNamed,                               // v0.77.0: имена по обратному DNS
+    fdbUplink: merged.uplink || { skipped: 0, attached: 0 }, // v0.77.0: MAC за аплинками
   };
 
   return {

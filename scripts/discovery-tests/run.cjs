@@ -229,6 +229,29 @@ t('ARP ПК: подстановка IP только устройствам бе�
   assert.strictEqual(r.devices[2].ip, undefined);
 });
 
+t('аплинк: MAC за аплинком не дублируется, а привязывается к соседу', async () => {
+  const r = await disc.scan(cfg);
+  const devByMac = m => r.proposedDevices.find(d => d.mac === m);
+  const child = r.proposedDevices.find(d => d.nameSource === 'sysname' && d.name === 'SW-CHILD');
+  const root = r.proposedDevices.find(d => d.nameSource === 'sysname' && d.name === 'SW-ROOT');
+  assert.ok(child && root);
+  // MAC …77 есть в FDB соседа на access-порту — только связь с соседом
+  const m77 = devByMac('00:11:22:33:44:77');
+  assert.ok(m77, 'MAC 77 найден');
+  const to77 = r.proposedLinks.filter(l => l.toRef.tempId === m77.tempId);
+  assert.strictEqual(to77.length, 1, 'одна связь у MAC 77');
+  assert.strictEqual(to77[0].fromRef.tempId, child.tempId);
+  assert.strictEqual(to77[0].fromPort, 'ether3');
+  // MAC …55 на аплинке, у соседа его нет — привязан к соседу через аплинк
+  const m55 = devByMac('00:11:22:33:44:55');
+  assert.ok(m55, 'MAC 55 найден');
+  const to55 = r.proposedLinks.filter(l => l.toRef.tempId === m55.tempId);
+  assert.strictEqual(to55.length, 1);
+  assert.strictEqual(to55[0].fromRef.tempId, child.tempId);
+  assert.ok(/за аплинком/.test(to55[0].evidence), to55[0].evidence);
+  assert.ok(r.stats.fdbUplink.skipped >= 1 && r.stats.fdbUplink.attached >= 1, JSON.stringify(r.stats.fdbUplink));
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
