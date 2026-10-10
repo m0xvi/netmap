@@ -418,7 +418,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [q, setQ] = useState('');
   const [excludedCidrs, setExcludedCidrs] = useState<Set<string>>(new Set());
   const [excludedVlans, setExcludedVlans] = useState<Set<number>>(new Set());
-  const [showNoIp, setShowNoIp] = useState(false);
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
   // v0.53.0: ручной выбор типа устройства прямо в предпросмотре.
   const [kindEdits, setKindEdits] = useState<Record<string, DeviceKind>>({});
@@ -437,7 +436,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setQ('');
       setExcludedCidrs(new Set());
       setExcludedVlans(new Set());
-      setShowNoIp(false);
       setNameEdits({});
       setKindEdits({});
       setHubPick({});
@@ -529,7 +527,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setQ('');
       setExcludedCidrs(new Set());
       setExcludedVlans(new Set());
-      setShowNoIp(false);
       setNameEdits({});
       setKindEdits({});
       setPhase('review');
@@ -607,10 +604,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     if (!scan) return;
     setPhase('applying');
 
-    // v0.52.0: создаём только ЭФФЕКТИВНОЕ множество — выбранные галочкой,
-    // видимые (не скрытые фильтрами подсетей/VLAN/поиска) и ОБЯЗАТЕЛЬНО с IP.
-    // Устройства без IP добавить нельзя: галочки у них нет, а связи, висящие
-    // на непринятых устройствах, пропускаются автоматически со счётчиком.
+    // v0.52.0: создаём только ЭФФЕКТИВНОЕ множество — выбранные галочкой и видимые
+    // (не скрытые фильтрами подсетей/VLAN/поиска). v0.76.10: MAC-only устройства
+    // тоже добавляются (ip пустой). Связи, висящие на непринятых устройствах, пропускаются со счётчиком.
     const finalIdByTemp = new Map<string, string>();
     const devicesToCreate: any[] = [];
     for (const d of (scan!.proposedDevices ?? [])) {
@@ -798,7 +794,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const exclCidrArr = useMemo(() => Array.from(excludedCidrs), [excludedCidrs]);
   const qTrim = q.trim().toLowerCase();
   function isVisibleDevice(d: DiscoveryDeviceProposal): boolean {
-    if (!d.ip && !showNoIp) return false;
     if (d.ip && exclCidrArr.length > 0 && ipInAnyCidr(d.ip, exclCidrArr)) return false;
     if (d.vlan != null && excludedVlans.has(d.vlan)) return false;
     if (qTrim) {
@@ -810,19 +805,19 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   }
 
   const namedDevs = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident !== false && hasRealName(d) && isVisibleDevice(d)),
+    () => (scan?.proposedDevices || []).filter(d => d.kindConfident !== false && hasRealName(d) && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
+    [scan, qTrim, exclCidrArr, excludedVlans, nameEdits]);
   const unnamedDevs = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident !== false && !hasRealName(d) && isVisibleDevice(d)),
+    () => (scan?.proposedDevices || []).filter(d => d.kindConfident !== false && !hasRealName(d) && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
+    [scan, qTrim, exclCidrArr, excludedVlans, nameEdits]);
   // v0.53.0: тип не выдавили из отпечатков — отдельная группа, тип выбирает
   // пользователь селектором в строке (имеет приоритет над именем).
   const unknownDevs = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => d.ip && d.kindConfident === false && isVisibleDevice(d)),
+    () => (scan?.proposedDevices || []).filter(d => d.kindConfident === false && isVisibleDevice(d)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
+    [scan, qTrim, exclCidrArr, excludedVlans, nameEdits]);
   // v0.56.0: редизайн окна проверки — сортировка таблицы, аккордеоны,
   // измерение липких отступов (ResizeObserver переживает зум и перестройку чипов).
   const [sortKey, setSortKey] = useState<'type' | 'name' | 'ip' | null>(null);
@@ -858,7 +853,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       try { ro?.disconnect(); } catch { /* noop */ }
       window.removeEventListener('resize', apply);
     };
-  }, [phase, scan, q, showNoIp, excludedCidrs, excludedVlans, snmpOpen, warnOpen, sortKey, sortDir]);
+  }, [phase, scan, q, excludedCidrs, excludedVlans, snmpOpen, warnOpen, sortKey, sortDir]);
 
   // v0.54.0: все видимые (под фильтрами) устройства с IP — для глобального тумблера.
   const visibleDevs = useMemo(
@@ -959,17 +954,15 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     () => (scan?.seeds || []).filter(s => s.ok).map(s => s.name || s.host).filter(Boolean) as string[],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scan]);
-  const noIpDevs = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => !d.ip && isVisibleDevice(d)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scan, qTrim, exclCidrArr, excludedVlans, showNoIp, nameEdits]);
-  const noIpTotal = useMemo(
+  // v0.76.10: устройства, известные только по MAC (клиенты L2-коммутатора), добавляются
+  // как есть: имя = MAC, связь с портом коммутатора. Здесь только счётчик для подсказок.
+  const macOnlyTotal = useMemo(
     () => scan ? (scan!.proposedDevices ?? []).filter(d => !d.ip).length : 0, [scan]);
   // v0.56.0: группы таблицы устройств (отсортированные внутри групп).
   const unknownGroup = useMemo(
-    () => sortRows([...unknownDevs, ...(showNoIp ? noIpDevs : [])]),
+    () => sortRows([...unknownDevs]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [unknownDevs, noIpDevs, showNoIp, sortKey, sortDir, nameEdits, kindEdits]);
+    [unknownDevs, sortKey, sortDir, nameEdits, kindEdits]);
   const namedGroup = useMemo(
     () => sortRows(namedDevs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -978,10 +971,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     () => sortRows(unnamedDevs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [unnamedDevs, sortKey, sortDir, nameEdits, kindEdits]);
-  const unknownPickable = useMemo(() => unknownGroup.filter(d => d.ip), [unknownGroup]);
+  const unknownPickable = useMemo(() => unknownGroup, [unknownGroup]);
   const visibleRowCount = unknownGroup.length + namedGroup.length + unnamedGroup.length;
 
-  // Эффективное множество: выбрано галочкой + видимо + есть IP.
+  // Эффективное множество: выбрано галочкой + видимо (MAC-only тоже входят).
   const effectiveDevIds = useMemo(() => {
     const s = new Set<string>();
     for (const d of namedDevs) if (devPick[d.tempId]) s.add(d.tempId);
@@ -990,9 +983,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     return s;
   }, [namedDevs, unnamedDevs, unknownDevs, devPick]);
   const hiddenPicked = useMemo(
-    () => (scan?.proposedDevices || []).filter(d => d.ip && devPick[d.tempId] && !isVisibleDevice(d)).length,
+    () => (scan?.proposedDevices || []).filter(d => devPick[d.tempId] && !isVisibleDevice(d)).length,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scan, devPick, qTrim, exclCidrArr, excludedVlans, showNoIp]);
+    [scan, devPick, qTrim, exclCidrArr, excludedVlans]);
 
   function linkEndpointsOk(l: DiscoveryLinkProposal): boolean {
     const okRef = (ref: { existingId?: string; tempId?: string }) =>
@@ -1044,7 +1037,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
           <div className="h-txt">
             <h1>Автообнаружение топологии</h1>
             <div className="h-methods">
-              <span>LLDP</span><span>MikroTik neighbors</span><span>Bridge FDB</span><span>ARP</span><span>DHCP</span>
+              {(mode === 'snmp'
+                ? ['SNMP LLDP', 'Bridge FDB', 'ARP (IP-MIB)', 'IF-MIB']
+                : mode === 'mikrotik'
+                  ? ['LLDP', 'MikroTik neighbors', 'Bridge FDB', 'ARP', 'DHCP']
+                  : ['LLDP', 'MikroTik neighbors', 'Bridge FDB', 'ARP', 'DHCP', 'SNMP']
+              ).map(m => <span key={m}>{m}</span>)}
             </div>
           </div>
           <button className="icon-btn" onClick={onClose} title="Закрыть"><DIcon n="close" size={18} /></button>
@@ -1258,7 +1256,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
             <MiniSpinner size={44} />
             <div style={{ marginTop: 16, fontSize: 14, fontWeight: 600, color: '#334155' }}>Опрашиваем сеть…</div>
             <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8', textAlign: 'center', maxWidth: 320 }}>
-              SSH + SNMP walks (LLDP · Bridge FDB · ARP). Обычно 5–30 сек в зависимости от размера сети.
+              {mode === 'snmp'
+                ? 'SNMP walks (LLDP-MIB · BRIDGE-MIB · IP-MIB). '
+                : mode === 'mikrotik'
+                  ? 'SSH к MikroTik (LLDP · Bridge FDB · ARP · DHCP). '
+                  : 'SSH к MikroTik + SNMP walks (LLDP · Bridge FDB · ARP). '}
+              Обычно 5–30 сек в зависимости от размера сети.
             </div>
             <div style={{ marginTop: 20, width: 240 }}>
               <ProgressStripe width="100%" height={6} />
@@ -1277,18 +1280,18 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               <div>
                 <div className="s-label"><DIcon n="sparkle" size={14} /> Сканирование завершено · найдено новых</div>
                 <div className="s-big">
-                  {(scan!.proposedDevices ?? []).filter(d => d.ip).length} <small>{plural((scan!.proposedDevices ?? []).filter(d => d.ip).length, 'устройство', 'устройства', 'устройств')}</small>
+                  {(scan!.proposedDevices ?? []).length} <small>{plural((scan!.proposedDevices ?? []).length, 'устройство', 'устройства', 'устройств')}</small>
                   <span className="dot">·</span>{(scan!.proposedLinks ?? []).length} <small>{plural((scan!.proposedLinks ?? []).length, 'связь', 'связи', 'связей')}</small>
                 </div>
-                {noIpTotal > 0 && (
-                  <div className="s-note" title="Известен только MAC — добавить такие устройства нельзя, устройству обязательно нужен IP.">
-                    <DIcon n="warn" size={13} /> {noIpTotal} без IP — не добавятся
+                {macOnlyTotal > 0 && (
+                  <div className="s-note" title="Известен только MAC: устройство добавится с именем = MAC и связью с портом коммутатора. IP можно получить, опросив роутер (режим «Оба»).">
+                    <DIcon n="warn" size={13} /> {macOnlyTotal} только по MAC — добавятся с именем-MAC
                   </div>
                 )}
-                {noIpTotal > 0 && mode === 'snmp' && (
-                  // v0.76.9: L2-коммутатор не отдаёт ARP, поэтому IP у его соседей по FDB неизвестен.
+                {macOnlyTotal > 0 && mode === 'snmp' && (
+                  // v0.76.10: L2-коммутатор не знает IP своих клиентов (нет ARP), поэтому у них только MAC и порт.
                   <div className="s-note" style={{ fontSize: 12, lineHeight: 1.4 }}>
-                    Коммутатор (L2) не знает IP своих клиентов — видны только MAC и порты. Чтобы получить IP, опросите роутер режимом «Оба» (SSH): его ARP-таблица даёт IP.
+                    Клиенты коммутатора видны по MAC и порту. Переименовать или сменить тип можно в списке. Чтобы получить IP, опросите роутер режимом «Оба» (SSH): его ARP-таблица даёт IP.
                   </div>
                 )}
               </div>
@@ -1405,10 +1408,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                   </button>
                 </div>
                 <div className="f-spacer" />
-                <label className="tgl" title="Устройства, у которых известен только MAC. Добавить их нельзя — нужен IP.">
-                  <span className="sw"><input type="checkbox" checked={showNoIp} onChange={e => setShowNoIp(e.target.checked)} /><i /></span>
-                  Без IP <span className="cnt-txt">({noIpTotal})</span>
-                </label>
                 <label className="tgl" title="Выбрать/снять все устройства, видимые под текущими фильтрами">
                   <span className="cb"><input type="checkbox" checked={allVisiblePicked} onChange={toggleAllVisible} ref={masterCbRef} /><span /></span>
                   <span>{qTrim !== '' ? `Видимые (${visibleDevs.length})` : `Все видимые (${visibleDevs.length})`}</span>
@@ -1579,7 +1578,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                           {unknownPickable.length > 0 && unknownPickable.every(d => devPick[d.tempId]) ? 'Снять все' : 'Выбрать все'}
                         </button>
                       </div>
-                      {unknownGroup.map(d => d.ip ? (
+                      {unknownGroup.map(d => (
                         <DiscoveryTableRow key={d.tempId} d={d}
                           effName={effNameOf(d)}
                           effKind={effKindOf(d)}
@@ -1589,11 +1588,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                           onToggle={(id, v) => setDevPick(p => ({ ...p, [id]: v }))}
                           onRename={(id, v) => setNameEdits(p => ({ ...p, [id]: v }))}
                           onKind={(id, v) => setKindEdits(p => ({ ...p, [id]: v }))} />
-                      ) : (
-                        <DiscoveryTableRow key={d.tempId} d={d}
-                          effName={d.name} effKind={d.kind} renamed={false} kindEdited={false}
-                          checked={false} disabled={true}
-                          onToggle={() => {}} onRename={() => {}} onKind={() => {}} />
                       ))}
                     </>
                   )}
@@ -1644,9 +1638,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                     </>
                   )}
                 </div>
-              )}
-              {showNoIp && noIpDevs.length === 0 && noIpTotal > 0 && (
-                <div className="empty show" style={{ marginTop: 8 }}>Все {noIpTotal} без IP скрыты фильтрами.</div>
               )}
             </div>
 
