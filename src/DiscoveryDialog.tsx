@@ -20,7 +20,7 @@ import { DiscoveryWizard } from './DiscoveryWizard';
 import {
   buildWizardSteps, defaultAnswers, loadWizardMemory, saveWizardMemory, rememberAnswers, wizardEffects,
   type WizardAnswers, type WizardStep,
-} from './discoveryWizard';
+} from './discoveryWizardLogic';
 import {
   loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols,
   loadProfiles, saveProfiles, sanitizePrefs, MAX_PROFILES, MAX_PROFILE_NAME, type ProfileMap, type DiscoveryPrefs,

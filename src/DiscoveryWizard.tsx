@@ -1,7 +1,7 @@
 /**
  * v0.87.0 — мастер уточнений автообнаружения (окно поверх диалога).
  *
- * Шаги и логика — в discoveryWizard.ts. Здесь только показ вопросов и сбор ответов.
+ * Шаги и логика — в discoveryWizardLogic.ts. Здесь только показ вопросов и сбор ответов.
  * Ничего не применяется до кнопки «Применить ответы» на последнем экране.
  */
 
@@ -11,7 +11,7 @@ import type { DiscoveryScanResult } from './discoveryClient';
 import {
   summarizeEffects, wizardEffects,
   type WizardAnswers, type WizardItem, type WizardStep, type UplinkChoice,
-} from './discoveryWizard';
+} from './discoveryWizardLogic';
 
 interface Props {
   scan: DiscoveryScanResult;

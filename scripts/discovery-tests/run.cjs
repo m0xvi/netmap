@@ -27,7 +27,7 @@ const rep = loadTs('src/discoveryReport.ts');
 const dif = loadTs('src/discoveryDiff.ts');
 const arp = loadTs('src/arpHints.ts');
 const sch = loadTs('src/discoveryScheduler.ts');
-const wiz = loadTs('src/discoveryWizard.ts');
+const wiz = loadTs('src/discoveryWizardLogic.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
