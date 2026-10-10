@@ -33,6 +33,8 @@ export interface DiscoveryConfig {
   sshTimeout?: number;
   snmpSweep?: boolean;
   snmpSeeds?: string[];
+  /** v0.77.0: отключить обратный DNS (PTR) при сканировании. */
+  reverseDns?: boolean;
   // v0.51.20: рекурсивный обход LLDP-соседей (волнами по management-IP)
   snmpRecursive?: boolean;
   snmpMaxHops?: number;
@@ -41,7 +43,8 @@ export interface DiscoveryConfig {
 // v0.52.0: откуда бэкенд взял имя. Приоритет: dhcp (комментарий лизы) >
 // sysname (LLDP sysName / MikroTik identity) > hostname (host-name из DHCP) >
 // ip > mac. Последние два именем не считаются («без имени»).
-export type DiscoveryNameSource = 'dhcp' | 'sysname' | 'hostname' | 'ip' | 'mac';
+/** v0.77.0: 'dns' — имя из обратной DNS-записи (PTR); только для устройств без имени. */
+export type DiscoveryNameSource = 'dhcp' | 'sysname' | 'hostname' | 'dns' | 'ip' | 'mac';
 
 export interface DiscoveryDeviceProposal {
   tempId: string;
@@ -85,6 +88,8 @@ export interface DiscoveryHubCandidate {
 export interface DiscoveryScanResult {
   ok: boolean;
   error?: string;
+  /** v0.77.0: опрос отменён пользователем — данные неполные. */
+  cancelled?: boolean;
   /** v0.76.7: адреса, которые реально опрошены по SNMP (для пошагового обхода). */
   scannedHosts?: string[];
   /** v0.76.7: switch/router из соседей, которых ещё не опрашивали. */
@@ -149,6 +154,12 @@ export async function discoveryTest(cfg: DiscoveryConfig): Promise<DiscoveryTest
     };
   }
   return (window as any).netmap.discoveryTest(cfg);
+}
+
+/** v0.77.0: отмена текущего скана. Частичный результат придёт из discoveryScan с cancelled=true. */
+export async function discoveryCancel(): Promise<{ ok: boolean; active?: boolean }> {
+  if (!hasBackend() || typeof (window as any).netmap.discoveryCancel !== 'function') return { ok: false };
+  return (window as any).netmap.discoveryCancel();
 }
 
 export async function discoveryScan(cfg: DiscoveryConfig & { doc?: any }): Promise<DiscoveryScanResult> {

@@ -16,8 +16,9 @@ import { useStore } from './store';
 import type { DeviceKind } from './types';
 import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
+import { loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols } from './discoveryPrefs';
 import {
-  discoveryScan, discoveryTest, discoveryDetectV3,
+  discoveryScan, discoveryTest, discoveryDetectV3, discoveryCancel,
   type DiscoveryConfig, type DiscoveryScanResult,
   type DiscoveryDeviceProposal, type DiscoveryLinkProposal,
   type DiscoveryNameSource,
@@ -116,6 +117,7 @@ const NAME_SRC_META: Record<DiscoveryNameSource, { label: string; bg: string; fg
   dhcp:     { label: 'DHCP', bg: '#dcfce7', fg: '#166534', title: 'Имя из комментария DHCP-лизы (задано администратором)' },
   sysname:  { label: 'имя',  bg: '#e0f2fe', fg: '#0369a1', title: 'Собственное имя устройства (LLDP sysName / MikroTik identity)' },
   hostname: { label: 'host', bg: '#fef3c7', fg: '#92400e', title: 'Host-name из DHCP-лизы (прислал сам клиент)' },
+  dns:      { label: 'DNS',  bg: '#ede9fe', fg: '#5b21b6', title: 'Имя из обратной DNS-записи (PTR). Проверьте: DNS может быть устаревшим' },
   ip:       { label: 'IP',   bg: '#f1f5f9', fg: '#64748b', title: 'Имени нет — показана заглушка IP. Задайте имя вручную в поле слева.' },
   mac:      { label: 'MAC',  bg: '#f1f5f9', fg: '#64748b', title: 'Имени и IP нет — показана заглушка MAC. Такое устройство добавить нельзя.' },
 };
@@ -375,22 +377,24 @@ type Phase = 'form' | 'testing' | 'scanning' | 'review' | 'applying' | 'done';
 
 export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   // --- form state --------------------------------------------------------
-  const [mode, setMode] = useState<DiscoveryConfig['mode']>('both');
-  const [host, setHost] = useState('192.168.11.1');
-  const [port, setPort] = useState<number>(22);
-  const [username, setUsername] = useState('admin');
+  // v0.77.0: несекретные настройки запоминаются между открытиями (discoveryPrefs.ts).
+  const [prefs0] = useState(() => loadDiscoveryPrefs());
+  const [mode, setMode] = useState<DiscoveryConfig['mode']>(prefs0.mode ?? 'both');
+  const [host, setHost] = useState(prefs0.host ?? '192.168.11.1');
+  const [port, setPort] = useState<number>(prefs0.port ?? 22);
+  const [username, setUsername] = useState(prefs0.username ?? 'admin');
   const [password, setPassword] = useState('');
   const [community, setCommunity] = useState('public');
   // v0.75.1: SNMPv3 (USM) — версия, пользователь, auth/priv.
   const [snmpVersion, setSnmpVersion] = useState<'1' | '2c' | '3'>('2c');
-  const [v3User, setV3User] = useState('admin');
-  const [v3Level, setV3Level] = useState<'noAuthNoPriv' | 'authNoPriv' | 'authPriv'>('authNoPriv');
+  const [v3User, setV3User] = useState(prefs0.v3User ?? 'admin');
+  const [v3Level, setV3Level] = useState<'noAuthNoPriv' | 'authNoPriv' | 'authPriv'>(prefs0.v3Level ?? 'authNoPriv');
   // v0.76.9: 'sha' — самый частый протокол auth у TP-Link/D-Link; при несовпадении — «Подобрать протокол».
-  const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>('sha');
+  const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>(prefs0.v3AuthProto ?? 'sha');
   const [v3Detecting, setV3Detecting] = useState(false);
   const [v3DetectMsg, setV3DetectMsg] = useState<string>('');
   const [v3AuthKey, setV3AuthKey] = useState('');
-  const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>('aes');
+  const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>(prefs0.v3PrivProto ?? 'aes');
   const [v3PrivKey, setV3PrivKey] = useState('');
   // v0.76.4: SSH-ключ (PEM) и passphrase — из vault-кнопки; едут в scan().
   const [sshKeyPem, setSshKeyPem] = useState('');
@@ -400,12 +404,17 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [hubPick, setHubPick] = useState<Record<string, boolean>>({});
   const [hubDismissed, setHubDismissed] = useState(false);
   const [sshPassPem, setSshPassPem] = useState('');
-  const [snmpSweep, setSnmpSweep] = useState(false);
+  const [snmpSweep, setSnmpSweep] = useState(prefs0.snmpSweep ?? false);
   // v0.51.20: рекурсивный обход — management-IP LLDP-соседей становятся
   // целями следующих волн SNMP-опроса.
   // v0.76.7: по умолчанию НЕ ходим по LLDP сами — вместо этого спрашиваем (см. hubPick).
-  const [snmpRecursive, setSnmpRecursive] = useState(false);
-  const [snmpMaxHops, setSnmpMaxHops] = useState(2);
+  const [snmpRecursive, setSnmpRecursive] = useState(prefs0.snmpRecursive ?? false);
+  const [snmpMaxHops, setSnmpMaxHops] = useState(prefs0.snmpMaxHops ?? 2);
+  // v0.77.0: ручной список SNMP-хостов (IP, диапазоны, CIDR) — уходит в snmpSeeds.
+  const [manualHosts, setManualHosts] = useState<string>(prefs0.manualHosts ?? '');
+  // v0.77.0: подобранный SNMPv3-протокол по адресу хоста (без ключей).
+  const [v3Protocols, setV3Protocols] = useState<Record<string, V3Protocols>>(prefs0.v3Protocols ?? {});
+  const [cancelling, setCancelling] = useState(false);
 
   // --- scan state --------------------------------------------------------
   const [phase, setPhase] = useState<Phase>('form');
@@ -416,8 +425,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [applyReport, setApplyReport] = useState<{ dev: number; link: number; vlan: number } | null>(null);
   // v0.52.0: фильтры предпросмотра (как в обычном импорте) + переименование.
   const [q, setQ] = useState('');
-  const [excludedCidrs, setExcludedCidrs] = useState<Set<string>>(new Set());
-  const [excludedVlans, setExcludedVlans] = useState<Set<number>>(new Set());
+  // v0.77.0: исключённые подсети и VLAN запоминаются (не сбрасываются при открытии).
+  const [excludedCidrs, setExcludedCidrs] = useState<Set<string>>(() => new Set(prefs0.excludedCidrs ?? []));
+  const [excludedVlans, setExcludedVlans] = useState<Set<number>>(() => new Set(prefs0.excludedVlans ?? []));
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
   // v0.53.0: ручной выбор типа устройства прямо в предпросмотре.
   const [kindEdits, setKindEdits] = useState<Record<string, DeviceKind>>({});
@@ -434,18 +444,39 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setTestMsg('');
       setApplyReport(null);
       setQ('');
-      setExcludedCidrs(new Set());
-      setExcludedVlans(new Set());
       setNameEdits({});
       setKindEdits({});
       setHubPick({});
       setHubDismissed(false);
+      setCancelling(false);
     }
   }, [open]);
+
+  // v0.77.0: сохраняем несекретные настройки при каждом изменении.
+  useEffect(() => {
+    saveDiscoveryPrefs({
+      mode, host, port, username, snmpVersion, v3User, v3Level, v3AuthProto, v3PrivProto,
+      snmpSweep, snmpRecursive, snmpMaxHops, manualHosts,
+      excludedCidrs: Array.from(excludedCidrs), excludedVlans: Array.from(excludedVlans),
+      v3Protocols,
+    });
+  }, [mode, host, port, username, snmpVersion, v3User, v3Level, v3AuthProto, v3PrivProto,
+      snmpSweep, snmpRecursive, snmpMaxHops, manualHosts, excludedCidrs, excludedVlans, v3Protocols]);
+
+  // v0.77.0: для известного хоста подставляем подобранный ранее протокол SNMPv3.
+  useEffect(() => {
+    const known = v3Protocols[host.trim()];
+    if (!known) return;
+    setV3AuthProto(known.auth);
+    if (known.priv) setV3PrivProto(known.priv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host]);
 
   const doc = useStore(s => s.doc);
   const applyDiscovery = useStore(s => s.applyDiscovery);
   const pushAlert = useStore(s => s.pushAlert);
+
+  const manualParsed = useMemo(() => parseHostList(manualHosts), [manualHosts]);
 
   const currentCfg: DiscoveryConfig = {
     mode, host, port, username, password,
@@ -459,6 +490,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     snmpSweep,
     snmpRecursive,
     snmpMaxHops,
+    // v0.77.0: ручные SNMP-хосты (в режиме только MikroTik не нужны)
+    snmpSeeds: mode === 'mikrotik' ? [] : manualParsed.ips,
   };
 
   // --- helpers -----------------------------------------------------------
@@ -472,6 +505,13 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
         if (a && ['md5', 'sha', 'sha256', 'sha512'].includes(a)) setV3AuthProto(a);
         const p = (r.privProtocol || '') as any;
         if (p && ['des', 'aes', 'aes256b', 'aes256r'].includes(p)) setV3PrivProto(p);
+        // v0.77.0: запоминаем протокол для этого хоста (ключи не сохраняются)
+        if (a && ['md5', 'sha', 'sha256', 'sha512'].includes(a) && host.trim()) {
+          const rec: V3Protocols = (p && ['des', 'aes', 'aes256b', 'aes256r'].includes(p))
+            ? { auth: a, priv: p }
+            : { auth: a };
+          setV3Protocols(prev => ({ ...prev, [host.trim()]: rec }));
+        }
         const parts = [`auth ${r.authProtocol || '—'}`];
         if (r.privProtocol) parts.push(`priv ${r.privProtocol}`);
         setV3DetectMsg(`Подошло: ${parts.join(', ')}${r.sysName ? ` (${r.sysName})` : ''}`);
@@ -503,6 +543,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   async function onScan() {
     setPhase('scanning');
     setScan(null);
+    setCancelling(false);
     try {
       const r = await discoveryScan({ ...currentCfg, doc });
       // v0.76.1: результат ошибки ({ok:false,error}) НЕ должен попадать в
@@ -525,8 +566,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       for (const h of r.hubCandidates ?? []) hp0[h.ip] = true;
       setHubPick(hp0); setHubDismissed(false);
       setQ('');
-      setExcludedCidrs(new Set());
-      setExcludedVlans(new Set());
       setNameEdits({});
       setKindEdits({});
       setPhase('review');
@@ -534,6 +573,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setPhase('form');
       await alertDialog('Не удалось выполнить сканирование', e?.message || String(e));
     }
+  }
+
+  /** v0.77.0: отмена опроса. Скан сам вернёт частичный результат — дальше обычный просмотр. */
+  async function onCancelScan() {
+    setCancelling(true);
+    try { await discoveryCancel(); } catch { /* скан всё равно завершится */ }
   }
 
   /**
@@ -548,6 +593,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     const prev = scan;
     const seeds = Array.from(new Set([...(prev.scannedHosts ?? []), ...picked]));
     setPhase('scanning');
+    setCancelling(false);
     try {
       const r = await discoveryScan({ ...currentCfg, snmpRecursive: false, snmpSeeds: seeds, doc });
       if (!r || r.ok === false || !Array.isArray((r as any).proposedDevices)) {
@@ -708,7 +754,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     // IP/MAC-заглушки — «без имени». Фолбэк для данных без nameSource:
     // имя отличается от IP и MAC.
     if (!d.nameSource) return !!d.name && d.name !== d.ip && d.name !== d.mac;
-    return d.nameSource === 'dhcp' || d.nameSource === 'sysname' || d.nameSource === 'hostname';
+    return d.nameSource === 'dhcp' || d.nameSource === 'sysname' || d.nameSource === 'hostname' || d.nameSource === 'dns';
   }
 
   // Подсети: сначала эталонные CIDR роутера (/ip/address), остаток — по /24.
@@ -1210,6 +1256,18 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                       <input type="checkbox" checked={snmpSweep} onChange={e => setSnmpSweep(e.target.checked)} />
                       <span style={{ fontSize: 12 }}>Опросить SNMP на всех ARP-адресах (медленнее, но глубже)</span>
                     </label>
+                    {/* v0.77.0: ручной список SNMP-хостов — для коммутаторов, которых нет в LLDP/ARP */}
+                    <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <label style={S.label}>Дополнительные SNMP-хосты
+                          <input value={manualHosts} onChange={e => setManualHosts(e.target.value)}
+                            placeholder="10.0.0.2, 10.0.1.10-20, 10.0.5.0/28" style={S.input} />
+                        </label>
+                        <div style={S.hint}>
+                          IP через запятую или пробел; диапазон последнего октета (10.0.1.10-20) или CIDR до /24.
+                          {manualParsed.ips.length > 0 && ` Опросим адресов: ${manualParsed.ips.length}.`}
+                          {manualParsed.errors.length > 0 && <span style={{ color: '#b45309' }}> Не разобрано: {manualParsed.errors.join(', ')}.</span>}
+                        </div>
+                    </div>
                     {/* v0.51.20 */}
                     <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <input type="checkbox" checked={snmpRecursive} onChange={e => setSnmpRecursive(e.target.checked)} />
@@ -1267,6 +1325,13 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               <ProgressStripe width="100%" height={6} />
             </div>
             <ScanStages mode={mode} />
+            {/* v0.77.0: отмена между SNMP-запросами; что успели собрать — останется */}
+            <button style={{ ...S.btnSecondary, marginTop: 18 }} disabled={cancelling} onClick={onCancelScan}>
+              {cancelling ? 'Останавливаем…' : 'Отменить опрос'}
+            </button>
+            <div style={{ marginTop: 6, fontSize: 11, color: '#94a3b8', textAlign: 'center', maxWidth: 360 }}>
+              Отмена не прерывает уже идущий запрос — он дойдёт до таймаута. Найденное до отмены покажем.
+            </div>
           </div>
         )}
 
@@ -1497,6 +1562,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               )}
             </div>
 
+            {/* v0.77.0: опрос отменён — данные неполные */}
+            {scan!.cancelled && (
+              <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, fontSize: 12, color: '#92400e' }}>
+                Опрос отменён: показано то, что собрали до отмены. Оставшиеся устройства не опрошены — при необходимости запустите сканирование заново.
+              </section>
+            )}
             {/* v0.76.7: пошаговый обход — спрашиваем, опрашивать ли найденные ядро/распределение. */}
             {(scan!.hubCandidates ?? []).length > 0 && !hubDismissed && (
               <section style={{ margin: '0 0 12px', padding: '12px 14px', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 10 }}>

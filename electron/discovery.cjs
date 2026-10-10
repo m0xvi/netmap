@@ -37,6 +37,7 @@
 'use strict';
 
 const snmpApi = require('./snmp.cjs');
+const dns = require('dns');
 let mikrotikSsh = null;
 function getMt() { if (!mikrotikSsh) mikrotikSsh = require('./mikrotik-ssh.cjs'); return mikrotikSsh; }
 
@@ -566,6 +567,78 @@ async function collectMikrotik(cfg, opts) {
 
 // ---------- SNMP source ---------------------------------------------------
 
+
+// ---------- v0.77.0: параллельный опрос, отмена, обратный DNS -------------
+
+// Сколько SNMP-запросов одного коммутатора идут одновременно. Больше — дешёвые
+// свитчи (TP-Link/D-Link) начинают терять ответы, и выигрыш пропадает.
+const SNMP_PARALLEL = 3;
+
+// Токен текущего скана: cancelScan() ставит cancelled, опрос останавливается
+// между волнами и перед каждым хостом. Уже идущий SNMP-запрос доживает до таймаута.
+let currentScan = null;
+function isCancelled() { return !!(currentScan && currentScan.cancelled); }
+function cancelScan() {
+  if (!currentScan) return { ok: true, active: false };
+  currentScan.cancelled = true;
+  return { ok: true, active: true };
+}
+
+// Ограничитель параллельности: makeLimiter(3)(fn) -> Promise. Ошибки fn уходят в reject.
+function makeLimiter(limit) {
+  let active = 0;
+  const queue = [];
+  const pump = () => {
+    while (active < limit && queue.length) {
+      const job = queue.shift();
+      active++;
+      Promise.resolve()
+        .then(job.fn)
+        .then(job.resolve, job.reject)
+        .finally(() => { active--; pump(); });
+    }
+  };
+  return (fn) => new Promise((resolve, reject) => {
+    queue.push({ fn, resolve, reject });
+    pump();
+  });
+}
+
+// Обратный DNS (PTR) для устройств, у которых нет имени вообще (nameSource 'ip').
+// Общий дедлайн: медленный DNS не тормозит скан дольше deadlineMs.
+async function resolveReverseNames(devices, opts = {}) {
+  const timeoutMs = opts.timeoutMs || 1500;
+  const deadlineMs = opts.deadlineMs || 4000;
+  const limit = makeLimiter(opts.concurrency || 8);
+  const lookup = opts.lookup || ((ip) => dns.promises.reverse(ip));
+  const targets = (devices || []).filter(d => d.ip && d.nameSource === 'ip');
+  if (!targets.length) return 0;
+  const withTimeout = (p) => new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), timeoutMs);
+    p.then(v => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(null); });
+  });
+  let named = 0;
+  const work = Promise.all(targets.map(d => limit(async () => {
+    if (isCancelled()) return;
+    const names = await withTimeout(lookup(d.ip));
+    const raw = Array.isArray(names) && names.length ? String(names[0] || '') : '';
+    // Короткое имя: первый ярлык FQDN (sw-core.corp.local → sw-core).
+    const short = raw.replace(/\.$/, '').split('.')[0];
+    if (!short || short === d.ip || /^\d+$/.test(short)) return;
+    d.name = short;
+    d.nameSource = 'dns';
+    if (!d.kindConfident) {
+      const fp = fingerprintKind({
+        names: [short], vendor: d.vendor || '', descr: short, mac: d.mac || '', vlanName: '',
+      });
+      if (fp.confident) { d.kind = fp.kind; d.kindConfident = true; }
+    }
+    named++;
+  })));
+  await Promise.race([work, new Promise(r => setTimeout(r, deadlineMs))]);
+  return named;
+}
+
 async function collectSnmp(host, community, opts) {
   const out = {
     ok: false,
@@ -602,15 +675,43 @@ async function collectSnmp(host, community, opts) {
       out.self.kind = fpSelf.confident ? fpSelf.kind : 'switch';
     }
 
+    // v0.77.0: независимые walk запускаем заранее, параллельно (≤ SNMP_PARALLEL).
+    // Обработка ниже не меняется: ошибка всплывает там же, где раньше (await P.x).
+    const run = makeLimiter(SNMP_PARALLEL);
+    const pre = (fn) => {
+      const p = run(() => (isCancelled() ? Promise.reject(new Error('опрос отменён')) : fn()));
+      p.catch(() => {}); // ошибка обрабатывается в месте await
+      return p;
+    };
+    const walkOf = (oid) => () => snmpApi.walk(host, community, oid, scanOpts);
+    const soft = (fn) => () => fn().catch(() => []);
+    const P = {
+      ifTable:     pre(() => snmpApi.table(host, community, snmpApi.OID.ifTable, scanOpts)),
+      ifName:      pre(soft(walkOf(snmpApi.OID.ifName))),
+      lldpChassis: pre(walkOf(snmpApi.OID.lldpRemChassisId)),
+      lldpPortId:  pre(soft(walkOf(snmpApi.OID.lldpRemPortId))),
+      lldpPortDsc: pre(soft(walkOf(snmpApi.OID.lldpRemPortDesc))),
+      lldpSysName: pre(soft(walkOf(snmpApi.OID.lldpRemSysName))),
+      lldpSysDsc:  pre(soft(walkOf(snmpApi.OID.lldpRemSysDesc))),
+      lldpLocDsc:  pre(soft(walkOf(snmpApi.OID.lldpLocPortDesc))),
+      lldpManAddr: pre(soft(walkOf(snmpApi.OID.lldpRemManAddr))),
+      arp:         pre(walkOf(snmpApi.OID.ipNetToMediaPhysAddress)),
+      vlanStatic:  pre(walkOf(snmpApi.OID.dot1qVlanStaticName)),
+      vlanCur:     pre(walkOf(snmpApi.OID.dot1qVlanCurrentEgressPorts)),
+      pvid:        pre(walkOf(snmpApi.OID.dot1qPvid)),
+      basePort:    pre(soft(walkOf(snmpApi.OID.dot1dBasePortIf))),
+      qPort:       pre(walkOf(snmpApi.OID.dot1qTpFdbPort)),
+    };
+
     // Interface names
     try {
-      const ifTbl = await snmpApi.table(host, community, snmpApi.OID.ifTable, scanOpts);
+      const ifTbl = await P.ifTable;
       for (const row of ifTbl) {
         const idx = row.__index;
         out.ifNames[idx] = row['2'] || ''; // ifDescr
       }
       // Prefer ifName (IF-MIB extension)
-      const names = await snmpApi.walk(host, community, snmpApi.OID.ifName, scanOpts).catch(() => []);
+      const names = await P.ifName;
       for (const it of names) {
         const idx = it.oid.split('.').pop();
         if (it.value) out.ifNames[idx] = String(it.value);
@@ -621,14 +722,14 @@ async function collectSnmp(host, community, opts) {
 
     // LLDP remote neighbours
     try {
-      const chassis = await snmpApi.walk(host, community, snmpApi.OID.lldpRemChassisId, scanOpts);
-      const portId  = await snmpApi.walk(host, community, snmpApi.OID.lldpRemPortId,    scanOpts).catch(() => []);
-      const portDsc = await snmpApi.walk(host, community, snmpApi.OID.lldpRemPortDesc,  scanOpts).catch(() => []);
-      const sysNm   = await snmpApi.walk(host, community, snmpApi.OID.lldpRemSysName,   scanOpts).catch(() => []);
-      const sysDsc  = await snmpApi.walk(host, community, snmpApi.OID.lldpRemSysDesc,   scanOpts).catch(() => []);
+      const chassis = await P.lldpChassis;
+      const portId  = await P.lldpPortId;
+      const portDsc = await P.lldpPortDsc;
+      const sysNm   = await P.lldpSysName;
+      const sysDsc  = await P.lldpSysDsc;
       // v0.53.0: имена локальных портов из LLDP-MIB — фолбэк, когда IF-MIB
       // пуст или врёт (иначе в связях мелькает «port 0»).
-      const locDesc = await snmpApi.walk(host, community, snmpApi.OID.lldpLocPortDesc, scanOpts).catch(() => []);
+      const locDesc = await P.lldpLocDsc;
       const locDescByNum = new Map();
       {
         const rootLen = snmpApi.OID.lldpLocPortDesc.split('.').length;
@@ -645,7 +746,7 @@ async function collectSnmp(host, community, opts) {
       // т.к. coerce() превращает значение-адрес в hex-строку, а не Buffer
       // (старая проверка Buffer.isBuffer никогда не срабатывала — рекурсия
       // v0.51.20 фактически не получала топлива; теперь чиним заодно).
-      const manAddr = await snmpApi.walk(host, community, snmpApi.OID.lldpRemManAddr, scanOpts).catch(() => []);
+      const manAddr = await P.lldpManAddr;
       const mgmtByNeigh = new Map(); // "timeMark.localPort.remIdx" -> IPv4
       {
         const rootLen = snmpApi.OID.lldpRemManAddr.split('.').length;
@@ -707,7 +808,7 @@ async function collectSnmp(host, community, opts) {
     // ifIndex + 4 октета IP, значение — MAC. Даёт IP эндпоинтам из FDB,
     // иначе в чисто SNMP-режиме они все попадали бы в «без IP».
     try {
-      const arpItems = await snmpApi.walk(host, community, snmpApi.OID.ipNetToMediaPhysAddress, scanOpts);
+      const arpItems = await P.arp;
       const rootLen = snmpApi.OID.ipNetToMediaPhysAddress.split('.').length;
       for (const it of arpItems) {
         const parts = it.oid.split('.').slice(rootLen);
@@ -721,7 +822,7 @@ async function collectSnmp(host, community, opts) {
     // v0.53.0: статическая VLAN-таблица (Q-BRIDGE-MIB dot1qVlanStaticName) —
     // перечисляет ВСЕ VLAN коммутатора, даже пустые (без найденных устройств).
     try {
-      const vv = await snmpApi.walk(host, community, snmpApi.OID.dot1qVlanStaticName, scanOpts);
+      const vv = await P.vlanStatic;
       const rootLen = snmpApi.OID.dot1qVlanStaticName.split('.').length;
       for (const it of vv) {
         const id = Number(it.oid.split('.').slice(rootLen)[0]);
@@ -735,7 +836,7 @@ async function collectSnmp(host, community, opts) {
     // ловит VLAN, которых нет в статической таблице (динамические, GVRP).
     // И PVID портов: VLAN по умолчанию у access-портов тоже входит в список.
     try {
-      const cur = await snmpApi.walk(host, community, snmpApi.OID.dot1qVlanCurrentEgressPorts, scanOpts);
+      const cur = await P.vlanCur;
       for (const it of cur) {
         const id = Number(it.oid.split('.').pop());
         if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
@@ -744,7 +845,7 @@ async function collectSnmp(host, community, opts) {
       }
     } catch (e) { /* нет текущей VLAN-таблицы — не критично */ }
     try {
-      const pv = await snmpApi.walk(host, community, snmpApi.OID.dot1qPvid, scanOpts);
+      const pv = await P.pvid;
       for (const it of pv) {
         const id = Number(it.value);
         if (!Number.isInteger(id) || id < 1 || id > 4094) continue;
@@ -760,7 +861,7 @@ async function collectSnmp(host, community, opts) {
     // отдать «печатной» строкой вместо hex, если байты MAC случайно
     // все печатные (тогда запись молча терялась).
     try {
-      const basePort = await snmpApi.walk(host, community, snmpApi.OID.dot1dBasePortIf, scanOpts).catch(() => []);
+      const basePort = await P.basePort;
       const bp2if = new Map();
       for (const it of basePort) {
         const bp = it.oid.split('.').pop();
@@ -777,7 +878,7 @@ async function collectSnmp(host, community, opts) {
       };
       let usedQbridge = false;
       try {
-        const qPort = await snmpApi.walk(host, community, snmpApi.OID.dot1qTpFdbPort, scanOpts);
+        const qPort = await P.qPort;
         if (qPort.length) {
           const qStat = await snmpApi.walk(host, community, snmpApi.OID.dot1qTpFdbStatus, scanOpts).catch(() => []);
           const rootLen = snmpApi.OID.dot1qTpFdbPort.split('.').length;
@@ -1328,7 +1429,7 @@ function findUnpolledHubs({ mt, snmpResults, scannedHosts, rootHost }) {
   return Array.from(out.values());
 }
 
-async function scan(cfg) {
+async function scanInner(cfg) {
   const t0 = now();
   const doc = cfg.doc || { devices: [], links: [] };
   const rootHost = cfg.host;
@@ -1373,12 +1474,13 @@ async function scan(cfg) {
   const scannedSet = new Set();
   let frontier = Array.from(snmpHosts);
   let hopsUsed = 0;
-  for (let hop = 0; hop <= maxHops && frontier.length > 0; hop++) {
+  for (let hop = 0; hop <= maxHops && frontier.length > 0 && !isCancelled(); hop++) {
     const wave = frontier.filter(h => !scannedSet.has(h));
     frontier = [];
     if (wave.length === 0) break;
     if (hop > 0) hopsUsed = hop;
     await Promise.all(wave.map(async (h) => {
+      if (isCancelled()) return;
       scannedSet.add(h);
       const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg });
       snmpResults.push(r);
@@ -1395,6 +1497,11 @@ async function scan(cfg) {
   }
 
   const merged = makeProposal({ doc, rootHost, mt, snmpResults });
+  // v0.77.0: имена по обратному DNS — только там, где имени нет совсем.
+  let dnsNamed = 0;
+  if (cfg.reverseDns !== false) {
+    try { dnsNamed = await resolveReverseNames(merged.proposedDevices); } catch (_) { dnsNamed = 0; }
+  }
   const stats = {
     ms: now() - t0,
     neighborsFound: mt ? mt.neighbors.length : 0,
@@ -1405,6 +1512,7 @@ async function scan(cfg) {
     snmpProbed:     snmpResults.length,   // v0.54.0: всего попыток опроса (с учётом рекурсии)
     hops:           hopsUsed,
     lldpEntries:    snmpResults.reduce((n, s) => n + (s.lldp ? s.lldp.length : 0), 0),
+    dnsNamed,                               // v0.77.0: имена по обратному DNS
   };
 
   return {
@@ -1439,5 +1547,22 @@ async function scan(cfg) {
   };
 }
 
+// v0.77.0: скан с токеном отмены. Отмена — не ошибка: отдаём то, что успели собрать.
+async function scan(cfg) {
+  const token = { cancelled: false };
+  currentScan = token;
+  try {
+    const r = await scanInner(cfg);
+    if (token.cancelled && r && r.ok) {
+      r.cancelled = true;
+      r.warnings = [...(r.warnings || []),
+        'Опрос отменён: показаны данные, собранные до отмены. Неопрошенные устройства не добавлены.'];
+    }
+    return r;
+  } finally {
+    if (currentScan === token) currentScan = null;
+  }
+}
+
 // makeProposal экспортирован для модульных проверок (node -e / будущие тесты).
-module.exports = { scan, test, makeProposal, detectV3 };
+module.exports = { scan, test, makeProposal, detectV3, cancelScan, resolveReverseNames, collectSnmp, makeLimiter, SNMP_PARALLEL };

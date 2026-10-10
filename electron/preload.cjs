@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld('netmap', {
   // v0.44: auto-discovery (LLDP + FDB + ARP via SSH/SNMP → diff proposal)
   discoveryTest: (cfg) => ipcRenderer.invoke('netmap:discoveryTest', cfg),
   discoveryScan: (cfg) => ipcRenderer.invoke('netmap:discoveryScan', cfg),
+  discoveryCancel: () => ipcRenderer.invoke('netmap:discoveryCancel'),
   discoveryDetectV3: (cfg) => ipcRenderer.invoke('netmap:discoveryDetectV3', cfg),
 
   // v0.36.1: Telegram notifications

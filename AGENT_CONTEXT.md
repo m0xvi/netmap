@@ -12,7 +12,7 @@
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
 | HEAD | v0.76.7 (автообнаружение: VLAN, пошаговый обход, SSH-ключи в UI) поверх v0.76.6 (аудит). Ранее v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.76.10` (package.json), тег `v0.76.10` (см. §2) |
+| Версия | `0.77.0` (package.json), тег `v0.77.0` (см. §2) |
 | Релиз | v0.76.5 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.5.exe`, `NetMap-Portable-0.76.5.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
@@ -23,6 +23,8 @@
 Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
+**v0.77.0 (автообнаружение: параллельный SNMP, отмена, ручные хосты, память настроек, PTR, 2026-10-10)** — `electron/discovery.cjs`: `collectSnmp` запускает независимые walk через `makeLimiter(SNMP_PARALLEL=3)`; обработка не меняется, ошибки всплывают в тех же местах (`await P.x`). `scan()` — обёртка над `scanInner()` с токеном `currentScan`; `cancelScan()` (IPC `netmap:discoveryCancel`, `window.netmap.discoveryCancel`) → между волнами и перед хостом выход, результат `cancelled: true` + предупреждение. `resolveReverseNames()` — PTR только для `nameSource === 'ip'`, `cfg.reverseDns !== false`, источник имени `dns`. `DiscoveryDialog.tsx`: кнопка отмены в фазе scanning, поле ручных хостов → `snmpSeeds` (`parseHostList` в `src/discoveryPrefs.ts`), настройки и исключения в localStorage (`netmap.discovery.prefs.v1`, без секретов; `sanitizePrefs`). Тесты: мок `snmp.cjs` через `require.cache` (параллельность/отмена/сравнение со старой версией), отдельный харнесс PTR и парсера. НЕ проверено на реальном TP-Link/D-Link и в собранном UI.
 
 **v0.76.10 (автообнаружение: MAC-only, подписи по режиму, 2026-10-09)** — `DiscoveryDialog.tsx`: устройства без IP (клиенты коммутатора) выбираются, переименовываются и получают тип как обычные; фильтр «Без IP» (`showNoIp`) удалён; `macOnlyTotal` — счётчик для подсказок. Шапка и подпись экрана опроса зависят от `mode`. Store (`applyDiscovery`) и backend (`makeProposal`) не менялись: ip у устройства опционален. Правило «только с IP» снято по решению пользователя (вариант b). Открыто: OUI TP-Link/D-Link; стенд snmpsim в /tmp потерян при сбросе окружения (восстанавливать по §6 при необходимости).
 
@@ -277,6 +279,7 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
 
 ## 8. История этого файла
 
+- 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.77.0: параллельный SNMP-опрос коммутатора, отмена скана, ручные SNMP-хосты, запоминание настроек без секретов, обратный DNS для безымянных устройств.
 - 2026-10-09: сессия `arena/cbcdb62e-netmap` — v0.76.10: MAC-only устройства в автообнаружении, подписи по режиму.
 - 2026-10-09: сессия `arena/cbcdb62e-netmap` — v0.76.9: DES для SNMPv3 (desCompat), подбор протокола v3, ошибки v3, TP-Link/D-Link классификация, меню стратегий. Грабли: порт 161 без root недоступен (эмуляторы на 1161), net-snmp DES — заглушка.
 
