@@ -287,10 +287,6 @@ if (typeof window !== 'undefined') {
 export function SavedViews() {
   const filters = useStore(s => s.filters);
   const setFilters = useStore(s => s.setFilters);
-  const viewMode = useStore(s => s.viewMode);
-  const setViewMode = useStore(s => s.setViewMode);
-  const collapseEndpoints = useStore(s => s.collapseEndpoints);
-  const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
   const workspace = useStore(s => s.workspace);
   const projectId = workspace?.activeId || 'default';
   const storageKey = `netmap:saved-views:${projectId}`;
@@ -351,7 +347,9 @@ export function SavedViews() {
     setSaved(prev => prev.filter(v => v.id !== view.id));
   };
   return <>
-    <button ref={btnRef} onClick={() => setOpen(v => !v)} title="Быстрые виды, отображение и сохранённые виды карты" style={viewButton}>Виды</button>
+    <button ref={btnRef} onClick={() => setOpen(v => !v)} title="Виды карты: быстрые виды, сохранить текущий, сохранённые" style={toolIconBtn(open)}>
+      <ToolbarGlyph><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></ToolbarGlyph>
+    </button>
     {open && <PortalMenu anchorRef={btnRef} onClose={closeMenu} width={230}><div style={viewsMenu}>
       <div style={viewsTitle}>Быстрые виды</div>
       <button onClick={() => preset('overview')} style={viewItem}>Обзор</button>
@@ -359,18 +357,58 @@ export function SavedViews() {
       <button onClick={() => preset('cameras')} style={viewItem}>Только камеры</button>
       <button onClick={() => preset('new')} style={viewItem}>Только новые</button>
       <div style={viewsDivider} />
+      <button onClick={saveCurrent} style={viewItem}>Сохранить текущий вид</button>
+      {saved.length > 0 && <div style={viewsTitle}>Мои виды</div>}
+      {saved.map(view => <div key={view.id} style={savedRow}><button onClick={() => apply(view.filters, view.viewport)} style={{ ...viewItem, flex: 1 }}>{view.name}</button><button onClick={() => remove(view)} title="Удалить вид" style={deleteView}>×</button></div>)}
+    </div></PortalMenu>}
+  </>;
+}
+
+/** v0.89.0: отображение — Modern / Legacy и компактный вид endpoint-ов. Своя кнопка и иконка. */
+export function DisplayMenuButton() {
+  const viewMode = useStore(s => s.viewMode);
+  const setViewMode = useStore(s => s.setViewMode);
+  const collapseEndpoints = useStore(s => s.collapseEndpoints);
+  const toggleCollapseEndpoints = useStore(s => s.toggleCollapseEndpoints);
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  return <>
+    <button ref={btnRef} onClick={() => setOpen(v => !v)} title="Отображение: Modern / Legacy, компактный вид endpoint-ов" style={toolIconBtn(open)}>
+      <ToolbarGlyph>
+        <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+        <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+        <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
+      </ToolbarGlyph>
+    </button>
+    {open && <PortalMenu anchorRef={btnRef} onClose={closeMenu} width={230}><div style={viewsMenu}>
       <div style={viewsTitle}>Отображение</div>
       <div style={viewModeRow}>
         <button onClick={() => setViewMode('modern')} style={{ ...viewModeChoice, ...(viewMode === 'modern' ? viewModeChoiceActive : {}) }}>Modern</button>
         <button onClick={() => setViewMode('legacy')} style={{ ...viewModeChoice, ...(viewMode === 'legacy' ? viewModeChoiceActive : {}) }}>Legacy</button>
       </div>
       <button onClick={toggleCollapseEndpoints} style={viewItem}>{collapseEndpoints ? '✓ Компактный вид endpoint-ов' : 'Компактный вид endpoint-ов'}</button>
-      <div style={viewsDivider} />
-      <button onClick={saveCurrent} style={viewItem}>Сохранить текущий вид</button>
-      {saved.length > 0 && <div style={viewsTitle}>Мои виды</div>}
-      {saved.map(view => <div key={view.id} style={savedRow}><button onClick={() => apply(view.filters, view.viewport)} style={{ ...viewItem, flex: 1 }}>{view.name}</button><button onClick={() => remove(view)} title="Удалить вид" style={deleteView}>×</button></div>)}
     </div></PortalMenu>}
   </>;
+}
+
+/** Иконка 16×16 для кнопок строки инструментов (stroke = currentColor). */
+function ToolbarGlyph({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block', flexShrink: 0 }}>
+      {children}
+    </svg>
+  );
+}
+
+function toolIconBtn(active: boolean): React.CSSProperties {
+  return {
+    width: 30, height: 30, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    border: 'none', borderRadius: 6, cursor: 'pointer',
+    background: active ? '#DBEAFE' : 'transparent', color: active ? '#1D4ED8' : '#334155',
+  };
 }
 
 const viewButton: React.CSSProperties = { background: '#F8FAFC', border: '1px solid #CBD5E1', color: '#334155', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' };

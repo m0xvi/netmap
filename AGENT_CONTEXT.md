@@ -12,7 +12,7 @@
 | Стек | Electron + React 18 + Vite + XYFlow (`@xyflow/react`) + Zustand + dagre. Main-процесс — CommonJS (`electron/*.cjs`) |
 | Ветка | исторически `arena/01a0ced4-netmap` → двойник `arena/01a0da2c-netmap`; текущая сессия Arena — `arena/01a0da42-netmap` (мерж полной истории v0.63.0 + `map-variants.html` из нового `main`) |
 | HEAD | v0.76.7 (автообнаружение: VLAN, пошаговый обход, SSH-ключи в UI) поверх v0.76.6 (аудит). Ранее v0.76.5 (SNMPv3: buildV3User — USM в объекте пользователя) поверх v0.76.0 (SSH-ключи) поверх v0.75.1 (stacking/имена/SNMPv3) поверх v0.75.0 (WinBox/автообнаружение в фокусе) поверх v0.74.0 (аудит сканирования хабов) поверх v0.73.1/v0.73.0 (LOD-фейдинг + агрегация оконечных) поверх v0.72/v0.71/v0.70/v0.69/v0.68/v0.67/v0.66/v0.65/v0.64 |
-| Версия | `0.88.0` (package.json), тег `v0.88.0` (см. §2) |
+| Версия | `0.89.0` (package.json), тег `v0.89.0` (см. §2) |
 | Релиз | v0.76.5 собран в CI (release.yml, windows-latest) по тегу; артефакты: `NetMap-Setup-0.76.5.exe`, `NetMap-Portable-0.76.5.exe`, `latest.yml` |
 | Реальная схема | `Новая_схема.netmap.json` в корне `main` (124 dev/129 lnk); разбор — `docs/real-map-analysis.md` |
 | CI | `ci.yml` — проверка на каждый push; `release.yml` — сборка `.exe` **только по git-тегу** `v*` (вручную `.exe` НЕ собирать, см. HANDOFF.md §0.1) |
@@ -23,6 +23,8 @@
 Порядок: поднять `version` в `package.json` + `package-lock.json` → `tsc` + `vite build` → commit → push ветки →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z` (сборку делает Actions `release.yml`, `.exe` локально не собирать).
 Проверить `gh run list --workflow Release`; сообщить пользователю ссылки на Actions/Releases.
+
+**v0.89.0 (панель инструментов: виды и отображение — отдельные группы, 2026-10-10)** — `Toolbar.tsx`: `SavedViews` (группа «Виды карты»: быстрые виды, сохранение, список) и новый `DisplayMenuButton` (группа «Отображение»: Modern / Legacy, компактный вид); общая иконка `ToolbarGlyph` и стиль `toolIconBtn`. `ToolsStrip.tsx`: обе кнопки в строке инструментов.
 
 **v0.88.0 (панель инструментов по пометкам, 2026-10-10)** — `ToolsStrip.tsx`: убраны группы «Данные» и «Экспорт»; в строку добавлены `SavedViews` (из `Toolbar.tsx`, экспортируется) и `ExportMenu`. `PortalMenu.tsx`: выпадающее меню в body (для строки с overflow). `NewSidebar.tsx`: кнопка автообнаружения (событие `netmap:open-discovery`). `Toolbar.tsx`: «Виды» убраны из верхней строки, `VersionBadge` получил кнопку проверки обновлений. `updateCheck.ts`: общая `runUpdateCheck()` для меню «Справка» и значка версии.
 
@@ -303,6 +305,7 @@ ls node_modules/.bin/tsc >/dev/null 2>&1 || npm ci --ignore-scripts
 
 ## 8. История этого файла
 
+- 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.89.0: меню «Виды» разделено на две группы с отдельными иконками: «Виды карты» (быстрые виды, сохранение, список) и «Отображение» (Modern / Legacy, компактный вид).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.88.0: панель инструментов по пометкам (убраны дубли импорта/Traceroute/Vault из строки, автообнаружение в левой панели, «Виды» в строке инструментов, экспорт одной кнопкой с меню, проверка обновлений у значка версии).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.87.1: исправление сборки Windows (v0.87.0 не опубликован: файлы `DiscoveryWizard.tsx` и `discoveryWizard.ts` конфликтовали по регистру; модуль логики переименован в `discoveryWizardLogic.ts`).
 - 2026-10-10: сессия `arena/cbcdb62e-netmap` — v0.87.0: мастер уточнений автообнаружения (ядро, типы, имена, клиенты за аплинком, VLAN, подсети, MAC-only; ответы не применяются без кнопки; память ответов в localStorage).

@@ -27,7 +27,7 @@ import { useStore } from './store';
 import { alertDialog } from './Modal';
 import { summarizeAutoGrouping } from './smartLayout';
 import { exportPng, exportSvg, exportJson } from './exportCanvas';
-import { SavedViews } from './Toolbar';
+import { SavedViews, DisplayMenuButton } from './Toolbar';
 import { PortalMenu } from './PortalMenu';
 
 /** Иконка 16×16 в стиле feather (stroke = currentColor). Только SVG, без emoji. */
@@ -562,6 +562,7 @@ export function ToolsStrip() {
         ))}
         <Divider />
         <SavedViews />
+        <DisplayMenuButton />
         <Divider />
         <ExportMenu />
         <div style={{ flex: 1, minWidth: 8 }} />
