@@ -171,3 +171,45 @@ export function parseHostList(text: string): { ips: string[]; errors: string[] }
   if (ips.length > MAX_MANUAL_HOSTS) errors.push(`лимит ${MAX_MANUAL_HOSTS} адресов`);
   return { ips: ips.slice(0, MAX_MANUAL_HOSTS), errors: errors.slice(0, 20) };
 }
+
+// ---------- профили сети -------------------------------------------------
+// Именованные наборы несекретных настроек (хост, режим, логин, SNMP-опции, фильтры).
+// Пароли, community и ключи в профиль не попадают: их вводят заново или берут из Vault.
+// Хранятся отдельным ключом, чтобы автосохранение формы не стирало профили.
+
+export const PROFILES_KEY = 'netmap.discovery.profiles.v1';
+export const MAX_PROFILES = 20;
+export const MAX_PROFILE_NAME = 40;
+export type ProfileMap = Record<string, DiscoveryPrefs>;
+
+export function sanitizeProfiles(raw: unknown): ProfileMap {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: ProfileMap = {};
+  let count = 0;
+  for (const [name, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (count >= MAX_PROFILES) break;
+    const n = name.trim().slice(0, MAX_PROFILE_NAME);
+    if (!n) continue;
+    const { v3Protocols: _omit, ...settings } = sanitizePrefs(val);
+    out[n] = settings;
+    count++;
+  }
+  return out;
+}
+
+export function loadProfiles(): ProfileMap {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PROFILES_KEY) : null;
+    return raw ? sanitizeProfiles(JSON.parse(raw)) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveProfiles(map: ProfileMap): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(PROFILES_KEY, JSON.stringify(sanitizeProfiles(map)));
+  } catch {
+    // квота — профили не сохранятся
+  }
+}

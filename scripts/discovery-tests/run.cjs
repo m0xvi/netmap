@@ -179,6 +179,22 @@ t('сравнение: хранение снимков по корням, не �
   delete global.localStorage;
 });
 
+t('профили сети: секреты и SNMPv3-протоколы не сохраняются, лимиты соблюдаются', () => {
+  const raw = {
+    '  Офис  ': { host: '10.0.0.1', mode: 'snmp', password: 'SECRET', community: 'public', v3Protocols: { '10.0.0.1': { auth: 'sha' } }, excludedVlans: [10] },
+    '': { host: 'x' },
+  };
+  for (let i = 0; i < 30; i++) raw['P' + i] = { host: '10.0.1.' + i };
+  raw['X'.repeat(60)] = { host: '10.0.2.1' };
+  const map = prefs.sanitizeProfiles(raw);
+  assert.ok(map['Офис']);
+  assert.ok(!('password' in map['Офис']) && !('community' in map['Офис']) && !('v3Protocols' in map['Офис']));
+  assert.deepStrictEqual(map['Офис'].excludedVlans, [10]);
+  assert.ok(!('' in map));
+  assert.ok(Object.keys(map).length <= 20, 'лимит 20 профилей');
+  assert.ok(Object.keys(map).every(k => k.length <= 40));
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

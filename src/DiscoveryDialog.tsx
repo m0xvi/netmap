@@ -16,7 +16,10 @@ import { useStore } from './store';
 import type { DeviceKind } from './types';
 import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
-import { loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols } from './discoveryPrefs';
+import {
+  loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols,
+  loadProfiles, saveProfiles, sanitizePrefs, MAX_PROFILES, MAX_PROFILE_NAME, type ProfileMap, type DiscoveryPrefs,
+} from './discoveryPrefs';
 import { buildDevicesCsv, buildMarkdownReport, reportFileName } from './discoveryReport';
 import { makeSnapshot, diffSnapshots, loadSnapshot, saveSnapshot, type ScanDiff, type Snapshot, type SnapDevice } from './discoveryDiff';
 import {
@@ -423,6 +426,11 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [cancelling, setCancelling] = useState(false);
   // v0.77.0: реальный прогресс опроса (события бэкенда)
   const [progress, setProgress] = useState<ScanProgressState>(() => initialProgress());
+  // v0.77.0: именованные профили сети (несекретные настройки формы)
+  const [profiles, setProfiles] = useState<ProfileMap>(() => loadProfiles());
+  const [activeProfile, setActiveProfile] = useState<string>('');
+  const [profileName, setProfileName] = useState<string>('');
+  const [profileMsg, setProfileMsg] = useState<string>('');
   // v0.77.0: сравнение с прошлым сканом того же корня (только при полном скане)
   const [diffInfo, setDiffInfo] = useState<{ prev: Snapshot; diff: ScanDiff } | null>(null);
 
@@ -594,6 +602,66 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       setPhase('form');
       await alertDialog('Не удалось выполнить сканирование', e?.message || String(e));
     }
+  }
+
+  /** v0.77.0: текущие несекретные настройки формы — для профиля. */
+  function currentSettings(): DiscoveryPrefs {
+    return sanitizePrefs({
+      mode, host, port, username, snmpVersion, v3User, v3Level, v3AuthProto, v3PrivProto,
+      snmpSweep, snmpRecursive, snmpMaxHops, manualHosts,
+      excludedCidrs: Array.from(excludedCidrs), excludedVlans: Array.from(excludedVlans),
+    });
+  }
+
+  /** v0.77.0: применить профиль: поля формы заполняются, пароли остаются пустыми. */
+  function applyProfile(name: string) {
+    const s = profiles[name];
+    if (!s) return;
+    setActiveProfile(name);
+    if (s.mode) setMode(s.mode);
+    if (s.host) setHost(s.host);
+    if (s.port) setPort(s.port);
+    if (s.username != null) setUsername(s.username);
+    if (s.snmpVersion) setSnmpVersion(s.snmpVersion);
+    if (s.v3User != null) setV3User(s.v3User);
+    if (s.v3Level) setV3Level(s.v3Level);
+    if (s.v3AuthProto) setV3AuthProto(s.v3AuthProto);
+    if (s.v3PrivProto) setV3PrivProto(s.v3PrivProto);
+    if (s.snmpSweep != null) setSnmpSweep(s.snmpSweep);
+    if (s.snmpRecursive != null) setSnmpRecursive(s.snmpRecursive);
+    if (s.snmpMaxHops) setSnmpMaxHops(s.snmpMaxHops);
+    if (s.manualHosts != null) setManualHosts(s.manualHosts);
+    setExcludedCidrs(new Set(s.excludedCidrs ?? []));
+    setExcludedVlans(new Set(s.excludedVlans ?? []));
+    setProfileMsg(`Профиль «${name}» применён. Пароли и ключи введите заново или возьмите из Vault.`);
+  }
+
+  /** v0.77.0: сохранить текущие настройки как профиль (перезапись того же имени — без подтверждения, с сообщением). */
+  function saveCurrentProfile() {
+    const name = profileName.trim().slice(0, MAX_PROFILE_NAME);
+    if (!name) { setProfileMsg('Введите имя профиля.'); return; }
+    const exists = Object.prototype.hasOwnProperty.call(profiles, name);
+    if (!exists && Object.keys(profiles).length >= MAX_PROFILES) {
+      setProfileMsg(`Можно сохранить не больше ${MAX_PROFILES} профилей. Удалите лишние.`);
+      return;
+    }
+    const next = { ...profiles, [name]: currentSettings() };
+    setProfiles(next);
+    saveProfiles(next);
+    setActiveProfile(name);
+    setProfileName('');
+    setProfileMsg(exists ? `Профиль «${name}» обновлён.` : `Профиль «${name}» сохранён.`);
+  }
+
+  /** v0.77.0: удалить выбранный профиль. */
+  function deleteActiveProfile() {
+    if (!activeProfile || !profiles[activeProfile]) return;
+    const next = { ...profiles };
+    delete next[activeProfile];
+    setProfiles(next);
+    saveProfiles(next);
+    setProfileMsg(`Профиль «${activeProfile}» удалён.`);
+    setActiveProfile('');
   }
 
   /** v0.77.0: экспорт результата в CSV (устройства) или Markdown (полный отчёт). */
@@ -1143,6 +1211,26 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
         {/* ============ FORM ============ */}
         {(phase === 'form' || phase === 'testing') && (
           <div style={S.body}>
+            {/* v0.77.0: профили сети — выбрать, применить, сохранить, удалить */}
+            <div style={{ ...S.section, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={S.sectionTitle}>Профиль сети</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select value={activeProfile} onChange={e => { if (e.target.value) applyProfile(e.target.value); else setActiveProfile(''); }}
+                  style={{ ...S.input, minWidth: 180 }}>
+                  <option value="">— без профиля —</option>
+                  {Object.keys(profiles).sort().map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <button style={S.btnSecondary} disabled={!activeProfile} onClick={deleteActiveProfile}>Удалить</button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input value={profileName} onChange={e => setProfileName(e.target.value)} maxLength={MAX_PROFILE_NAME}
+                  placeholder="Имя профиля, например «Офис»" style={{ ...S.input, minWidth: 200 }} />
+                <button style={S.btnSecondary} onClick={saveCurrentProfile}>Сохранить текущие настройки</button>
+              </div>
+              {profileMsg && <div style={{ fontSize: 12, color: '#334155' }}>{profileMsg}</div>}
+              <div style={S.hint}>В профиль сохраняются адрес, режим, логин, SNMP-опции и фильтры. Пароли, community и SSH/SNMPv3-ключи — нет.</div>
+            </div>
+
             <div style={S.section}>
               <div style={S.sectionTitle}>Источник данных</div>
               <div style={S.segRow}>
