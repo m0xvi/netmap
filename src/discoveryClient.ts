@@ -1,3 +1,4 @@
+import type { DiscoveryProgressEvent } from './discoveryProgress';
 /**
  * v0.44.0 — Renderer-side facade for the auto-discovery backend.
  * All heavy lifting (SSH/SNMP) happens in electron/discovery.cjs.
@@ -154,6 +155,13 @@ export async function discoveryTest(cfg: DiscoveryConfig): Promise<DiscoveryTest
     };
   }
   return (window as any).netmap.discoveryTest(cfg);
+}
+
+/** v0.77.0: подписка на события прогресса скана. Возвращает функцию отписки. */
+export function onDiscoveryProgress(cb: (p: DiscoveryProgressEvent) => void): () => void {
+  const api = (typeof window !== 'undefined' ? (window as any).netmap : null);
+  if (!api || typeof api.onDiscoveryProgress !== 'function') return () => {};
+  return api.onDiscoveryProgress(cb);
 }
 
 /** v0.77.0: отмена текущего скана. Частичный результат придёт из discoveryScan с cancelled=true. */

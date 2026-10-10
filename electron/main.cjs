@@ -261,7 +261,10 @@ function registerIpc() {
 
   // ---- v0.44: auto-discovery (LLDP+FDB+ARP → diff proposal) ----
   ipcMain.handle('netmap:discoveryTest', safeInvoke((_e, cfg) => getDiscovery().test(cfg)));
-  ipcMain.handle('netmap:discoveryScan', safeInvoke((_e, cfg) => getDiscovery().scan(cfg)));
+  // v0.77.0: прогресс опроса уходит в окно, которое запустило скан
+  ipcMain.handle('netmap:discoveryScan', safeInvoke((e, cfg) => getDiscovery().scan(cfg, (p) => {
+    try { if (e && e.sender && !e.sender.isDestroyed()) e.sender.send('netmap:discoveryProgress', p); } catch (_) { /* окно закрыто */ }
+  })));
   // v0.77.0: отмена текущего скана (между SNMP-запросами; частичный результат сохраняется)
   ipcMain.handle('netmap:discoveryCancel', safeInvoke(() => getDiscovery().cancelScan()));
   // v0.76.9: подбор протокола SNMPv3 (auth/priv) по форме

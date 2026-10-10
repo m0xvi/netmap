@@ -702,6 +702,20 @@ async function collectSnmp(host, community, opts) {
       basePort:    pre(soft(walkOf(snmpApi.OID.dot1dBasePortIf))),
       qPort:       pre(walkOf(snmpApi.OID.dot1qTpFdbPort)),
     };
+    // v0.77.0: прогресс по готовым walk (для экрана опроса), без влияния на результат.
+    {
+      const walkTotal = Object.keys(P).length;
+      let walksDone = 0;
+      for (const [k, pr] of Object.entries(P)) {
+        const tick = () => {
+          walksDone++;
+          if (opts && typeof opts.onStep === 'function') {
+            try { opts.onStep({ step: k, done: walksDone, total: walkTotal }); } catch (_) { /* UI-событие */ }
+          }
+        };
+        pr.then(tick, tick);
+      }
+    }
 
     // Interface names
     try {
@@ -1429,7 +1443,7 @@ function findUnpolledHubs({ mt, snmpResults, scannedHosts, rootHost }) {
   return Array.from(out.values());
 }
 
-async function scanInner(cfg) {
+async function scanInner(cfg, emit = () => {}) {
   const t0 = now();
   const doc = cfg.doc || { devices: [], links: [] };
   const rootHost = cfg.host;
@@ -1438,6 +1452,7 @@ async function scanInner(cfg) {
   const snmpResults = [];
 
   if (cfg.mode === 'mikrotik' || cfg.mode === 'both') {
+    emit({ phase: 'mikrotik', state: 'start' });
     mt = await collectMikrotik({
       host: rootHost,
       port: cfg.port || 22,
@@ -1449,6 +1464,7 @@ async function scanInner(cfg) {
       passphrase: cfg.sshPassphrase || cfg.passphrase,
     }, { timeout: cfg.sshTimeout || 8000 });
     warnings.push(...(mt.warnings || []));
+    emit({ phase: 'mikrotik', state: 'done' });
   }
 
   const snmpHosts = new Set();
@@ -1479,10 +1495,14 @@ async function scanInner(cfg) {
     frontier = [];
     if (wave.length === 0) break;
     if (hop > 0) hopsUsed = hop;
+    emit({ phase: 'wave', hop, queued: wave.length });
     await Promise.all(wave.map(async (h) => {
       if (isCancelled()) return;
       scannedSet.add(h);
-      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg });
+      emit({ phase: 'host', host: h, state: 'start' });
+      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg,
+        onStep: (s) => emit({ phase: 'walk', host: h, ...s }) });
+      emit({ phase: 'host', host: h, state: 'done', ok: !!r.ok });
       snmpResults.push(r);
       if (r.warnings && r.warnings.length) warnings.push(`[${h}] ` + r.warnings.join('; '));
       if (recursive && hop < maxHops) {
@@ -1500,7 +1520,9 @@ async function scanInner(cfg) {
   // v0.77.0: имена по обратному DNS — только там, где имени нет совсем.
   let dnsNamed = 0;
   if (cfg.reverseDns !== false) {
+    emit({ phase: 'dns', state: 'start' });
     try { dnsNamed = await resolveReverseNames(merged.proposedDevices); } catch (_) { dnsNamed = 0; }
+    emit({ phase: 'dns', state: 'done' });
   }
   const stats = {
     ms: now() - t0,
@@ -1548,11 +1570,16 @@ async function scanInner(cfg) {
 }
 
 // v0.77.0: скан с токеном отмены. Отмена — не ошибка: отдаём то, что успели собрать.
-async function scan(cfg) {
+async function scan(cfg, onProgress) {
   const token = { cancelled: false };
   currentScan = token;
+  // v0.77.0: события прогресса в окно; ошибка UI не должна ронять скан.
+  const emit = (p) => {
+    if (typeof onProgress !== 'function') return;
+    try { onProgress({ ...p, at: now() }); } catch (_) { /* окно закрыто */ }
+  };
   try {
-    const r = await scanInner(cfg);
+    const r = await scanInner(cfg, emit);
     if (token.cancelled && r && r.ok) {
       r.cancelled = true;
       r.warnings = [...(r.warnings || []),

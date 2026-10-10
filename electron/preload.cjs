@@ -95,6 +95,12 @@ contextBridge.exposeInMainWorld('netmap', {
   discoveryTest: (cfg) => ipcRenderer.invoke('netmap:discoveryTest', cfg),
   discoveryScan: (cfg) => ipcRenderer.invoke('netmap:discoveryScan', cfg),
   discoveryCancel: () => ipcRenderer.invoke('netmap:discoveryCancel'),
+  // v0.77.0: подписка на прогресс скана; возвращает функцию отписки
+  onDiscoveryProgress: (cb) => {
+    const h = (_e, p) => cb(p);
+    ipcRenderer.on('netmap:discoveryProgress', h);
+    return () => ipcRenderer.removeListener('netmap:discoveryProgress', h);
+  },
   discoveryDetectV3: (cfg) => ipcRenderer.invoke('netmap:discoveryDetectV3', cfg),
 
   // v0.36.1: Telegram notifications

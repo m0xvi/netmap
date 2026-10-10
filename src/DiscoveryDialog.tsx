@@ -18,7 +18,11 @@ import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
 import { loadDiscoveryPrefs, saveDiscoveryPrefs, parseHostList, type V3Protocols } from './discoveryPrefs';
 import {
-  discoveryScan, discoveryTest, discoveryDetectV3, discoveryCancel,
+  reduceProgress, initialProgress, summarizeProgress,
+  type ScanProgressState, type HostStatus,
+} from './discoveryProgress';
+import {
+  discoveryScan, discoveryTest, discoveryDetectV3, discoveryCancel, onDiscoveryProgress,
   type DiscoveryConfig, type DiscoveryScanResult,
   type DiscoveryDeviceProposal, type DiscoveryLinkProposal,
   type DiscoveryNameSource,
@@ -415,6 +419,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   // v0.77.0: подобранный SNMPv3-протокол по адресу хоста (без ключей).
   const [v3Protocols, setV3Protocols] = useState<Record<string, V3Protocols>>(prefs0.v3Protocols ?? {});
   const [cancelling, setCancelling] = useState(false);
+  // v0.77.0: реальный прогресс опроса (события бэкенда)
+  const [progress, setProgress] = useState<ScanProgressState>(() => initialProgress());
 
   // --- scan state --------------------------------------------------------
   const [phase, setPhase] = useState<Phase>('form');
@@ -545,7 +551,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     setScan(null);
     setCancelling(false);
     try {
-      const r = await discoveryScan({ ...currentCfg, doc });
+      const stopTrack = trackProgress();
+      let r: DiscoveryScanResult;
+      try { r = await discoveryScan({ ...currentCfg, doc }); } finally { stopTrack(); }
       // v0.76.1: результат ошибки ({ok:false,error}) НЕ должен попадать в
       // scan — мемо review-фазы итерируют proposedDevices и падали
       // («T.proposedDevices is not iterable», отчёт 2026-10-08).
@@ -575,6 +583,12 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     }
   }
 
+  /** v0.77.0: подписка на прогресс на время одного скана. */
+  function trackProgress(): () => void {
+    setProgress(initialProgress());
+    return onDiscoveryProgress(ev => setProgress(p => reduceProgress(p, ev)));
+  }
+
   /** v0.77.0: отмена опроса. Скан сам вернёт частичный результат — дальше обычный просмотр. */
   async function onCancelScan() {
     setCancelling(true);
@@ -595,7 +609,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     setPhase('scanning');
     setCancelling(false);
     try {
-      const r = await discoveryScan({ ...currentCfg, snmpRecursive: false, snmpSeeds: seeds, doc });
+      const stopTrack = trackProgress();
+      let r: DiscoveryScanResult;
+      try { r = await discoveryScan({ ...currentCfg, snmpRecursive: false, snmpSeeds: seeds, doc }); } finally { stopTrack(); }
       if (!r || r.ok === false || !Array.isArray((r as any).proposedDevices)) {
         setPhase('review');
         await alertDialog('Автообнаружение', 'Опрос не вернул результат: ' + ((r as any)?.error || 'неизвестная ошибка'));
@@ -1324,7 +1340,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
             <div style={{ marginTop: 20, width: 240 }}>
               <ProgressStripe width="100%" height={6} />
             </div>
-            <ScanStages mode={mode} />
+            <ScanProgressView mode={mode} progress={progress} />
             {/* v0.77.0: отмена между SNMP-запросами; что успели собрать — останется */}
             <button style={{ ...S.btnSecondary, marginTop: 18 }} disabled={cancelling} onClick={onCancelScan}>
               {cancelling ? 'Останавливаем…' : 'Отменить опрос'}
@@ -1902,63 +1918,57 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 /**
- * v0.44.2 — animated "what we're doing right now" checklist during scanning.
- * Purely cosmetic — cycles through steps to give the user a sense of progress
- * for the ~5-30s SSH+SNMP walk.
+ * v0.77.0: экран опроса по реальным событиям бэкенда (раньше — таймерная анимация).
+ * Показывает прогресс по хостам и по walk, текущий шаг и статус MikroTik/DNS.
  */
-function ScanStages({ mode }: { mode: 'mikrotik' | 'snmp' | 'both' }) {
-  const [step, setStep] = useState(0);
-  const stages = useMemo(() => {
-    const arr: string[] = [];
-    if (mode !== 'snmp') {
-      arr.push('SSH подключение к MikroTik…');
-      arr.push('Читаем /ip neighbor (LLDP)…');
-      arr.push('Читаем /interface bridge host (FDB)…');
-      arr.push('Читаем /ip arp…');
-      arr.push('Читаем DHCP leases (имена)…');
-      arr.push('Читаем /ip address и VLAN…');
-    }
-    if (mode !== 'mikrotik') {
-      arr.push('SNMP probe (sysDescr, sysName)…');
-      arr.push('SNMP walk IF-MIB (интерфейсы)…');
-      arr.push('SNMP walk LLDP-MIB (соседи)…');
-      arr.push('SNMP walk BRIDGE-MIB (FDB + VLAN)…');
-      arr.push('SNMP walk IP-MIB (ARP)…');
-    }
-    arr.push('Сшиваем данные, ищем дубликаты…');
-    return arr;
-  }, [mode]);
-
-  useEffect(() => {
-    setStep(0);
-    const t = setInterval(() => setStep(s => Math.min(s + 1, stages.length - 1)), 900);
-    return () => clearInterval(t);
-  }, [stages.length]);
-
+function ScanProgressView({ mode, progress }: { mode: 'mikrotik' | 'snmp' | 'both'; progress: ScanProgressState }) {
+  const sum = summarizeProgress(progress);
+  const rows = progress.order.map(h => progress.hosts[h]).filter(Boolean);
+  const icon: Record<HostStatus, string> = { queued: '·', running: '▶', ok: '✓', fail: '✗' };
+  const color: Record<HostStatus, string> = { queued: '#94a3b8', running: '#2563EB', ok: '#16a34a', fail: '#b45309' };
+  const mtText = progress.mikrotik === 'done' ? 'готово' : progress.mikrotik === 'running' ? 'опрос…' : 'ожидание';
   return (
-    <div style={{ marginTop: 22, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {stages.map((s, i) => (
-        <div key={i} style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          fontSize: 11, color: i > step ? '#CBD5E1' : (i === step ? '#2563EB' : '#334155'),
-          fontWeight: i === step ? 600 : 400,
-          animation: i === step ? 'nm-pulse 1.4s ease-in-out infinite' : undefined,
-        }}>
-          <span style={{
-            width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: i < step ? '#22C55E' : (i === step ? '#EFF6FF' : '#F1F5F9'),
-            border: i === step ? '1.5px solid #2563EB' : 'none',
-          }}>
-            {i < step && (
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4">
-                <path d="M4 12l6 6L20 6" />
-              </svg>
-            )}
-          </span>
-          <span>{s}</span>
+    <div style={{ marginTop: 18, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {sum.percent != null ? (
+        <div style={{ height: 6, borderRadius: 3, background: '#e2e8f0', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${sum.percent}%`, background: '#2563EB', transition: 'width .3s ease' }} />
         </div>
-      ))}
+      ) : (
+        <ProgressStripe width="100%" height={6} />
+      )}
+      <div style={{ fontSize: 12, color: '#334155', textAlign: 'center' }}>
+        {sum.percent != null ? `${sum.percent}% · ` : ''}
+        опрошено {sum.hostsDone} из {sum.hostsTotal}
+        {sum.hostsFailed > 0 ? `, не ответили: ${sum.hostsFailed}` : ''}
+        {sum.hostsTotal === 0 && mode !== 'snmp' ? 'сначала MikroTik по SSH' : ''}
+      </div>
+      {progress.lastStep && (
+        <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {progress.lastStep}
+        </div>
+      )}
+      {mode !== 'snmp' && (
+        <div style={{ fontSize: 12, color: '#334155' }}>MikroTik (SSH): {mtText}</div>
+      )}
+      {progress.dns !== 'idle' && (
+        <div style={{ fontSize: 12, color: '#334155' }}>Обратный DNS: {progress.dns === 'done' ? 'готово' : 'проверяем имена…'}</div>
+      )}
+      {rows.length > 0 && (
+        <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {rows.map(r => (
+            <div key={r.host} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <span style={{ width: 14, textAlign: 'center', fontWeight: 700, color: color[r.status] }}>{icon[r.status]}</span>
+              <span style={{ fontFamily: 'monospace', minWidth: 110 }}>{r.host}</span>
+              <span style={{ color: '#64748b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {r.status === 'queued' && 'в очереди'}
+                {r.status === 'running' && (r.step ? `${r.step} (${r.walkDone}/${r.walkTotal})` : 'опрашиваем…')}
+                {r.status === 'ok' && `готово (${r.walkDone}/${r.walkTotal})`}
+                {r.status === 'fail' && 'не ответил по SNMP'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
