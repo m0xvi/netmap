@@ -139,6 +139,15 @@ t('отчёт Markdown: связи с именами, экранирование
   assert.ok(md.includes('Найдено устройств: 2'));
 });
 
+t('отчёт Markdown: сегменты VLAN с подсетями, коммутаторами и клиентами', () => {
+  const scan = { ok: true, rootHost: '10.0.0.1', source: 'snmp', proposedDevices: [], proposedLinks: [],
+    vlans: [{ id: 10, name: 'Office' }],
+    segments: [{ vlan: 10, name: 'Office', subnets: ['10.10.0.0/24'], switches: ['SW-A'], endpoints: 3 }] };
+  const md = rep.buildMarkdownReport(scan, { when: new Date(2026, 9, 10, 15, 30) });
+  assert.ok(md.includes('## Сегменты VLAN'));
+  assert.ok(md.includes('- VLAN 10 — Office: подсети: 10.10.0.0/24; коммутаторы: SW-A; клиентов: 3'));
+});
+
 t('имя файла отчёта', () => {
   assert.strictEqual(rep.reportFileName('csv', new Date(2026, 9, 10, 5, 7)), 'netmap-discovery-2026-10-10-0507.csv');
 });

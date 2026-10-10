@@ -119,6 +119,19 @@ export function buildMarkdownReport(scan: DiscoveryScanResult, dec: ReportDecisi
   }
   out.push('');
 
+  if ((scan.segments || []).length) {
+    out.push('## Сегменты VLAN');
+    out.push('');
+    for (const g of scan.segments || []) {
+      const parts = [
+        `подсети: ${g.subnets.length ? g.subnets.join(', ') : 'нет данных'}`,
+        `коммутаторы: ${g.switches.length ? g.switches.join(', ') : 'нет данных'}`,
+        `клиентов: ${g.endpoints}`,
+      ];
+      out.push(`- VLAN ${g.vlan}${g.name ? ` — ${g.name}` : ''}: ${parts.join('; ')}`);
+    }
+    out.push('');
+  }
   if ((scan.vlans || []).length) {
     out.push('## VLAN');
     out.push('');

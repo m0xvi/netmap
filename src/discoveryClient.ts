@@ -105,6 +105,8 @@ export interface DiscoveryScanResult {
   // v0.52.0: справочники для фильтров (подсети из /ip/address, VLAN с именами)
   subnets?: Array<{ cidr: string; interface?: string; comment?: string }>;
   vlans?: Array<{ id: number; name?: string }>;
+  /** v0.85.0: сегменты VLAN — подсети, коммутаторы и число клиентов на каждом VLAN. */
+  segments?: Array<{ vlan: number; name?: string; subnets: string[]; switches: string[]; endpoints: number }>;
   warnings?: string[];
   stats?: {
     ms?: number;
