@@ -23,6 +23,7 @@ import { planHintRepairs } from './topoRepair';
 import { MikrotikImportDialog } from './MikrotikImportDialog';
 import { ImportDialog } from './ImportDialog';
 import { DiscoveryDialog } from './DiscoveryDialog';
+import { runUpdateCheck } from './updateCheck';
 import { BackupsDialog } from './BackupsDialog';
 import { AuditHubsDialog } from './AuditHubsDialog';
 import type { ImportVendor } from './importClient';
@@ -449,21 +450,7 @@ function HelpMenu({ onClose }: { onClose: () => void }) {
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'help' } })); }} />
       <Separator />
       <Item label="Проверить обновления…" shortcut=""
-            onClick={async () => {
-              onClose();
-              try {
-                const { checkForUpdatesNow } = await import('./updaterClient');
-                const r = await checkForUpdatesNow();
-                if (r && (r as any).disabled) {
-                  useStore.getState().pushAlert({
-                    severity: 'info', origin: 'app', title: 'Обновления',
-                    message: 'Auto-updater недоступен (dev-режим).',
-                  });
-                }
-              } catch (e: any) {
-                useStore.getState().pushAlert({ severity: 'warn', origin: 'app', title: 'Проверка обновлений', message: e?.message || String(e) });
-              }
-            }} />
+            onClick={() => { onClose(); void runUpdateCheck(); }} />
       <Item label="Настройки…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings' } })); }} />
       <Separator />

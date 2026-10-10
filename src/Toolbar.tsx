@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useStore, type FilterState } from './store';
 import { ProjectMenu } from './FileMenu';
 import { SettingsDialogHost } from './SettingsDialog';
 import { promptText, confirmDialog } from './Modal';
+import { PortalMenu } from './PortalMenu';
+import { runUpdateCheck } from './updateCheck';
 
 /**
  * v0.35.7 top toolbar redesign:
@@ -195,8 +197,6 @@ export function Toolbar() {
         )}
       </div>
 
-      <SavedViews />
-
       {/* v0.36.1: right cluster stripped to essentials. FocusRelated / Help
           moved into AppMenu (☰). Only Notifications stay here — visibility
           + unread badge are critical enough to keep at the top level. */}
@@ -219,6 +219,7 @@ export function Toolbar() {
  */
 function VersionBadge() {
   return (
+    <>
     <button
       onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-dialog', { detail: { name: 'settings', tab: 'about' } }))}
       title={`NetMap v${__APP_VERSION__}\nСборка: ${__APP_BUILD_TIME__}\nКлик — открыть «О программе»`}
@@ -237,6 +238,16 @@ function VersionBadge() {
       </svg>
       v{__APP_VERSION__}
     </button>
+    {/* v0.88.0: та же проверка, что в меню «Справка» */}
+    <button
+      onClick={() => { void runUpdateCheck(); }}
+      title="Проверить обновления"
+      style={{
+        marginLeft: 4, padding: '3px 7px', background: '#fff', border: '1px solid #C7D2FE',
+        borderRadius: 6, color: '#4338CA', fontSize: 12, fontWeight: 700, cursor: 'pointer', lineHeight: 1,
+      }}
+    >↻</button>
+    </>
   );
 }
 
@@ -263,7 +274,17 @@ function restoreViewFilters(raw: any): FilterState {
   return { hiddenKinds: new Set(raw.hiddenKinds || []), hiddenCables: new Set(raw.hiddenCables || []), poeOnly: !!raw.poeOnly, tag: raw.tag ?? null, vlan: raw.vlan ?? null, hiddenLayers: new Set(raw.hiddenLayers || []) };
 }
 
-function SavedViews() {
+// v0.88.0: последний viewport карты — переживает размонтирование меню «Виды».
+let lastKnownViewport: SavedViewport = { x: 0, y: 0, zoom: 1 };
+if (typeof window !== 'undefined') {
+  window.addEventListener('netmap:viewport-changed', (e: Event) => {
+    const v = (e as CustomEvent<SavedViewport>).detail;
+    if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.zoom)) lastKnownViewport = v;
+  });
+}
+
+/** v0.88.0: экспортируется для строки инструментов (ToolsStrip). */
+export function SavedViews() {
   const filters = useStore(s => s.filters);
   const setFilters = useStore(s => s.setFilters);
   const viewMode = useStore(s => s.viewMode);
@@ -274,7 +295,10 @@ function SavedViews() {
   const projectId = workspace?.activeId || 'default';
   const storageKey = `netmap:saved-views:${projectId}`;
   const [open, setOpen] = useState(false);
-  const [viewport, setViewport] = useState<SavedViewport>({ x: 0, y: 0, zoom: 1 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  // v0.88.0: меню переживает сворачивание строки инструментов — берём последний известный viewport
+  const [viewport, setViewport] = useState<SavedViewport>(lastKnownViewport);
   const [saved, setSaved] = useState<SavedView[]>(() => {
     try {
       return (JSON.parse(localStorage.getItem(storageKey) || '[]') as any[]).map(v => ({ ...v, filters: restoreViewFilters(v.filters) }));
@@ -326,9 +350,9 @@ function SavedViews() {
     if (!await confirmDialog('Удалить сохранённый вид?', `Вид «${view.name}» будет удалён с этого компьютера.`, { danger: true, okText: 'Удалить' })) return;
     setSaved(prev => prev.filter(v => v.id !== view.id));
   };
-  return <div style={{ position: 'relative' }}>
-    <button onClick={() => setOpen(v => !v)} title="Сохранённые виды карты" style={viewButton}>Виды</button>
-    {open && <div style={viewsMenu}>
+  return <>
+    <button ref={btnRef} onClick={() => setOpen(v => !v)} title="Быстрые виды, отображение и сохранённые виды карты" style={viewButton}>Виды</button>
+    {open && <PortalMenu anchorRef={btnRef} onClose={closeMenu} width={230}><div style={viewsMenu}>
       <div style={viewsTitle}>Быстрые виды</div>
       <button onClick={() => preset('overview')} style={viewItem}>Обзор</button>
       <button onClick={() => preset('infrastructure')} style={viewItem}>Только инфраструктура</button>
@@ -345,12 +369,12 @@ function SavedViews() {
       <button onClick={saveCurrent} style={viewItem}>Сохранить текущий вид</button>
       {saved.length > 0 && <div style={viewsTitle}>Мои виды</div>}
       {saved.map(view => <div key={view.id} style={savedRow}><button onClick={() => apply(view.filters, view.viewport)} style={{ ...viewItem, flex: 1 }}>{view.name}</button><button onClick={() => remove(view)} title="Удалить вид" style={deleteView}>×</button></div>)}
-    </div>}
-  </div>;
+    </div></PortalMenu>}
+  </>;
 }
 
 const viewButton: React.CSSProperties = { background: '#F8FAFC', border: '1px solid #CBD5E1', color: '#334155', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' };
-const viewsMenu: React.CSSProperties = { position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100, minWidth: 230, padding: 6, background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 8, boxShadow: '0 12px 28px rgba(15,23,42,.16)' };
+const viewsMenu: React.CSSProperties = { minWidth: 230 };
 const viewsTitle: React.CSSProperties = { padding: '5px 8px', fontSize: 9, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4 };
 const viewItem: React.CSSProperties = { display: 'block', width: '100%', background: 'transparent', border: 0, color: '#1E293B', padding: '7px 8px', borderRadius: 5, textAlign: 'left', cursor: 'pointer', fontSize: 11 };
 const viewModeRow: React.CSSProperties = { display: 'flex', gap: 4, padding: '0 4px 4px' };

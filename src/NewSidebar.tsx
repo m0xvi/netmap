@@ -87,6 +87,12 @@ export function NewSidebar() {
         {/* v0.43.6: separate "Импорт с оборудования" button — opens the
             unified vendor import dialog (MikroTik / UniFi / Omada / …).
             Doesn't switch panel — it's an action, not navigation. */}
+        {/* v0.88.0: автообнаружение — здесь, а не в строке инструментов. Событие то же, что у меню «Инструменты». */}
+        <ActBtn
+          icon={<DiscoveryIcon />} label="Автообнаружение устройств"
+          active={false}
+          onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-discovery'))}
+        />
         <ActBtn
           icon={<ImportIcon />} label="Импорт с оборудования"
           active={false}
@@ -255,6 +261,14 @@ function VaultIcon() { return (
   </svg>
 );}
 // v0.43.6 — download-arrow icon for "Import from equipment".
+/** v0.88.0: лупа — автообнаружение (перенесено из строки инструментов). */
+function DiscoveryIcon() { return (
+  <svg {...iconProps}>
+    <circle cx="11" cy="11" r="7"/>
+    <line x1="21" y1="21" x2="16.5" y2="16.5"/>
+  </svg>
+); }
+
 function ImportIcon() { return (
   <svg {...iconProps}>
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>

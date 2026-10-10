@@ -4,8 +4,10 @@
  * Закреплена сверху (под Toolbar, на всю ширину окна) и собирает в одном
  * месте все инструменты, которыми можно пользоваться на карте:
  *   История (отмена/повтор) · Карта (fit, нож, связи) · Раскладка
- *   (умная, сверху-вниз, развернуть/свернуть свитчи) · Данные (discovery,
- *   импорты, traceroute, Vault) · Экспорт (PNG/SVG/JSON).
+ *   (умная, сверху-вниз, развернуть/свернуть свитчи) · Виды · Экспорт (меню PNG/SVG/JSON).
+ *
+ *   v0.88.0: импорты, traceroute, Vault и автообнаружение убраны из строки:
+ *   автообнаружение — в левой панели, остальное — в меню «Инструменты».
  *
  * Обработчики — те же самые действия, что в меню Tools/Вид
  * (те же store-функции и window-события), дублирования логики нет.
@@ -20,11 +22,13 @@
  * (toolsStripOpen) и переживает перезапуск через localStorage.
  */
 
-import { Fragment, useEffect, useRef, useState, type RefObject } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useStore } from './store';
 import { alertDialog } from './Modal';
 import { summarizeAutoGrouping } from './smartLayout';
 import { exportPng, exportSvg, exportJson } from './exportCanvas';
+import { SavedViews } from './Toolbar';
+import { PortalMenu } from './PortalMenu';
 
 /** Иконка 16×16 в стиле feather (stroke = currentColor). Только SVG, без emoji. */
 function TIcon({ children }: { children: React.ReactNode }) {
@@ -99,6 +103,57 @@ interface ToolDef {
   active?: boolean;
   /** Красная подсветка вместо синей (нож включён). */
   dangerActive?: boolean;
+}
+
+/** v0.88.0: PNG / SVG / JSON — одна кнопка с меню вместо трёх. */
+function ExportMenu() {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  const fail = (e: unknown) => { void alertDialog('Ошибка экспорта', String((e as Error)?.message || e)); };
+  const items: Array<{ id: string; label: string; icon: React.ReactNode; run: () => void }> = [
+    { id: 'png', label: 'PNG — картинка', icon: P.png,
+      run: () => { exportPng(useStore.getState().doc.name).catch(fail); } },
+    { id: 'svg', label: 'SVG — векторная схема', icon: P.svg,
+      run: () => { exportSvg(useStore.getState().doc.name).catch(fail); } },
+    { id: 'json', label: 'JSON — данные проекта', icon: P.json,
+      run: () => exportJson(useStore.getState().doc.name) },
+  ];
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        title="Экспорт схемы: PNG, SVG, JSON"
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: 42, height: 30, flexShrink: 0, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', gap: 2, border: 'none', borderRadius: 6, cursor: 'pointer',
+          background: open ? '#DBEAFE' : 'transparent', color: open ? '#1D4ED8' : '#334155',
+        }}
+      >
+        <TIcon>{P.png}</TIcon>
+        <TIcon>{P.chevDown}</TIcon>
+      </button>
+      {open && (
+        <PortalMenu anchorRef={anchorRef} onClose={closeMenu} width={230}>
+          {items.map(it => (
+            <button
+              key={it.id}
+              onClick={() => { setOpen(false); it.run(); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px',
+                border: 0, background: 'transparent', borderRadius: 6, color: '#1E293B',
+                fontSize: 12, cursor: 'pointer', textAlign: 'left',
+              }}
+            >
+              <TIcon>{it.icon}</TIcon>
+              {it.label}
+            </button>
+          ))}
+        </PortalMenu>
+      )}
+    </>
+  );
 }
 
 function ToolBtn({ def }: { def: ToolDef }) {
@@ -461,35 +516,6 @@ export function ToolsStrip() {
       { id: 'expand', title: 'Развернуть все свитчи', icon: P.expand, onClick: () => doExpandCollapse('rack') },
       { id: 'collapse', title: 'Свернуть все свитчи', icon: P.collapse, onClick: () => doExpandCollapse('compact') },
     ],
-    // Данные
-    [
-      { id: 'discovery', title: 'Автообнаружение устройств…', icon: P.discovery, onClick: () => fire('netmap:open-discovery') },
-      { id: 'mikrotik', title: 'Импорт из MikroTik…', icon: P.mikrotik, onClick: () => fire('netmap:open-mikrotik-import') },
-      { id: 'import', title: 'Импорт… (UniFi / Omada / другой)', icon: P.import, onClick: () => fire('netmap:open-import-dialog') },
-      { id: 'traceroute', title: 'Traceroute…', icon: P.traceroute, onClick: () => fire('netmap:open-traceroute', {}) },
-      { id: 'vault', title: 'Vault Studio · пароли (Ctrl+K)', icon: P.vault, onClick: () => fire('netmap:open-vault-studio') },
-    ],
-    // Экспорт
-    [
-      {
-        id: 'png', title: 'Экспорт в PNG', icon: P.png,
-        onClick: () => {
-          exportPng(useStore.getState().doc.name)
-            .catch((e) => { void alertDialog('Ошибка экспорта', String((e as Error)?.message || e)); });
-        },
-      },
-      {
-        id: 'svg', title: 'Экспорт в SVG', icon: P.svg,
-        onClick: () => {
-          exportSvg(useStore.getState().doc.name)
-            .catch((e) => { void alertDialog('Ошибка экспорта', String((e as Error)?.message || e)); });
-        },
-      },
-      {
-        id: 'json', title: 'Экспорт в JSON', icon: P.json,
-        onClick: () => exportJson(useStore.getState().doc.name),
-      },
-    ],
   ];
 
   if (!open) {
@@ -534,6 +560,10 @@ export function ToolsStrip() {
             ))}
           </Fragment>
         ))}
+        <Divider />
+        <SavedViews />
+        <Divider />
+        <ExportMenu />
         <div style={{ flex: 1, minWidth: 8 }} />
         <button
           title="Свернуть панель инструментов"
