@@ -649,7 +649,26 @@ async function resolveReverseNames(devices, opts = {}) {
   return named;
 }
 
+/** v0.96.0: жёсткий потолок на опрос одного хоста — что бы ни зависло внутри. */
 async function collectSnmp(host, community, opts) {
+  const deadlineMs = (opts && opts.hostDeadlineMs) || 120000;
+  let timer = null;
+  try {
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({
+        ok: false, host,
+        self: { name: '', descr: '', vendor: '', kind: 'switch' },
+        lldp: [], mgmtAddrs: [], arpByMac: {}, vlanList: [], fdb: [], ifNames: {},
+        warnings: [`опрос хоста прерван по общему таймауту ${Math.round(deadlineMs / 1000)} с`],
+      }), deadlineMs);
+    });
+    return await Promise.race([collectSnmpInner(host, community, opts), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function collectSnmpInner(host, community, opts) {
   const out = {
     ok: false,
     host,
@@ -1680,20 +1699,27 @@ async function scanInner(cfg, emit = () => {}) {
     if (wave.length === 0) break;
     if (hop > 0) hopsUsed = hop;
     emit({ phase: 'wave', hop, queued: wave.length });
-    await Promise.all(wave.map(async (h) => {
-      if (isCancelled()) return;
-      scannedSet.add(h);
-      emit({ phase: 'host', host: h, state: 'start' });
-      const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg,
-        onStep: (s) => emit({ phase: 'walk', host: h, ...s }) });
-      emit({ phase: 'host', host: h, state: 'done', ok: !!r.ok });
-      snmpResults.push(r);
-      if (r.warnings && r.warnings.length) warnings.push(`[${h}] ` + r.warnings.join('; '));
-      if (recursive && hop < maxHops) {
-        for (const ip of r.mgmtAddrs || []) {
-          if (!scannedSet.has(ip) && !frontier.includes(ip)
-              && snmpResults.length + frontier.length < MAX_HOSTS) {
-            frontier.push(ip);
+    // v0.96.0: потолок параллелизма волны. Sweep по ARP — это сотни адресов;
+    // раньше все они открывали сессии одновременно.
+    const WAVE_PARALLEL = 10;
+    let waveIdx = 0;
+    await Promise.all(Array.from({ length: Math.min(WAVE_PARALLEL, wave.length) }, async () => {
+      while (waveIdx < wave.length) {
+        const h = wave[waveIdx++];
+        if (isCancelled()) return;
+        scannedSet.add(h);
+        emit({ phase: 'host', host: h, state: 'start' });
+        const r = await collectSnmp(h, community, { timeout: cfg.snmpTimeout || 2500, cfg,
+          onStep: (s) => emit({ phase: 'walk', host: h, ...s }) });
+        emit({ phase: 'host', host: h, state: 'done', ok: !!r.ok });
+        snmpResults.push(r);
+        if (r.warnings && r.warnings.length) warnings.push(`[${h}] ` + r.warnings.join('; '));
+        if (recursive && hop < maxHops) {
+          for (const ip of r.mgmtAddrs || []) {
+            if (!scannedSet.has(ip) && !frontier.includes(ip)
+                && snmpResults.length + frontier.length < MAX_HOSTS) {
+              frontier.push(ip);
+            }
           }
         }
       }

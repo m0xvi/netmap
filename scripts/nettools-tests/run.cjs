@@ -198,6 +198,29 @@ function parseOpenSshPem(pem) {
   const WRONG_DIGEST = 'Wrong Digest';
   const TIMEOUT = 'Request timed out';
 
+  await test('walk: агент отвечает бесконечно — дедлайн отдаёт собранное и завершает', async () => {
+    const netsnmp = require('net-snmp');
+    const origCreate = netsnmp.createSession;
+    netsnmp.createSession = () => ({
+      subtree(oid, _mr, feed, _done) {
+        // Одна строка — и вечная тишина: done не вызывается никогда.
+        feed([{ oid: '1.3.6.1.2.1.1.5.0', type: netsnmp.ObjectType.OctetString, value: Buffer.from('SW-HANG') }]);
+      },
+      close() {},
+    });
+    try {
+      const t0 = Date.now();
+      const r = await snmp.walkSafe('10.0.0.9', 'public', '1.3.6.1.2.1.1', { timeout: 100, retries: 0, walkDeadlineMs: 200 });
+      const elapsed = Date.now() - t0;
+      assert.ok(r.ok, 'walk завершился, а не завис');
+      assert.strictEqual(r.items.length, 1);
+      assert.strictEqual(r.items[0].value, 'SW-HANG');
+      assert.ok(elapsed < 5000, `заняло ${elapsed} мс`);
+    } finally {
+      netsnmp.createSession = origCreate;
+    }
+  });
+
   await test('подбор v3: устройство принимает MD5+DES при authPriv — найден протокол', async () => {
     stub((level, a, p) => (level === 'authPriv' && a === 'md5' && p === 'des') ? null : (a === 'md5' ? 'Decryption Error' : WRONG_DIGEST));
     const r = await snmp.detectV3('10.0.0.5', { user: 'u', level: 'authPriv', authKey: 'k', privKey: 'k' }, { timeout: 100 });

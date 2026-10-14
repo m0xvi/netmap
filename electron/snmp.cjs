@@ -211,15 +211,31 @@ function walk(host, community, rootOid, opts = {}) {
     const sess = mkSession(host, community, opts);
     const results = [];
     const maxRepetitions = opts.maxRepetitions || 20;
+    // v0.96.0: у subtree нет собственного конца света — агент, который
+    // отвечает бесконечно (зацикленная таблица, огромный FDB медленного
+    // коммутатора), держал промис навсегда и скан висел на последнем хосте.
+    // Дедлайн и потолок строк: отдаём, что успели собрать.
+    const deadlineMs = opts.walkDeadlineMs || 45000;
+    const maxRows = opts.maxRows || 20000;
+    let settled = false;
+    const finish = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      closeSession(sess);
+      fn(val);
+    };
+    const timer = setTimeout(() => finish(resolve, results), deadlineMs);
     sess.subtree(rootOid, maxRepetitions, (varbinds) => {
+      if (settled) return;
       for (const vb of varbinds) {
         if (snmp.isVarbindError(vb)) continue;
         results.push({ oid: vb.oid, value: coerce(vb) });
+        if (results.length >= maxRows) { finish(resolve, results); return; }
       }
     }, (err) => {
-      closeSession(sess);
-      if (err) return reject(err);
-      resolve(results);
+      if (err) return finish(reject, err);
+      finish(resolve, results);
     });
   });
 }
