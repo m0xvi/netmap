@@ -394,6 +394,37 @@ t('шаг распределения: кандидат из proposal, а не т
   assert.deepStrictEqual(hubs2.map(h => h.ip), ['10.0.0.2'], 'опрошенный коммутатор не предлагается');
 });
 
+// v0.94.0: коммутатор за аплинком определяется поведением, мастер уважает исключения
+t('сосед за аплинком с многими MAC — коммутатор (неуверенно) и кандидат на опрос', async () => {
+  const NB = 'AA:BB:CC:00:00:09';
+  const clients = ['00:11:22:33:44:01', '00:11:22:33:44:02', '00:11:22:33:44:03']
+    .map(mac => ({ mac, bridgePort: '5', ifName: 'ether5' }));
+  const core = swFix('10.0.0.2', 'SW-CORE',
+    [{ localPortName: 'ether5', chassisId: NB, portId: 'ether1', portDesc: '', sysName: 'ES209GC-P', sysDesc: '', mgmtIp: '10.0.0.9' }],
+    clients);
+  const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.2', mt: null, snmpResults: [core] });
+  const dev = devOf(r, NB);
+  assert.ok(dev, 'сосед создан');
+  assert.strictEqual(dev.kind, 'switch', 'тип поднят до коммутатора поведением порта');
+  assert.strictEqual(dev.kindConfident, false, 'тип неуверенный — спросит мастер');
+  const hubs = findUnpolledHubs({ mt: null, snmpResults: [], scannedHosts: new Set(['10.0.0.2']), rootHost: '10.0.0.2', proposedDevices: r.proposedDevices });
+  assert.ok(hubs.some(h => h.ip === '10.0.0.9'), 'сосед — кандидат следующего шага');
+});
+
+t('мастер: исключённые подсети и VLAN не задают вопросов', async () => {
+  const sc = wizScan();
+  const filtered = wiz.filterScanForWizard(sc, ['172.16.0.0/16'], new Set([20]));
+  assert.deepStrictEqual(filtered.subnets.map(s2 => s2.cidr), ['10.0.0.0/24'], 'исключённая подсеть убрана');
+  assert.deepStrictEqual(filtered.vlans.map(v => v.id), [10], 'исключённый VLAN убран');
+  assert.ok(!filtered.proposedDevices.some(d => d.tempId === 'm1'), 'устройство исключённого VLAN убрано');
+  const steps = wiz.buildWizardSteps(filtered, wizOpts);
+  assert.ok(!steps.some(s2 => s2.id === 'vlan'), 'шага про VLAN 20 нет');
+  const sub = steps.find(s2 => s2.id === 'subnet');
+  assert.strictEqual(sub.items.length, 1, 'вопрос только по оставшейся подсети');
+  const noHub = wiz.filterScanForWizard(sc, ['10.0.0.0/24'], new Set());
+  assert.deepStrictEqual(noHub.hubCandidates, [], 'ядро из исключённой подсети не предлагается');
+});
+
 // v0.87.0: мастер уточнений — вопросы, ответы → правки, память, сводка
 const WKIND = ['router', 'switch', 'ap', 'pc', 'other'];
 const wizScan = () => ({

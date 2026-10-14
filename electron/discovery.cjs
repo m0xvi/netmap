@@ -1409,6 +1409,37 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     return a !== b;
   });
 
+  // v0.94.0: поведенческий признак коммутатора. Сосед по LLDP/neighbor, за чьим
+  // портом на опрошенном устройстве висит несколько MAC-адресов (аплинк), —
+  // инфраструктура, даже если отпечатков (имя/sysDescr) не хватило: имена вида
+  // «ES209GC-P» или «TL-SG108E» в «other», и шага «опросить распределение» не было.
+  // Тип ставим неуверенно — мастер уточнений спросит пользователя.
+  {
+    const macsByPort = new Map();
+    const addMac = (host, port, mac) => {
+      if (!host || !port || !mac) return;
+      const k = host + '|' + port;
+      if (!macsByPort.has(k)) macsByPort.set(k, new Set());
+      macsByPort.get(k).add(mac);
+    };
+    if (mt && mt.ok) for (const f of mt.fdb || []) addMac(rootHost, f.onIface, f.mac);
+    for (const s2 of snmpOk) for (const f of s2.fdb || []) addMac(s2.host, f.ifName, f.mac);
+    const hostOfRef = new Map();
+    if (mtSelfRef) hostOfRef.set(mtSelfRef.existingId || mtSelfRef.tempId, rootHost);
+    for (const [h, ref] of snmpSeedRefByHost) hostOfRef.set(ref.existingId || ref.tempId, h);
+    const devByTemp = new Map(proposedDevices.map(d => [d.tempId, d]));
+    for (const l of finalLinks) {
+      const ev = String(l.evidence || '');
+      if (!ev.startsWith('LLDP') && !ev.startsWith('MikroTik /ip neighbor')) continue;
+      const host = hostOfRef.get(l.fromRef.existingId || l.fromRef.tempId);
+      if (!host) continue;
+      const cnt = (macsByPort.get(host + '|' + (l.fromPort || '')) || new Set()).size;
+      if (cnt < 3) continue;
+      const pd = l.toRef.tempId ? devByTemp.get(l.toRef.tempId) : null;
+      if (pd && pd.kind === 'other') { pd.kind = 'switch'; pd.kindConfident = false; }
+    }
+  }
+
   // v0.52.0: справочники для фильтров в окне предпросмотра.
   const subnets = (mt && mt.ok && Array.isArray(mt.addresses))
     ? mt.addresses.map(a => ({ cidr: a.cidr, interface: a.interface || '', comment: a.comment || '' }))

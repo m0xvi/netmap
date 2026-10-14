@@ -18,7 +18,7 @@ import { KIND_META } from './icons';
 import { alertDialog } from './Modal';
 import { DiscoveryWizard } from './DiscoveryWizard';
 import {
-  buildWizardSteps, defaultAnswers, loadWizardMemory, saveWizardMemory, rememberAnswers, wizardEffects,
+  buildWizardSteps, defaultAnswers, loadWizardMemory, saveWizardMemory, rememberAnswers, wizardEffects, filterScanForWizard,
   type WizardAnswers, type WizardStep,
 } from './discoveryWizardLogic';
 import {
@@ -197,6 +197,7 @@ const D_PATHS = {
   lldp: (<><path d="M8.5 5.5a5 5 0 000 7M15.5 5.5a5 5 0 010 7M5.8 3a9 9 0 000 12M18.2 3a9 9 0 010 12" /><circle cx="12" cy="9" r="1.6" fill="currentColor" stroke="none" /></>),
   net: (<><circle cx="5.5" cy="12" r="2.5" /><circle cx="18.5" cy="5.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /><path d="M7.8 10.8l8-4M7.8 13.2l8 4" /></>),
   vlan: (<><path d="M4 5.5h16v13H4z" /><path d="M4 10h16M9 5.5v13" /></>),
+  download: (<><path d="M12 4v10.5" /><path d="M6.8 10.2L12 15.4l5.2-5.2" /><path d="M4.5 19.5h15" /></>),
   sparkle: (<><path d="M12 3.5l1.9 5.6 5.6 1.9-5.6 1.9L12 18.5l-1.9-5.6L4.5 11l5.6-1.9z" /><path d="M19 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" /></>),
   eyeoff: (<><path d="M4 4l16 16" /><path d="M9.9 5.2A9.8 9.8 0 0112 5c5 0 8.5 4.5 10 7-.4.7-1.2 1.9-2.5 3.1M6 7C4.2 8.4 3 10.4 2 12c1.5 2.5 5 7 10 7 1.5 0 2.9-.4 4.1-1" /><path d="M9.5 9.8a3.2 3.2 0 004.5 4.5" /></>),
 };
@@ -480,6 +481,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [vlanNameEdits, setVlanNameEdits] = useState<Record<number, string>>({});
   const [wizardAnswered, setWizardAnswered] = useState<Set<string>>(() => new Set());
   const [wizardOpen, setWizardOpen] = useState(false);
+  // v0.94.0: меню «Скачать отчёт» в шапке окна.
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Reset when re-opened
   useEffect(() => {
@@ -1011,22 +1014,27 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     () => scan ? (scan!.proposedDevices ?? []).filter(d => d.ip && d.vlan == null).length : 0,
     [scan]);
 
+  // v0.94.0: мастер видит скан без исключённых подсетей/VLAN — что исключено
+  // в фильтрах окна, вопросов не задаёт.
+  const wizardScan = useMemo(
+    () => (scan ? filterScanForWizard(scan, Array.from(excludedCidrs), excludedVlans) : null),
+    [scan, excludedCidrs, excludedVlans]);
   // v0.87.0: вопросы мастера — только по пунктам, на которые ещё не ответили
   const wizardSteps: WizardStep[] = useMemo(() => {
-    if (!scan) return [];
-    const all = buildWizardSteps(scan, { kindOptions: ALL_KINDS, memory: loadWizardMemory(ALL_KINDS) });
+    if (!wizardScan) return [];
+    const all = buildWizardSteps(wizardScan, { kindOptions: ALL_KINDS, memory: loadWizardMemory(ALL_KINDS) });
     return all
       .map(st => ({ ...st, items: st.items.filter(it => !wizardAnswered.has(`${it.step}:${it.key}`)) }))
       .filter(st => st.items.length > 0);
-  }, [scan, wizardAnswered]);
+  }, [wizardScan, wizardAnswered]);
   const wizardInitial = useMemo(() => defaultAnswers(wizardSteps), [wizardSteps]);
   const wizardCount = wizardSteps.reduce((n, st) => n + st.items.length, 0);
 
   // v0.87.0: ответы мастера переводятся в существующие правки. Ничего не применяется
   // в базу: это делает кнопка «Применить выбранное», как и раньше.
   function onWizardFinish(answers: WizardAnswers) {
-    if (!scan) return;
-    const fx = wizardEffects(scan, answers);
+    if (!scan || !wizardScan) return;
+    const fx = wizardEffects(wizardScan, answers);
     if (Object.keys(fx.kinds).length) setKindEdits(p => ({ ...p, ...(fx.kinds as Record<string, DeviceKind>) }));
     if (Object.keys(fx.names).length) setNameEdits(p => ({ ...p, ...fx.names }));
     if (fx.excludeVlans.length) setExcludedVlans(p => new Set([...Array.from(p), ...fx.excludeVlans]));
@@ -1057,7 +1065,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       for (const st of wizardSteps) for (const it of st.items) n.add(`${it.step}:${it.key}`);
       return n;
     });
-    saveWizardMemory(rememberAnswers(loadWizardMemory(ALL_KINDS), scan, answers), ALL_KINDS);
+    saveWizardMemory(rememberAnswers(loadWizardMemory(ALL_KINDS), wizardScan, answers), ALL_KINDS);
     setWizardOpen(false);
   }
 
@@ -1315,6 +1323,25 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               ).map(m => <span key={m}>{m}</span>)}
             </div>
           </div>
+          {phase === 'review' && scan && (
+            <>
+              <button style={S.btnSecondary} disabled={wizardCount === 0} onClick={() => setWizardOpen(true)}
+                title={wizardCount === 0 ? 'Вопросов нет: всё найдено однозначно или уже уточнено' : 'Ответьте на вопросы о неясных местах результата'}>
+                Мастер уточнений{wizardCount > 0 ? ` (${wizardCount})` : ''}
+              </button>
+              <div style={{ position: 'relative' }}>
+                <button className="icon-btn" onClick={() => setExportOpen(o => !o)} title="Скачать отчёт"><DIcon n="download" size={18} /></button>
+                {exportOpen && (
+                  <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 10px 28px rgba(15,23,42,.16)', padding: 6, zIndex: 60, minWidth: 210 }}>
+                    <button style={{ ...S.btnSecondary, display: 'block', width: '100%', textAlign: 'left', marginBottom: 4 }}
+                      onClick={() => { setExportOpen(false); exportReport('csv'); }}>CSV (устройства)</button>
+                    <button style={{ ...S.btnSecondary, display: 'block', width: '100%', textAlign: 'left' }}
+                      onClick={() => { setExportOpen(false); exportReport('md'); }}>Markdown (полный отчёт)</button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
           <button className="icon-btn" onClick={onClose} title="Закрыть"><DIcon n="close" size={18} /></button>
         </header>
 
@@ -1874,18 +1901,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
             )}
             {/* v0.77.0: сравнение с прошлым сканом */}
             {diffInfo && <DiffSummary info={diffInfo} />}
-            {/* v0.87.0: мастер уточнений — вопросы о неясных местах результата */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: '#475569' }}>
-              <button style={S.btnSecondary} disabled={wizardCount === 0}
-                title={wizardCount === 0 ? 'Вопросов нет' : 'Ответьте на вопросы о неясных местах результата'}
-                onClick={() => setWizardOpen(true)}>
-                Мастер уточнений{wizardCount > 0 ? ` (${wizardCount})` : ''}
-              </button>
-              {wizardCount === 0 && <span>Вопросов нет: всё найдено однозначно или уже уточнено.</span>}
-            </div>
-            {wizardOpen && scan && (
+            {/* v0.87.0: мастер уточнений (кнопка — в шапке окна, v0.94.0) */}
+            {wizardOpen && scan && wizardScan && (
               <DiscoveryWizard
-                scan={scan}
+                scan={wizardScan}
                 steps={wizardSteps}
                 initial={wizardInitial}
                 kindLabel={k => KIND_META[k as DeviceKind]?.label || k}
@@ -1893,12 +1912,6 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                 onFinish={onWizardFinish}
               />
             )}
-            {/* v0.77.0: экспорт результата; файл отражает выбранные галочки, имена и типы */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: '#475569' }}>
-              <span>Скачать отчёт:</span>
-              <button style={S.btnSecondary} onClick={() => exportReport('csv')}>CSV (устройства)</button>
-              <button style={S.btnSecondary} onClick={() => exportReport('md')}>Markdown (полный)</button>
-            </div>
             {/* v0.77.0: опрос отменён — данные неполные */}
             {scan!.cancelled && (
               <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, fontSize: 12, color: '#92400e' }}>

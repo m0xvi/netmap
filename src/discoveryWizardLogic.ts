@@ -134,6 +134,32 @@ function ipInCidr(ip: string, cidr: string): boolean {
   return Math.floor(a / size) === Math.floor(b / size);
 }
 
+/** v0.94.0: скан для мастера с учётом исключённых подсетей/VLAN окна проверки:
+ * исключённая сеть не должна задавать вопросов ни про устройства, ни про себя. */
+export function filterScanForWizard(
+  scan: DiscoveryScanResult,
+  excludedCidrs: string[],
+  excludedVlans: ReadonlySet<number>,
+): DiscoveryScanResult {
+  const devs = (scan.proposedDevices || []).filter(d => {
+    const ip = d.ip;
+    if (ip && excludedCidrs.some(c => ipInCidr(ip, c))) return false;
+    if (d.vlan != null && excludedVlans.has(d.vlan)) return false;
+    return true;
+  });
+  const keep = new Set(devs.map(d => d.tempId));
+  const refKept = (ref?: { tempId?: string; existingId?: string }) =>
+    !ref || !ref.tempId || keep.has(ref.tempId);
+  return {
+    ...scan,
+    proposedDevices: devs,
+    proposedLinks: (scan.proposedLinks || []).filter(l => refKept(l.fromRef) && refKept(l.toRef)),
+    vlans: (scan.vlans || []).filter(v => !excludedVlans.has(v.id)),
+    subnets: (scan.subnets || []).filter(sn => !excludedCidrs.includes(sn.cidr)),
+    hubCandidates: (scan.hubCandidates || []).filter(h => !!h.ip && !excludedCidrs.some(c => ipInCidr(h.ip, c))),
+  };
+}
+
 // ---------- шаги ----------
 
 /** Строит шаги только с вопросами: пустой шаг не показывается. */
