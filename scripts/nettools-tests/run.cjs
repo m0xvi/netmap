@@ -66,10 +66,12 @@ function parseOpenSshPem(pem) {
     assert.ok(r2.publicLine.trim().endsWith(' netmap'));
   });
 
-  await test('короткий пароль к ключу отклоняется', async () => {
+  await test('короткий пароль к ключу разрешён (ограничений на длину нет)', async () => {
     const r = await nt.sshKeyGenerate({ passphrase: '123' });
-    assert.strictEqual(r.ok, false);
-    assert.ok(/не короче 6/.test(r.error));
+    assert.ok(r.ok, r.error);
+    assert.strictEqual(r.encrypted, true);
+    const bad = await nt.sshKeyGenerate({ passphrase: 'a\nb' });
+    assert.strictEqual(bad.ok, false);
   });
 
   await test('ключ, который читает настоящий ssh-keygen', async (t) => {
@@ -133,10 +135,11 @@ function parseOpenSshPem(pem) {
   });
 
   // v0.91.0 — RSA для MikroTik и подбор SNMPv3 со стабом probe (поведение устройства).
-  await test('RSA 3072 по умолчанию: ssh-rsa, ASCII-комментарий, ключ читает ssh-keygen', async () => {
+  await test('RSA 2048 по умолчанию: ssh-rsa, ASCII-комментарий, ключ читает ssh-keygen', async () => {
     const r = await nt.sshKeyGenerate({ comment: 'netmap-пк admin' });
     assert.ok(r.ok, r.error);
     assert.strictEqual(r.type, 'rsa');
+    assert.strictEqual(r.bits, 2048);
     assert.ok(r.publicLine.startsWith('ssh-rsa AAAA'));
     assert.ok(/^ssh-rsa \S+ netmap-admin\n$/.test(r.publicLine), 'комментарий: ' + r.publicLine);
     if (!haveSshKeygen()) { console.log('       (ssh-keygen не найден — пропуск проверки файла)'); return; }
@@ -155,6 +158,30 @@ function parseOpenSshPem(pem) {
     const r = await nt.sshKeyGenerate({ type: 'ed25519', comment: 'e' });
     assert.ok(r.ok);
     assert.ok(r.publicLine.startsWith('ssh-ed25519 '));
+  });
+
+  await test('RSA 3072 по явному размеру', async () => {
+    const r = await nt.sshKeyGenerate({ bits: 3072 });
+    assert.ok(r.ok, r.error);
+    assert.strictEqual(r.bits, 3072);
+  });
+
+  await test('SSH-аутентификация: попытки ключ → пароль, пароль, только ключ', async () => {
+    const { sshAuthAttempts, isAuthError } = require('../../electron/sshAuth.cjs');
+    const both = sshAuthAttempts({ privateKey: 'PEM', sshPassphrase: 'p1', password: 'pw' });
+    assert.deepStrictEqual(both.map(a => a.kind), ['key', 'password']);
+    assert.strictEqual(both[0].auth.privateKey, 'PEM');
+    assert.strictEqual(both[0].auth.passphrase, 'p1');
+    assert.strictEqual(both[1].auth.password, 'pw');
+    assert.deepStrictEqual(sshAuthAttempts({ password: 'pw' }).map(a => a.kind), ['password']);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-test-'));
+    const kf = path.join(dir, 'k');
+    fs.writeFileSync(kf, 'PEMFILE');
+    const byPath = sshAuthAttempts({ privateKeyPath: kf, password: 'pw' });
+    assert.strictEqual(byPath[0].auth.privateKey, 'PEMFILE');
+    fs.rmSync(dir, { recursive: true, force: true });
+    assert.ok(isAuthError(new Error('All configured authentication methods failed')));
+    assert.ok(!isAuthError(new Error('connect ECONNREFUSED 10.0.0.1:22')));
   });
 
   const snmp = require('../../electron/snmp.cjs');

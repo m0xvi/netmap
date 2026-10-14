@@ -23,7 +23,7 @@
  */
 
 const { Client } = require('ssh2');
-const { sshAuthFragment } = require('./sshAuth.cjs');
+const { sshAuthAttempts, isAuthError } = require('./sshAuth.cjs');
 
 // ---------- Low-level SSH helpers -----------------------------------------
 
@@ -107,7 +107,32 @@ function tryDropUnsupported(algos, badName) {
   };
 }
 
-function runCommand(cfg, cmd, _retryAlgos) {
+/** v0.92.0: ключ → при отказе пароль (если указан). */
+async function runCommand(cfg, cmd, _retryAlgos) {
+  let attempts;
+  try { attempts = sshAuthAttempts(cfg); }
+  catch (e) { throw new Error('SSH-ключ: ' + (e.message || String(e))); }
+  let lastErr = null;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      return await runCommandOnce(cfg, cmd, _retryAlgos, attempts[i].auth);
+    } catch (e) {
+      lastErr = e;
+      const canFallback = attempts[i].kind === 'key' && i < attempts.length - 1 && isAuthError(e);
+      if (!canFallback) {
+        // v0.92.0: отклонённый ключ объясняем человеческим языком.
+        if (attempts[i].kind === 'key' && isAuthError(e)) {
+          throw new Error(`Вход по SSH-ключу отклонён устройством (${e.message}). Проверьте: файл .pub добавлен именно этому пользователю на устройстве, логин совпадает, а для MikroTik ключ создан как RSA 2048.`);
+        }
+        throw e;
+      }
+      // Устройство не приняло ключ, но пароль есть — пробуем паролем ниже.
+    }
+  }
+  throw lastErr || new Error('SSH: не удалось войти.');
+}
+
+function runCommandOnce(cfg, cmd, _retryAlgos, auth) {
   return new Promise((resolve, reject) => {
     const conn = new Client();
     let out = '';
@@ -147,7 +172,7 @@ function runCommand(cfg, cmd, _retryAlgos) {
         if (!empty) {
           try { conn.end(); } catch {}
           done = true;
-          runCommand(cfg, cmd, next).then(resolve, reject);
+          runCommandOnce(cfg, cmd, next, auth).then(resolve, reject);
           return;
         }
       }
@@ -158,8 +183,6 @@ function runCommand(cfg, cmd, _retryAlgos) {
     // if any name is unknown, drop it up-front instead of triggering the
     // Client's ctor throw (which is harder to recover from).
     const cleanAlgos = filterToSupported(algos);
-    // v0.76: аутентификация — пароль ИЛИ приватный ключ (из vault/формы).
-    const auth = sshAuthFragment(cfg);
     conn.connect({
       host: cfg.host,
       port: cfg.port || 22,

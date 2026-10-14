@@ -23,7 +23,7 @@
  */
 
 const { Client } = require('ssh2');
-const { sshAuthFragment } = require('./sshAuth.cjs');
+const { sshAuthAttempts, isAuthError } = require('./sshAuth.cjs');
 
 const sessions = new Map(); // sessionId -> { client, stream, sender }
 
@@ -39,7 +39,24 @@ function forget(id, owner) {
   if (cur && (cur.client === owner || cur.stream === owner)) sessions.delete(id);
 }
 
-function open(cfg, sender) {
+/** v0.92.0: сначала ключ, при отказе аутентификации — пароль (если указан). */
+async function open(cfg, sender) {
+  let attempts;
+  try { attempts = sshAuthAttempts(cfg); }
+  catch (e) { return { ok: false, error: 'SSH-ключ: ' + (e.message || String(e)) }; }
+  let last = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const r = await openOnce(cfg, sender, attempts[i].auth);
+    if (r.ok) return r;
+    last = r;
+    const canFallback = attempts[i].kind === 'key' && i < attempts.length - 1
+      && isAuthError(new Error(r.error || ''));
+    if (!canFallback) return r;
+  }
+  return last || { ok: false, error: 'SSH: не удалось войти.' };
+}
+
+function openOnce(cfg, sender, authOverride) {
   const id = String(cfg.sessionId || Math.random().toString(36).slice(2));
   if (sessions.has(id)) {
     close(id);
@@ -96,10 +113,7 @@ function open(cfg, sender) {
       }
     });
 
-    // v0.76: пароль ИЛИ ключ (PEM-текст/файл) + passphrase.
-    let auth;
-    try { auth = sshAuthFragment(cfg); }
-    catch (e) { return finishOpen({ ok: false, error: 'SSH-ключ: ' + (e.message || String(e)) }); }
+    const auth = authOverride;
 
     // БАГ: с tryKeyboard:true ssh2 отдаёт серверу запрос keyboard-interactive,
     // но без обработчика никто не отвечает → подключение висит до readyTimeout

@@ -48,6 +48,8 @@ function keyBaseName(t: KeyType): string {
 
 function SshKeyDialog({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState<KeyType>('rsa');
+  // v0.92.0: 2048 — размер, с которым дружит собственный SSH-стек RouterOS.
+  const [bits, setBits] = useState<2048 | 3072 | 4096>(2048);
   const [comment, setComment] = useState('netmap-pc');
   const [pass, setPass] = useState('');
   const [pass2, setPass2] = useState('');
@@ -62,8 +64,8 @@ function SshKeyDialog({ onClose }: { onClose: () => void }) {
   const generate = async () => {
     if (pass && pass !== pass2) { setMsg({ kind: 'err', text: 'Пароли к ключу не совпадают.' }); return; }
     setBusy('gen');
-    setMsg({ kind: 'info', text: type === 'rsa' ? 'Создаю ключ RSA 3072 — это может занять несколько секунд…' : 'Создаю ключ ed25519…' });
-    const r = await sshKeyGenerate({ type, comment: comment.trim() || 'netmap-pc', passphrase: pass });
+    setMsg({ kind: 'info', text: type === 'rsa' ? `Создаю ключ RSA ${bits} — это может занять несколько секунд…` : 'Создаю ключ ed25519…' });
+    const r = await sshKeyGenerate({ type, bits, comment: comment.trim() || 'netmap-pc', passphrase: pass });
     setBusy('');
     if (!r.ok || !r.privatePem) { setMsg({ kind: 'err', text: r.error || 'Ключ не создан.' }); return; }
     setKey({
@@ -155,7 +157,7 @@ function SshKeyDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <DialogShell title="SSH-ключ для этого ПК" subtitle="Пара ключей: закрытый остаётся у вас, открытый — на устройстве"
-      chips={['RSA 3072', 'ed25519', 'OpenSSH']} icon="lock" onClose={onClose} width={780} level="top" footer={footer}>
+      chips={['RSA для MikroTik', 'ed25519', 'OpenSSH']} icon="lock" onClose={onClose} width={780} level="top" footer={footer}>
       <div style={{ padding: '14px 20px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={explainBox}>
           <div style={{ fontWeight: 700, marginBottom: 6, color: '#0F172A' }}>Что такое ключ простыми словами</div>
@@ -169,17 +171,28 @@ function SshKeyDialog({ onClose }: { onClose: () => void }) {
         <DlgSection title="1. Создать ключ">
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <button disabled={!!key} onClick={() => setType('rsa')} style={{ ...segBtn, ...(type === 'rsa' ? segBtnOn : {}) }}>
-              RSA 3072 (рекомендуется)
+              RSA (рекомендуется)
             </button>
             <button disabled={!!key} onClick={() => setType('ed25519')} style={{ ...segBtn, ...(type === 'ed25519' ? segBtnOn : {}) }}>
               ed25519
             </button>
           </div>
           <div style={hintTxt}>
-            <b>RSA 3072</b> импортируется на любой MikroTik (RouterOS 6 и 7). <b>ed25519</b> короче, но MikroTik принимает его
-            только с RouterOS 7.12 и новее; на старой версии импорт выдаёт «unable to load key file (wrong format?)».
-            Linux-серверы и Windows понимают оба типа.
+            <b>RSA</b> импортируется на любой MikroTik (RouterOS 6 и 7). Для MikroTik оставляйте размер <b>2048</b>:
+            с ключами 3072/4096 SSH-стек RouterOS у ряда версий не проверяет подпись при входе — ключ виден на устройстве, но не пускает.
+            <b>ed25519</b> короче, но MikroTik принимает его только с RouterOS 7.12 и новее; на старой версии импорт выдаёт
+            «unable to load key file (wrong format?)». Linux-серверы и Windows понимают оба типа и любой размер.
           </div>
+          {type === 'rsa' && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#334155' }}>Размер RSA:</span>
+              {([2048, 3072, 4096] as const).map(b => (
+                <button key={b} disabled={!!key} onClick={() => setBits(b)} style={{ ...segBtn, ...(bits === b ? segBtnOn : {}) }}>
+                  {b}{b === 2048 ? ' — для MikroTik' : ''}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ ...grid2, marginTop: 10 }}>
             <Field label="Комментарий (латиница, цифры, дефис)">
               <input value={comment} onChange={e => setComment(e.target.value)} maxLength={64} style={inp} disabled={!!key} />
@@ -193,8 +206,8 @@ function SshKeyDialog({ onClose }: { onClose: () => void }) {
             </Field>
           </div>
           <div style={hintTxt}>
-            Пароль защищает закрытый файл, если его украдут. С паролем нужна утилита ssh-keygen
-            (в Windows: «Клиент OpenSSH» в дополнительных компонентах; обычно уже установлена).
+            Пароль защищает закрытый файл, если его украдут. Длина — любая, ограничений нет; пустое поле — ключ без пароля.
+            С паролем нужна утилита ssh-keygen (в Windows: «Клиент OpenSSH» в дополнительных компонентах; обычно уже установлена).
           </div>
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
             <DlgBtn kind="primary" disabled={!native || busy !== ''} onClick={generate}>

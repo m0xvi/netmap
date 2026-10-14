@@ -100,9 +100,12 @@ function generateEd25519Pair(comment) {
 
 /**
  * Пара RSA (ssh-rsa). RouterOS импортирует такие ключи на любой версии,
- * поэтому это вариант по умолчанию для MikroTik.
+ * поэтому это вариант по умолчанию для MikroTik. Размер по умолчанию 2048:
+ * собственный SSH-стек RouterOS (ROSSSH) с ключами 3072/4096 у ряда версий
+ * не может проверить подпись при входе (ключ импортируется, но не пускает),
+ * а 2048 — размер из всех примеров MikroTik.
  */
-function generateRsaPair(comment, bits = 3072) {
+function generateRsaPair(comment, bits = 2048) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: bits });
   const jwk = privateKey.export({ format: 'jwk' });
   const pubJwk = publicKey.export({ format: 'jwk' });
@@ -150,18 +153,19 @@ function protectWithPassphrase(privatePem, passphrase) {
 
 /**
  * IPC: создать пару ключей. cfg: { type?: 'rsa'|'ed25519', comment?, passphrase? }
- * По умолчанию RSA 3072 — совместимо со всеми RouterOS.
+ * По умолчанию RSA 2048 — совместимо со всеми RouterOS (включая старый стек).
  * @returns {Promise<{ok, privatePem?, publicLine?, fingerprint?, type?, encrypted?, error?}>}
  */
 async function sshKeyGenerate(cfg) {
   const comment = cleanComment(cfg && cfg.comment);
   const passphrase = String((cfg && cfg.passphrase) || '');
   const type = cfg && cfg.type === 'ed25519' ? 'ed25519' : 'rsa';
-  if (passphrase && passphrase.length < 6) {
-    return { ok: false, error: 'Пароль к ключу — не короче 6 символов (или оставьте поле пустым).' };
-  }
+  // v0.92.0: ограничений на длину парольной фразы нет — любая, какую ввёл
+  // пользователь. Запрещены только переводы строки и NUL: такой пароль нельзя
+  // будет ввести в обычном SSH-клиенте, и ключ станет непригодным.
   if (/[\r\n\0]/.test(passphrase)) return { ok: false, error: 'Пароль не должен содержать переводов строки.' };
-  const pair = type === 'ed25519' ? generateEd25519Pair(comment) : generateRsaPair(comment);
+  const bits = [2048, 3072, 4096].includes(Number(cfg && cfg.bits)) ? Number(cfg.bits) : 2048;
+  const pair = type === 'ed25519' ? generateEd25519Pair(comment) : generateRsaPair(comment, bits);
   let privatePem = pair.privatePem;
   if (passphrase) privatePem = await protectWithPassphrase(privatePem, passphrase);
   return {
@@ -170,6 +174,7 @@ async function sshKeyGenerate(cfg) {
     publicLine: pair.publicLine + '\n',
     fingerprint: pair.fingerprint,
     type,
+    bits: type === 'rsa' ? bits : undefined,
     encrypted: !!passphrase,
   };
 }

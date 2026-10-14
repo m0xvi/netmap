@@ -1,10 +1,10 @@
 /**
  * v0.76 — единая сборка SSH-аутентификации для ssh2 (ключ или пароль).
  *
- * Приоритет: приватный ключ (PEM-текст `privateKey` или файл
- * `privateKeyPath`) → иначе пароль. Passphrase для зашифрованного ключа —
- * `passphrase`/`sshPassphrase`. Чистая часть (без чтения файла) вынесена
- * для юнит-проверок.
+ * sshAuthFragment — одна попытка (ключ в приоритете, иначе пароль).
+ * sshAuthAttempts (v0.92.0) — список попыток: ключ, затем пароль как запасной
+ * вариант. Passphrase для зашифрованного ключа — `passphrase`/`sshPassphrase`.
+ * Чистая часть (без чтения файла) вынесена для юнит-проверок.
  */
 
 const fs = require('node:fs');
@@ -25,4 +25,33 @@ function sshAuthFragment(cfg = {}) {
   return { password: cfg.password || undefined };
 }
 
-module.exports = { sshAuthFragment, sshAuthFragmentFromKey };
+/** Ошибка похожа на отказ в аутентификации (а не на сетевую проблему)? */
+function isAuthError(e) {
+  if (!e) return false;
+  if (e.level === 'client-authentication') return true;
+  const m = String(e.message || e);
+  return /authentication methods failed|permission denied|cannot parse privatekey|unsupported key format|bad passphrase|unable to decode|signing.*failed/i.test(m);
+}
+
+/**
+ * v0.92.0: ordered auth attempts — key first, then password fallback.
+ * Раньше был строгий XOR: задан ключ → пароль даже не пробовался, и если
+ * устройство ключ не приняло (не тот пользователь, размер ключа не поддержал
+ * стек RouterOS и т.п.), вход умирал при живом пароле.
+ * @returns {Array<{kind:'key'|'password', auth:object}>}
+ */
+function sshAuthAttempts(cfg = {}) {
+  const attempts = [];
+  let keyFrag = null;
+  if (cfg.privateKey) keyFrag = sshAuthFragmentFromKey(cfg);
+  else if (cfg.privateKeyPath) {
+    const pem = fs.readFileSync(cfg.privateKeyPath, 'utf8');
+    keyFrag = { privateKey: pem, passphrase: cfg.passphrase || cfg.sshPassphrase || undefined };
+  }
+  if (keyFrag) attempts.push({ kind: 'key', auth: keyFrag });
+  if (cfg.password) attempts.push({ kind: 'password', auth: { password: cfg.password } });
+  if (!attempts.length) attempts.push({ kind: 'password', auth: { password: undefined } });
+  return attempts;
+}
+
+module.exports = { sshAuthFragment, sshAuthFragmentFromKey, sshAuthAttempts, isAuthError };

@@ -20,9 +20,10 @@ export interface SshKeyResult {
   fingerprint?: string;
   encrypted?: boolean;
   type?: string;
+  bits?: number;
 }
 
-export async function sshKeyGenerate(cfg: { type?: 'rsa' | 'ed25519'; comment?: string; passphrase?: string }): Promise<SshKeyResult> {
+export async function sshKeyGenerate(cfg: { type?: 'rsa' | 'ed25519'; bits?: number; comment?: string; passphrase?: string }): Promise<SshKeyResult> {
   if (typeof w.netmap?.sshKeyGenerate !== 'function') return { ok: false, error: NO_BACKEND };
   return w.netmap.sshKeyGenerate(cfg);
 }

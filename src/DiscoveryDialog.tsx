@@ -1448,7 +1448,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                         {sshKeyPem
                           ? 'Используется PEM-ключ из Vault: путь к файлу игнорируется.'
                           : sshKeyPath
-                            ? 'Ключ читается из файла при каждом сканировании.'
+                            ? 'Ключ читается из файла при каждом сканировании. Если устройство ключ не примет, а пароль выше указан — NetMap попробует пароль.'
                             : 'Ключ не задан: подключение пойдёт по паролю.'}
                       </div>
                       <div>
@@ -1461,7 +1461,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                       <details style={{ fontSize: 12, color: '#334155' }}>
                         <summary style={{ cursor: 'pointer' }}>Как настроить вход по ключу (простыми словами)</summary>
                         <ol style={{ margin: '6px 0 0 18px', padding: 0, lineHeight: 1.5 }}>
-                          <li>Нажмите «Создать ключ для этого ПК…». Для MikroTik оставьте RSA 3072: он работает на любой версии RouterOS. ed25519 — только для RouterOS 7.12 и новее.</li>
+                          <li>Нажмите «Создать ключ для этого ПК…». Для MikroTik оставьте RSA 2048: он работает на любой версии RouterOS (ключи 3072/4096 ряд версий не пускает при входе). ed25519 — только для RouterOS 7.12 и новее.</li>
                           <li>Сохраните закрытый и открытый ключ (файлы <code>netmap_rsa</code> и <code>netmap_rsa.pub</code>). Путь к закрытому файлу подставится сюда сам.</li>
                           <li>Открытый ключ добавьте на устройство. MikroTik: WinBox → Files → перетащите <code>netmap_rsa.pub</code>; затем System → Users → вкладка SSH Keys → Import SSH Key; выберите пользователя и файл.</li>
                           <li>Нажмите «Проверить». Если не проходит: ключ не добавлен на устройство, неверный логин или неверный passphrase.</li>
