@@ -411,6 +411,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [v3AuthProto, setV3AuthProto] = useState<'md5' | 'sha' | 'sha256' | 'sha512'>(prefs0.v3AuthProto ?? 'sha');
   const [v3Detecting, setV3Detecting] = useState(false);
   const [v3DetectMsg, setV3DetectMsg] = useState<string>('');
+  // v0.91.0: список проверенных комбинаций SNMPv3 (что именно пробовали).
+  const [v3Checks, setV3Checks] = useState<string[]>([]);
   const [v3AuthKey, setV3AuthKey] = useState('');
   const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>(prefs0.v3PrivProto ?? 'aes');
   const [v3PrivKey, setV3PrivKey] = useState('');
@@ -418,6 +420,15 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [sshKeyPem, setSshKeyPem] = useState('');
   // v0.76.7: путь к файлу приватного ключа (раньше поддерживался только PEM из vault).
   const [sshKeyPath, setSshKeyPath] = useState('');
+  // v0.91.0: путь к созданному в NetMap ключу подставляется в поле (пароль — нет).
+  useEffect(() => {
+    const onSaved = (e: Event) => {
+      const p = (e as CustomEvent).detail?.path;
+      if (typeof p === 'string' && p) setSshKeyPath(p);
+    };
+    window.addEventListener('netmap:ssh-key-saved', onSaved);
+    return () => window.removeEventListener('netmap:ssh-key-saved', onSaved);
+  }, []);
   // v0.76.7: пошаговый обход — выбранные ядро/распределение и скрыт ли вопрос.
   const [hubPick, setHubPick] = useState<Record<string, boolean>>({});
   const [hubDismissed, setHubDismissed] = useState(false);
@@ -535,7 +546,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   // --- helpers -----------------------------------------------------------
   // v0.76.9: подбор auth/priv протокола SNMPv3 перебором (см. snmp.cjs detectV3).
   async function onDetectV3() {
-    setV3Detecting(true); setV3DetectMsg('');
+    setV3Detecting(true); setV3DetectMsg(''); setV3Checks([]);
     try {
       const r = await discoveryDetectV3(currentCfg);
       if (r.ok) {
@@ -550,10 +561,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
             : { auth: a };
           setV3Protocols(prev => ({ ...prev, [host.trim()]: rec }));
         }
-        const parts = [`auth ${r.authProtocol || '—'}`];
+        const lvl = r.level;
+        if (lvl && ['noAuthNoPriv', 'authNoPriv', 'authPriv'].includes(lvl)) setV3Level(lvl);
+        const parts = [`уровень ${lvl || v3Level}`, `auth ${r.authProtocol || '—'}`];
         if (r.privProtocol) parts.push(`priv ${r.privProtocol}`);
-        setV3DetectMsg(`Подошло: ${parts.join(', ')}${r.sysName ? ` (${r.sysName})` : ''}`);
+        setV3Checks(r.checks || []);
+        setV3DetectMsg(`Подошло: ${parts.join(', ')}${r.sysName ? ` (${r.sysName})` : ''}${r.warning ? `. ⚠ ${r.warning}` : ''}`);
       } else {
+        setV3Checks(r.checks || []);
         setV3DetectMsg(r.error || 'Не подошло ни одной комбинации.');
       }
     } catch (e: any) {
@@ -1436,12 +1451,19 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                             ? 'Ключ читается из файла при каждом сканировании.'
                             : 'Ключ не задан: подключение пойдёт по паролю.'}
                       </div>
+                      <div>
+                        <button type="button" style={S.btnSecondary}
+                          onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-ssh-key'))}>
+                          Создать ключ для этого ПК…
+                        </button>
+                        <span style={{ ...S.hint, marginLeft: 8 }}>Создаст RSA-ключ (для MikroTik) и подставит путь в поле выше.</span>
+                      </div>
                       <details style={{ fontSize: 12, color: '#334155' }}>
-                        <summary style={{ cursor: 'pointer' }}>Как настроить вход по ключу</summary>
+                        <summary style={{ cursor: 'pointer' }}>Как настроить вход по ключу (простыми словами)</summary>
                         <ol style={{ margin: '6px 0 0 18px', padding: 0, lineHeight: 1.5 }}>
-                          <li>Создайте ключ на своём ПК: <code>ssh-keygen -t ed25519 -f %USERPROFILE%\.ssh\netmap_ed25519</code> (Windows 10+ уже содержит ssh-keygen). Пароль на ключ можно задать, тогда укажите его в поле Passphrase.</li>
-                          <li>Добавьте публичный ключ <code>netmap_ed25519.pub</code> на устройство. MikroTik: загрузите файл в Files (WinBox) и выполните <code>/user ssh-keys import public-key-file=netmap_ed25519.pub user=admin</code>. Для RouterOS со старой версией надёжнее RSA: <code>ssh-keygen -t rsa -b 3072</code>. Linux и другие: добавьте строку в <code>~/.ssh/authorized_keys</code>.</li>
-                          <li>Укажите ключ здесь (путь к файлу) или сохраните его в Vault: запись → раздел «SSH-ключ» → кнопка Vault в этой форме.</li>
+                          <li>Нажмите «Создать ключ для этого ПК…». Для MikroTik оставьте RSA 3072: он работает на любой версии RouterOS. ed25519 — только для RouterOS 7.12 и новее.</li>
+                          <li>Сохраните закрытый и открытый ключ (файлы <code>netmap_rsa</code> и <code>netmap_rsa.pub</code>). Путь к закрытому файлу подставится сюда сам.</li>
+                          <li>Открытый ключ добавьте на устройство. MikroTik: WinBox → Files → перетащите <code>netmap_rsa.pub</code>; затем System → Users → вкладка SSH Keys → Import SSH Key; выберите пользователя и файл.</li>
                           <li>Нажмите «Проверить». Если не проходит: ключ не добавлен на устройство, неверный логин или неверный passphrase.</li>
                         </ol>
                         <div style={{ marginTop: 6, color: '#64748b' }}>
@@ -1505,6 +1527,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                           {v3Detecting ? 'Подбираем…' : 'Подобрать протокол'}
                         </button>
                         {v3DetectMsg && <span style={{ fontSize: 12, color: '#334155' }}>{v3DetectMsg}</span>}
+                        {v3Checks.length > 0 && (
+                          <details style={{ width: '100%', fontSize: 12, color: '#334155' }}>
+                            <summary style={{ cursor: 'pointer' }}>Проверено комбинаций: {v3Checks.length}</summary>
+                            <ul style={{ margin: '6px 0 0 18px', padding: 0, lineHeight: 1.6 }}>
+                              {v3Checks.map((c, i) => <li key={i}>{c}</li>)}
+                            </ul>
+                          </details>
+                        )}
                       </div>
                     </>
                     )}

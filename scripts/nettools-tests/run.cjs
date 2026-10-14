@@ -47,7 +47,7 @@ function parseOpenSshPem(pem) {
   console.log('netTools tests');
 
   await test('ключ ed25519: структура OpenSSH и публичная строка совпадают', async () => {
-    const r = await nt.sshKeyGenerate({ comment: 'тест-ПК' });
+    const r = await nt.sshKeyGenerate({ type: 'ed25519', comment: 'test-pc' });
     assert.ok(r.ok, r.error);
     assert.ok(r.fingerprint.startsWith('SHA256:'));
     assert.strictEqual(r.encrypted, false);
@@ -55,7 +55,7 @@ function parseOpenSshPem(pem) {
     const line = r.publicLine.trim().split(' ');
     assert.strictEqual(line[0], 'ssh-ed25519');
     assert.strictEqual(Buffer.from(line[1], 'base64').toString('hex'), pubBlob.toString('hex'));
-    assert.strictEqual(line.slice(2).join(' '), 'тест-ПК');
+    assert.strictEqual(line.slice(2).join(' '), 'test-pc');
   });
 
   await test('комментарий без переводов строки и не пустой', async () => {
@@ -131,6 +131,89 @@ function parseOpenSshPem(pem) {
     assert.strictEqual(r.ok, false);
     assert.ok(typeof r.error === 'string' && r.error.length > 0);
   });
+
+  // v0.91.0 — RSA для MikroTik и подбор SNMPv3 со стабом probe (поведение устройства).
+  await test('RSA 3072 по умолчанию: ssh-rsa, ASCII-комментарий, ключ читает ssh-keygen', async () => {
+    const r = await nt.sshKeyGenerate({ comment: 'netmap-пк admin' });
+    assert.ok(r.ok, r.error);
+    assert.strictEqual(r.type, 'rsa');
+    assert.ok(r.publicLine.startsWith('ssh-rsa AAAA'));
+    assert.ok(/^ssh-rsa \S+ netmap-admin\n$/.test(r.publicLine), 'комментарий: ' + r.publicLine);
+    if (!haveSshKeygen()) { console.log('       (ssh-keygen не найден — пропуск проверки файла)'); return; }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-test-'));
+    const kf = path.join(dir, 'k');
+    fs.writeFileSync(kf, r.privatePem, { mode: 0o600 });
+    const derived = execFileSync('ssh-keygen', ['-y', '-f', kf], { encoding: 'utf8' }).trim();
+    assert.strictEqual(derived.split(' ')[1], r.publicLine.trim().split(' ')[1]);
+    fs.writeFileSync(kf + '.pub', r.publicLine);
+    const fp = execFileSync('ssh-keygen', ['-lf', kf + '.pub'], { encoding: 'utf8' }).split(' ')[1];
+    assert.strictEqual(fp, r.fingerprint);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test('ed25519 по запросу сохраняет прежний формат', async () => {
+    const r = await nt.sshKeyGenerate({ type: 'ed25519', comment: 'e' });
+    assert.ok(r.ok);
+    assert.ok(r.publicLine.startsWith('ssh-ed25519 '));
+  });
+
+  const snmp = require('../../electron/snmp.cjs');
+  const realProbe = snmp.probe;
+  const stub = (rules) => {
+    // rules(level, auth, priv) -> null (успех) | текст ошибки
+    snmp.probe = async (host, community, opts) => {
+      const v3 = opts.v3 || {};
+      const err = rules(v3.level, v3.authProtocol || '', v3.privProtocol || '');
+      return err ? { ok: false, error: err } : { ok: true, sysName: 'ruijie-ap', sysDescr: 'AP720-L', sysUpTime: 1 };
+    };
+  };
+  const WRONG_DIGEST = 'Wrong Digest';
+  const TIMEOUT = 'Request timed out';
+
+  await test('подбор v3: устройство принимает MD5+DES при authPriv — найден протокол', async () => {
+    stub((level, a, p) => (level === 'authPriv' && a === 'md5' && p === 'des') ? null : (a === 'md5' ? 'Decryption Error' : WRONG_DIGEST));
+    const r = await snmp.detectV3('10.0.0.5', { user: 'u', level: 'authPriv', authKey: 'k', privKey: 'k' }, { timeout: 100 });
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.authProtocol, 'md5');
+    assert.strictEqual(r.privProtocol, 'des');
+    assert.strictEqual(r.level, 'authPriv');
+  });
+
+  await test('подбор v3: устройство работает только с authNoPriv — уровень переключается сам', async () => {
+    stub((level, a) => (level === 'authNoPriv' && a === 'sha') ? null : 'Unsupported Security Level');
+    const r = await snmp.detectV3('10.0.0.5', { user: 'u', level: 'authPriv', authKey: 'k', privKey: 'k' }, { timeout: 100 });
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.level, 'authNoPriv');
+    assert.strictEqual(r.authProtocol, 'sha');
+  });
+
+  await test('подбор v3: логин принят, но нет права чтения — не «ни один протокол», а предупреждение', async () => {
+    stub((level, a) => (a === 'md5') ? 'AuthorizationError' : WRONG_DIGEST);
+    const r = await snmp.detectV3('10.0.0.5', { user: 'u', level: 'authNoPriv', authKey: 'k' }, { timeout: 100 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.authOnly, true);
+    assert.strictEqual(r.authProtocol, 'md5');
+    assert.ok(/VACM|читать/.test(r.warning));
+  });
+
+  await test('подбор v3: молчащее устройство — понятная сводка причин', async () => {
+    stub(() => TIMEOUT);
+    const r = await snmp.detectV3('10.0.0.9', { user: 'u', level: 'authPriv', authKey: 'k', privKey: 'k' }, { timeout: 100 });
+    assert.strictEqual(r.ok, false);
+    assert.ok(/не отвечает/.test(r.error), r.error);
+    // Молчащее устройство: подбор останавливается после 3 таймаутов подряд,
+    // а не перебирает все комбинации минутами.
+    assert.ok(Array.isArray(r.tried) && r.tried.length >= 3 && r.tried.length < 8, `tried=${r.tried && r.tried.length}`);
+    assert.ok(Array.isArray(r.checks) && r.checks.length === r.tried.length);
+  });
+
+  await test('подбор v3: ключ неверный — в сводке указан ключ, а не «нет ответа»', async () => {
+    stub(() => WRONG_DIGEST);
+    const r = await snmp.detectV3('10.0.0.9', { user: 'u', level: 'authNoPriv', authKey: 'bad' }, { timeout: 100 });
+    assert.strictEqual(r.ok, false);
+    assert.ok(/ключ аутентификации/.test(r.error), r.error);
+  });
+  snmp.probe = realProbe;
 
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) process.exit(1);

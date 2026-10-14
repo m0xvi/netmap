@@ -1506,7 +1506,8 @@ function v3FromCfg(c) {
 async function detectV3(cfg) {
   const host = String((cfg && cfg.host) || '').trim();
   if (!host) return { ok: false, error: 'Укажите IP устройства.', tried: [] };
-  return snmpApi.detectV3(host, v3FromCfg(cfg || {}), { timeout: 1500 });
+  // v0.91.0: 2500 мс — медленные AP (Ruijie) не успевают ответить за 1500 мс.
+  return snmpApi.detectV3(host, v3FromCfg(cfg || {}), { timeout: 2500 });
 }
 
 async function test(cfg) {

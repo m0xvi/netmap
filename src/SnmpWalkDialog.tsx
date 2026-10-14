@@ -57,6 +57,8 @@ function SnmpWalkDialog({ initialHost, onClose }: { initialHost: string; onClose
   const [busy, setBusy] = useState<'' | 'probe' | 'detect' | 'walk' | 'save'>('');
   const [msg, setMsg] = useState<{ kind: 'info' | 'ok' | 'err'; text: string } | null>(null);
   const [walk, setWalk] = useState<SnmpWalkResult | null>(null);
+  // v0.91.0: список проверенных комбинаций SNMPv3 (что именно пробовали).
+  const [checks, setChecks] = useState<string[]>([]);
 
   const root = rootPick === 'custom' ? rootCustom.trim() : rootPick;
   const native = hasNetTools();
@@ -96,13 +98,20 @@ function SnmpWalkDialog({ initialHost, onClose }: { initialHost: string; onClose
 
   const doDetect = async () => {
     if (needHost()) return;
-    setBusy('detect'); setMsg({ kind: 'info', text: 'Перебираю протоколы SNMPv3 (до 8 комбинаций)…' });
+    setBusy('detect'); setChecks([]);
+    setMsg({ kind: 'info', text: 'Перебираю уровни и протоколы SNMPv3: без аутентификации, аутентификация (MD5/SHA/SHA-256/SHA-512) и шифрование (DES/AES/AES-256). Это может занять до минуты…' });
     const r = await snmpDetectV3({ ...cfg(), snmpVersion: '3' });
     setBusy('');
+    setChecks(r.checks || []);
     if (r.ok) {
+      if (r.level) setV3Level(r.level);
       if (r.authProtocol) setV3AuthProto(r.authProtocol);
       if (r.privProtocol) setV3PrivProto(r.privProtocol);
-      setMsg({ kind: 'ok', text: `Подошло: аутентификация ${r.authProtocol || '—'}, шифрование ${r.privProtocol || '—'}${r.sysName ? `. Устройство: ${r.sysName}` : ''}.` });
+      const lvl = r.level === 'noAuthNoPriv' ? 'без аутентификации' : r.level === 'authNoPriv' ? 'аутентификация без шифрования' : 'аутентификация и шифрование';
+      setMsg({
+        kind: r.authOnly ? 'err' : 'ok',
+        text: `Подошло: уровень «${lvl}», аутентификация ${r.authProtocol || '—'}, шифрование ${r.privProtocol || '—'}${r.sysName ? `. Устройство: ${r.sysName}` : ''}.${r.warning ? ` ⚠ ${r.warning}` : ''}${r.authOnly ? '' : ' Настройки подставлены в поля выше — можно делать walk.'}`,
+      });
     } else {
       setMsg({ kind: 'err', text: r.error || 'Ни одна комбинация не подошла.' });
     }
@@ -268,6 +277,15 @@ function SnmpWalkDialog({ initialHost, onClose }: { initialHost: string; onClose
 
         {msg && (
           <div style={msg.kind === 'err' ? errBox : msg.kind === 'ok' ? okBox : infoBox}>{msg.text}</div>
+        )}
+
+        {checks.length > 0 && (
+          <details style={{ fontSize: 12, color: '#334155' }}>
+            <summary style={{ cursor: 'pointer' }}>Проверено комбинаций: {checks.length} (нажмите, чтобы посмотреть)</summary>
+            <ul style={{ margin: '6px 0 0 18px', padding: 0, lineHeight: 1.6 }}>
+              {checks.map((c, i) => <li key={i}>{c}</li>)}
+            </ul>
+          </details>
         )}
 
         {walk?.ok && walk.rows && (

@@ -136,7 +136,13 @@ export interface DetectV3Result {
   sysName?: string;
   sysDescr?: string;
   error?: string;
-  tried?: Array<{ authProtocol: string; privProtocol: string; ok: boolean; error: string }>;
+  /** v0.91.0: уровень, на котором устройство ответило. */
+  level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+  authOnly?: boolean;
+  warning?: string;
+  tried?: Array<{ level?: string; authProtocol: string; privProtocol: string; ok: boolean; kind?: string; error: string }>;
+  /** Человекочитаемый список проверенных комбинаций. */
+  checks?: string[];
 }
 
 /** v0.76.9: подбор протокола SNMPv3 (MD5/SHA/SHA-2 и AES/DES) по введённым user/ключам. */

@@ -19,9 +19,10 @@ export interface SshKeyResult {
   publicLine?: string;
   fingerprint?: string;
   encrypted?: boolean;
+  type?: string;
 }
 
-export async function sshKeyGenerate(cfg: { comment?: string; passphrase?: string }): Promise<SshKeyResult> {
+export async function sshKeyGenerate(cfg: { type?: 'rsa' | 'ed25519'; comment?: string; passphrase?: string }): Promise<SshKeyResult> {
   if (typeof w.netmap?.sshKeyGenerate !== 'function') return { ok: false, error: NO_BACKEND };
   return w.netmap.sshKeyGenerate(cfg);
 }
@@ -77,6 +78,14 @@ export interface SnmpDetectResult {
   privProtocol?: string;
   sysName?: string;
   sysDescr?: string;
+  /** v0.91.0: уровень, на котором устройство ответило. */
+  level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+  /** Аутентификация подошла, но читать данные нельзя (VACM). */
+  authOnly?: boolean;
+  warning?: string;
+  tried?: Array<{ level: string; authProtocol: string; privProtocol: string; ok: boolean; kind: string; error: string }>;
+  /** Человекочитаемый список проверенных комбинаций. */
+  checks?: string[];
 }
 
 export interface SnmpWalkResult {

@@ -119,6 +119,8 @@ const V3_ERRORS = [
   [/Decryption Error/i, 'SNMPv3: ошибка расшифровки. Неверный ключ шифрования (priv) или протокол шифрования (DES/AES).'],
   [/Unsupported Security Level/i, 'SNMPv3: устройство не поддерживает выбранный уровень безопасности. Попробуйте уровень authNoPriv или authPriv.'],
   [/Not In Time Window/i, 'SNMPv3: расхождение времени с устройством. Повторите попытку.'],
+  // v0.91.0: логин и протокол приняты, но устройство (VACM/view) не даёт читать эту ветку.
+  [/authorizationError|AuthorizationError|error-status 16/i, 'SNMPv3: логин и протокол приняты, но устройство запрещает читать эту ветку (VACM: у пользователя нет права чтения). Выберите другую ветку или дайте пользователю право чтения на устройстве.'],
 ];
 function humanizeError(msg, v3) {
   const text = String(msg || '');
@@ -284,33 +286,115 @@ async function tableSafe(host, community, rootOid, opts) {
 // v0.76.9: подбор протокола SNMPv3. Пробуем комбинации auth×priv от самой частой
 // к редкой; первый успешный ответ фиксирует протокол. Неверный протокол обычно
 // отвечает «Wrong Digest» почти мгновенно, молчащий агент режется таймаутом.
+// v0.91.0: перебираем и уровни безопасности (сначала выбранный), а ответ
+// «нет права чтения» (authorizationError) считаем признаком верного логина и протокола.
+// Итог при неудаче — сводка причин по всем проверкам, а не одна строка.
 const V3_AUTH_CANDIDATES = ['sha', 'md5', 'sha256', 'sha512'];
-const V3_PRIV_CANDIDATES = ['aes', 'des'];
+const V3_PRIV_CANDIDATES = ['aes', 'des', 'aes256b', 'aes256r'];
+const V3_LEVELS = ['authPriv', 'authNoPriv', 'noAuthNoPriv'];
+
+/** Класс ошибки SNMPv3 по тексту (сырой текст библиотеки сохраняется в скобках после перевода). */
+function classifyV3Error(text) {
+  const t = String(text || '');
+  if (/authorizationError|AuthorizationError|error-status 16/i.test(t)) return 'access';
+  if (/Wrong Digest/i.test(t)) return 'digest';
+  if (/Decryption Error/i.test(t)) return 'priv';
+  if (/Unknown User Name/i.test(t)) return 'user';
+  if (/Unsupported Security Level/i.test(t)) return 'level';
+  if (/Unknown Engine ID|Not In Time Window/i.test(t)) return 'engine';
+  if (/timed out|timeout|нет ответа/i.test(t)) return 'timeout';
+  return 'other';
+}
+
+const V3_KIND_TEXT = {
+  timeout: 'устройство не отвечает на SNMP (выключен SNMP, другой порт, фаервол/ACL или слишком медленный ответ)',
+  digest: 'неверный ключ аутентификации или протокол аутентификации',
+  priv: 'неверный ключ шифрования или протокол шифрования (DES/AES)',
+  user: 'такого пользователя нет на устройстве',
+  level: 'устройство не поддерживает проверенный уровень безопасности',
+  engine: 'рассинхронизация engine ID или времени с устройством',
+  access: 'логин и протокол приняты, но прав на чтение нет (VACM)',
+  other: 'другая ошибка',
+};
+
+const V3_LEVEL_TEXT = { authPriv: 'authPriv (шифрование)', authNoPriv: 'authNoPriv (без шифрования)', noAuthNoPriv: 'noAuthNoPriv (без ключей)' };
+const V3_KIND_SHORT = {
+  timeout: 'нет ответа', digest: 'неверный ключ или протокол auth', priv: 'неверный ключ или протокол priv',
+  user: 'такого пользователя нет', level: 'уровень не поддерживается', engine: 'engine ID или время',
+  access: 'вход принят, но нет прав на чтение (VACM)', other: 'ошибка',
+};
+/** Одна строка для пользователя: комбинация и результат. */
+function describeCheck(t) {
+  const parts = [V3_LEVEL_TEXT[t.level] || t.level];
+  if (t.authProtocol) parts.push('auth ' + t.authProtocol.toUpperCase());
+  if (t.privProtocol) parts.push('priv ' + t.privProtocol.toUpperCase());
+  const res = t.ok ? 'ответ получен' : (V3_KIND_SHORT[t.kind] || V3_KIND_SHORT.other);
+  return `${parts.join(', ')} — ${res}`;
+}
+
+/** Сводка по списку проверок: какая причина встречалась чаще всего. */
+function summarizeV3(tried) {
+  const counts = {};
+  for (const t of tried) counts[t.kind] = (counts[t.kind] || 0) + 1;
+  const top = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  const other = tried.find(t => t.kind === 'other');
+  const tail = top === 'other' && other ? ` (${other.error})` : '';
+  return `Ни одна из ${tried.length} проверок не прошла. Чаще всего: ${V3_KIND_TEXT[top] || V3_KIND_TEXT.other}${tail}.`;
+}
+
 async function detectV3(host, v3Base, opts = {}) {
-  const level = v3Base.level || 'authNoPriv';
-  const authList = level === 'noAuthNoPriv' ? [null] : V3_AUTH_CANDIDATES;
-  const privList = level === 'authPriv' ? V3_PRIV_CANDIDATES : [null];
+  const api = module.exports; // через exports, чтобы тесты могли подменить probe
+  const selected = V3_LEVELS.includes(v3Base.level) ? v3Base.level : 'authNoPriv';
+  const levels = [selected, ...V3_LEVELS.filter(l => l !== selected)];
+  const timeout = opts.timeout || 2500;
   const tried = [];
-  for (const a of authList) {
-    for (const p of privList) {
-      const v3 = {
-        ...v3Base,
-        ...(a ? { authProtocol: a } : {}),
-        ...(p ? { privProtocol: p } : {}),
-      };
-      const r = await probe(host, '', { timeout: opts.timeout || 1500, retries: 0, snmpVersion: '3', v3 });
-      tried.push({ authProtocol: a || '', privProtocol: p || '', ok: !!r.ok, error: r.ok ? '' : r.error });
-      if (r.ok) {
-        return { ok: true, authProtocol: a || '', privProtocol: p || '', sysName: r.sysName || '', sysDescr: r.sysDescr || '', tried };
+  const finish = (extra) => ({ ...extra, tried, checks: tried.map(describeCheck) });
+  let timeouts = 0;
+  for (const level of levels) {
+    const authList = level === 'noAuthNoPriv' ? [null] : V3_AUTH_CANDIDATES;
+    const privList = level === 'authPriv' ? V3_PRIV_CANDIDATES : [null];
+    for (const a of authList) {
+      for (const p of privList) {
+        const v3 = {
+          ...v3Base,
+          level,
+          ...(a ? { authProtocol: a } : {}),
+          ...(p ? { privProtocol: p } : {}),
+        };
+        const r = await api.probe(host, '', { timeout, retries: 1, snmpVersion: '3', v3 });
+        if (r.ok) {
+          tried.push({ level, authProtocol: a || '', privProtocol: p || '', ok: true, kind: 'ok', error: '' });
+          return finish({
+            ok: true, level, authProtocol: a || '', privProtocol: p || '',
+            sysName: r.sysName || '', sysDescr: r.sysDescr || '',
+          });
+        }
+        const kind = classifyV3Error(r.error);
+        tried.push({ level, authProtocol: a || '', privProtocol: p || '', ok: false, kind, error: r.error || '' });
+        if (kind === 'access') {
+          // Аутентификация прошла: протокол и ключ верны, не хватает только прав на ветку.
+          return finish({
+            ok: true, authOnly: true, level, authProtocol: a || '', privProtocol: p || '',
+            sysName: '', sysDescr: '',
+            warning: 'Логин и протокол подошли, но устройство не даёт этому пользователю читать system (VACM). Дайте право чтения на устройстве или выберите другой уровень.',
+          });
+        }
+        // Имени пользователя нет на устройстве — остальные комбинации бессмысленны.
+        if (kind === 'user') return finish({ ok: false, error: summarizeV3(tried) });
+        timeouts = kind === 'timeout' ? timeouts + 1 : 0;
+        // Три таймаута подряд: агент SNMPv3 молчит, перебирать дальше бессмысленно.
+        if (timeouts >= 3) return finish({ ok: false, error: summarizeV3(tried) });
       }
     }
   }
-  return { ok: false, error: 'Ни одна комбинация протоколов не подошла. Проверьте имя пользователя, ключ и уровень безопасности.', tried };
+  return finish({ ok: false, error: summarizeV3(tried) });
 }
 
 module.exports = {
   OID,
   detectV3,
+  classifyV3Error,
+  describeCheck,
   humanizeError,
   get,
   walk,
