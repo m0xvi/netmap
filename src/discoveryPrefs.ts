@@ -1,9 +1,11 @@
 // v0.77.0: настройки автообнаружения, которые запоминаются между открытиями диалога,
 // и разбор ручного списка SNMP-хостов.
 //
-// В localStorage НИКОГДА не попадают секреты: пароли SSH, community, ключи и пароли
-// SNMPv3, passphrase SSH-ключа. Сохраняем только логины, адреса, режимы, фильтры
-// и подобранные протоколы SNMPv3 (MD5/SHA/AES — не секреты).
+// v0.97.0: по требованию пользователя SNMP-секреты (community и ключи SNMPv3)
+// СОХРАНЯЮТСЯ в localStorage, чтобы не вводить их при каждом скане. Это осознанный
+// компромисс удобства и безопасности: localStorage — открытый текст на диске ПК.
+// Пароль SSH и passphrase SSH-ключа по-прежнему не сохраняем; для них есть Vault.
+// Сохраняем также логины, адреса, режимы, фильтры и подобранные протоколы SNMPv3.
 
 export type V3AuthProto = 'md5' | 'sha' | 'sha256' | 'sha512';
 export type V3PrivProto = 'des' | 'aes' | 'aes256b' | 'aes256r';
@@ -23,6 +25,10 @@ export interface DiscoveryPrefs {
   v3Level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
   v3AuthProto?: V3AuthProto;
   v3PrivProto?: V3PrivProto;
+  /** v0.97.0: SNMP-секреты по требованию пользователя (открытый текст в localStorage). */
+  snmpCommunity?: string;
+  v3AuthKey?: string;
+  v3PrivKey?: string;
   snmpSweep?: boolean;
   snmpRecursive?: boolean;
   snmpMaxHops?: number;
@@ -65,6 +71,9 @@ export function sanitizePrefs(raw: unknown): DiscoveryPrefs {
   const lvl = pick(o.v3Level, V3_LEVELS); if (lvl) out.v3Level = lvl;
   const ap = pick(o.v3AuthProto, V3_AUTH); if (ap) out.v3AuthProto = ap;
   const pp = pick(o.v3PrivProto, V3_PRIV); if (pp) out.v3PrivProto = pp;
+  const comm = str(o.snmpCommunity); if (comm != null) out.snmpCommunity = comm;
+  const ak = str(o.v3AuthKey); if (ak != null) out.v3AuthKey = ak;
+  const pk = str(o.v3PrivKey); if (pk != null) out.v3PrivKey = pk;
   const sw = bool(o.snmpSweep); if (sw != null) out.snmpSweep = sw;
   const rec = bool(o.snmpRecursive); if (rec != null) out.snmpRecursive = rec;
   if (typeof o.snmpMaxHops === 'number' && [1, 2, 3].includes(o.snmpMaxHops)) out.snmpMaxHops = o.snmpMaxHops;

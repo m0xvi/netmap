@@ -98,11 +98,15 @@ t('ручной список хостов: IP, диапазон, CIDR, мусо�
   assert.ok(prefs.parseHostList('10.0.0.0/16').errors.length === 1);
 });
 
-t('настройки: секреты не сохраняются, мусор отбрасывается', () => {
-  const s = prefs.sanitizePrefs({ password: 'x', community: 'public', mode: 'evil', host: '10.0.0.1',
+t('настройки: SNMP-секреты сохраняются (v0.97.0), SSH-пароль — нет, мусор отбрасывается', () => {
+  const s = prefs.sanitizePrefs({ password: 'x', community: 'public', snmpCommunity: 'office-ro',
+    v3AuthKey: 'authkey1', v3PrivKey: 42, mode: 'evil', host: '10.0.0.1',
     v3Protocols: { '10.0.0.1': { auth: 'sha', priv: 'aes', authKey: 'SECRET' }, bad: { auth: 'nope' } },
     excludedVlans: [1, 'x', 5000, 20] });
   assert.ok(!('password' in s) && !('community' in s));
+  assert.strictEqual(s.snmpCommunity, 'office-ro');
+  assert.strictEqual(s.v3AuthKey, 'authkey1');
+  assert.strictEqual(s.v3PrivKey, undefined);
   assert.strictEqual(s.mode, undefined);
   assert.deepStrictEqual(s.v3Protocols, { '10.0.0.1': { auth: 'sha', priv: 'aes' } });
   assert.deepStrictEqual(s.excludedVlans, [1, 20]);
@@ -531,6 +535,18 @@ t('мастер: память ответов — запоминание, пре�
   const big = {};
   for (let i = 0; i < 600; i++) big['M' + i] = { name: 'n' + i };
   assert.strictEqual(Object.keys(wiz.sanitizeMemory(big, WKIND)).length, 500);
+});
+
+t('имена VLAN из MikroTik попадают в результат — мастер их не спрашивает', async () => {
+  const mt = mtFix({ vlanNames: { 2: 'vlan-office', 9: 'HW' },
+    fdb: [{ mac: '00:11:22:33:44:88', onIface: 'ether2', vlan: 2 }] });
+  const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.1', mt, snmpResults: [] });
+  assert.strictEqual((r.vlans.find(v => v.id === 2) || {}).name, 'vlan-office');
+  assert.strictEqual((r.vlans.find(v => v.id === 9) || {}).name, 'HW');
+  const ws = wiz.buildWizardSteps(r, { kindOptions: ['switch', 'router', 'gateway'], memory: {} });
+  const vlanStep = ws.find(st => st.step === 'vlan');
+  assert.ok(!vlanStep || !vlanStep.items.some(i => i.key === '2' || i.key === '9'),
+    'названные VLAN не должны попадать в вопросы мастера');
 });
 
 (async () => {

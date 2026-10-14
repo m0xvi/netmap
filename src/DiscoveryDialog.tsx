@@ -403,7 +403,11 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [port, setPort] = useState<number>(prefs0.port ?? 22);
   const [username, setUsername] = useState(prefs0.username ?? 'admin');
   const [password, setPassword] = useState('');
-  const [community, setCommunity] = useState('public');
+  // v0.97.0: SNMP-учётки запоминаются (по требованию пользователя) и подставляются обратно.
+  const [community, setCommunity] = useState(prefs0.snmpCommunity ?? 'public');
+  // Сворачиваемый блок SNMP-учёток: если данные уже сохранены — по умолчанию свёрнут,
+  // чтобы список найденных устройств был виднее.
+  const [snmpCredsOpen, setSnmpCredsOpen] = useState(() => !(prefs0.snmpCommunity || prefs0.v3AuthKey));
   // v0.75.1: SNMPv3 (USM) — версия, пользователь, auth/priv.
   const [snmpVersion, setSnmpVersion] = useState<'1' | '2c' | '3'>('2c');
   const [v3User, setV3User] = useState(prefs0.v3User ?? 'admin');
@@ -414,9 +418,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [v3DetectMsg, setV3DetectMsg] = useState<string>('');
   // v0.91.0: список проверенных комбинаций SNMPv3 (что именно пробовали).
   const [v3Checks, setV3Checks] = useState<string[]>([]);
-  const [v3AuthKey, setV3AuthKey] = useState('');
+  const [v3AuthKey, setV3AuthKey] = useState(prefs0.v3AuthKey ?? '');
   const [v3PrivProto, setV3PrivProto] = useState<'des' | 'aes' | 'aes256b' | 'aes256r'>(prefs0.v3PrivProto ?? 'aes');
-  const [v3PrivKey, setV3PrivKey] = useState('');
+  const [v3PrivKey, setV3PrivKey] = useState(prefs0.v3PrivKey ?? '');
   // v0.76.4: SSH-ключ (PEM) и passphrase — из vault-кнопки; едут в scan().
   const [sshKeyPem, setSshKeyPem] = useState('');
   // v0.76.7: путь к файлу приватного ключа (раньше поддерживался только PEM из vault).
@@ -508,11 +512,13 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   useEffect(() => {
     saveDiscoveryPrefs({
       mode, host, port, username, snmpVersion, v3User, v3Level, v3AuthProto, v3PrivProto,
+      snmpCommunity: community, v3AuthKey, v3PrivKey,
       snmpSweep, snmpRecursive, snmpMaxHops, manualHosts,
       excludedCidrs: Array.from(excludedCidrs), excludedVlans: Array.from(excludedVlans),
       v3Protocols,
     });
   }, [mode, host, port, username, snmpVersion, v3User, v3Level, v3AuthProto, v3PrivProto,
+      community, v3AuthKey, v3PrivKey,
       snmpSweep, snmpRecursive, snmpMaxHops, manualHosts, excludedCidrs, excludedVlans, v3Protocols]);
 
   // v0.77.0: для известного хоста подставляем подобранный ранее протокол SNMPv3.
@@ -758,9 +764,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
    * их по SNMP вместе с уже опрошенными хостами. Решения по устройствам, связям
    * и именам переносим на новый результат (по IP/MAC).
    */
-  async function onScanHubs() {
+  async function onScanHubs(
+    ipsOverride?: string[],
+    carry?: { ke: Record<string, DeviceKind>; ne: Record<string, string> },
+  ) {
     if (!scan) return;
-    const picked = (scan.hubCandidates ?? []).filter(h => hubPick[h.ip]).map(h => h.ip);
+    const picked = Array.isArray(ipsOverride)
+      ? ipsOverride
+      : (scan.hubCandidates ?? []).filter(h => hubPick[h.ip]).map(h => h.ip);
     if (picked.length === 0) return;
     const prev = scan;
     const seeds = Array.from(new Set([...(prev.scannedHosts ?? []), ...picked]));
@@ -786,8 +797,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
       for (const d of prev.proposedDevices) {
         const k = devKey(d);
         oldPick.set(k, devPick[d.tempId] !== false);
-        if (nameEdits[d.tempId] != null) oldName.set(k, nameEdits[d.tempId]);
-        if (kindEdits[d.tempId] != null) oldKind.set(k, kindEdits[d.tempId]);
+        const effNe = carry?.ne ?? nameEdits;
+        const effKe = carry?.ke ?? kindEdits;
+        if (effNe[d.tempId] != null) oldName.set(k, effNe[d.tempId]);
+        if (effKe[d.tempId] != null) oldKind.set(k, effKe[d.tempId]);
       }
       const oldLinkPick = new Map<string, boolean>();
       for (const l of prev.proposedLinks) oldLinkPick.set(linkKey(l, prevKeyOfTemp), linkPick[l.tempId] !== false);
@@ -1030,6 +1043,17 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const wizardInitial = useMemo(() => defaultAnswers(wizardSteps), [wizardSteps]);
   const wizardCount = wizardSteps.reduce((n, st) => n + st.items.length, 0);
 
+  // v0.97.0: мастер запускается сам (принудительно), как только скан показал результат,
+  // а не кнопкой из окна автообнаружения. Один раз на каждый новый результат; после
+  // опроса следующего уровня топологии откроется снова — уже с новыми вопросами.
+  const wizardAutoShown = useRef<DiscoveryScanResult | null>(null);
+  useEffect(() => {
+    if (phase !== 'review' || !scan) return;
+    if (wizardAutoShown.current === scan) return;
+    wizardAutoShown.current = scan;
+    if (wizardCount > 0) setWizardOpen(true);
+  }, [phase, scan, wizardCount]);
+
   // v0.87.0: ответы мастера переводятся в существующие правки. Ничего не применяется
   // в базу: это делает кнопка «Применить выбранное», как и раньше.
   function onWizardFinish(answers: WizardAnswers) {
@@ -1067,6 +1091,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     });
     saveWizardMemory(rememberAnswers(loadWizardMemory(ALL_KINDS), wizardScan, answers), ALL_KINDS);
     setWizardOpen(false);
+    // v0.97.0: устройства, распознанные как switch/router, опрашиваем сразу после
+    // мастера — так строится следующий уровень топологии. Правки мастера переносим
+    // явно: setState ещё не применился, стейт в onScanHubs был бы вчерашним.
+    if (fx.hubs.length) {
+      const ke = { ...kindEdits, ...(fx.kinds as Record<string, DeviceKind>) };
+      const ne = { ...nameEdits, ...fx.names };
+      void onScanHubs(fx.hubs, { ke, ne });
+    }
   }
 
   const exclCidrArr = useMemo(() => Array.from(excludedCidrs), [excludedCidrs]);
@@ -1325,10 +1357,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
           </div>
           {phase === 'review' && scan && (
             <>
-              <button style={S.btnSecondary} disabled={wizardCount === 0} onClick={() => setWizardOpen(true)}
-                title={wizardCount === 0 ? 'Вопросов нет: всё найдено однозначно или уже уточнено' : 'Ответьте на вопросы о неясных местах результата'}>
-                Мастер уточнений{wizardCount > 0 ? ` (${wizardCount})` : ''}
-              </button>
+              {/* v0.97.0: кнопки мастера в шапке нет — он открывается сам после скана */}
               <div style={{ position: 'relative' }}>
                 <button className="icon-btn" onClick={() => setExportOpen(o => !o)} title="Скачать отчёт"><DIcon n="download" size={18} /></button>
                 {exportOpen && (
@@ -1502,6 +1531,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                 )}
                 {(mode === 'snmp' || mode === 'both') && (
                   <>
+                    {/* v0.97.0: учётные данные SNMP сворачиваются — список найденных устройств важнее */}
+                    <button type="button" style={{ ...S.btnSecondary, gridColumn: 'span 2', justifySelf: 'start' }}
+                      onClick={() => setSnmpCredsOpen(o => !o)}
+                      title="Показать или скрыть community и ключи SNMPv3. Они запоминаются и подставляются при следующем открытии.">
+                      {snmpCredsOpen ? '▾ Учётные данные SNMP' : '▸ Учётные данные SNMP (сохранены)'}
+                    </button>
+                    {snmpCredsOpen && (
+                    <>
                     {/* v0.75.1: выбор версии SNMP; v3 — свои поля USM. */}
                     <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 12 }}>Версия SNMP</span>
@@ -1573,6 +1610,11 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                         values={{ community }}
                         onApply={v => { if (v.community != null) setCommunity(v.community); }}
                       />
+                    </div>
+                    </>
+                    )}
+                    <div style={{ gridColumn: 'span 2', fontSize: 11, color: '#64748b' }}>
+                      Community и ключи SNMPv3 запоминаются на этом компьютере и подставляются при следующем открытии. Применяется один набор учёток на весь скан: на всех устройствах должны быть одинаковые community / пользователь SNMPv3 (протоколы MD5/SHA/AES для каждого хоста подбираются и запоминаются отдельно).
                     </div>
                     <label style={{ ...S.label, gridColumn: 'span 2', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <input type="checkbox" checked={snmpSweep} onChange={e => setSnmpSweep(e.target.checked)} />
@@ -1949,7 +1991,7 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
                   <button style={S.btnPrimary}
                     disabled={!(scan!.hubCandidates ?? []).some(h => hubPick[h.ip])}
-                    onClick={onScanHubs}>
+                    onClick={() => { void onScanHubs(); }}>
                     Опросить выбранные ({(scan!.hubCandidates ?? []).filter(h => hubPick[h.ip]).length})
                   </button>
                   <button style={S.btnSecondary}

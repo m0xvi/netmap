@@ -534,6 +534,13 @@ async function collectMikrotik(cfg, opts) {
       const vid = out.vlanIfaceByName[a.interface];
       if (vid != null) out.subnetVlans.push({ cidr: a.cidr, vlanId: vid, iface: a.interface });
     }
+    // v0.97.0: имя VLAN из комментария адреса на VLAN-интерфейсе MikroTik
+    // (например /ip address comment="Бухгалтерия" на vlan-office) — ещё один
+    // источник имени, если у самого VLAN-интерфейса имя/комментарий не заданы.
+    for (const a of out.addresses) {
+      const vid = out.vlanIfaceByName[a.interface];
+      if (vid != null && a.comment && !out.vlanNames[vid]) out.vlanNames[vid] = a.comment;
+    }
     // v0.53.0: VLAN на switch-chip (CRS1xx/2xx и др., где bridge vlan table
     // пуста). Таблица switch vlan — только для ПЕРЕЧИСЛЕНИЯ id: колонка
     // ports включает и транки, маппить порт→VLAN по ней нельзя.
