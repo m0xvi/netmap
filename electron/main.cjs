@@ -114,6 +114,11 @@ function getRdp() {
   if (!rdpApi) rdpApi = require('./rdp.cjs');
   return rdpApi;
 }
+let netToolsApi = null;
+function getNetTools() {
+  if (!netToolsApi) netToolsApi = require('./netTools.cjs');
+  return netToolsApi;
+}
 function getDiscovery() {
   if (!discoveryApi) discoveryApi = require('./discovery.cjs');
   return discoveryApi;
@@ -269,6 +274,13 @@ function registerIpc() {
   ipcMain.handle('netmap:discoveryCancel', safeInvoke(() => getDiscovery().cancelScan()));
   // v0.76.9: подбор протокола SNMPv3 (auth/priv) по форме
   ipcMain.handle('netmap:discoveryDetectV3', safeInvoke((_e, cfg) => getDiscovery().detectV3(cfg)));
+
+  // ---- v0.90.0: сетевые утилиты — SSH-ключ для этого ПК, сохранение файла, SNMP walk ----
+  ipcMain.handle('netmap:sshKeyGenerate', safeInvoke((_e, cfg) => getNetTools().sshKeyGenerate(cfg)));
+  ipcMain.handle('netmap:saveTextFile', safeInvoke((e, opts) => getNetTools().saveTextFile(BrowserWindow.fromWebContents(e.sender), opts)));
+  ipcMain.handle('netmap:snmpProbe', safeInvoke((_e, cfg) => getNetTools().snmpProbe(cfg)));
+  ipcMain.handle('netmap:snmpDetectV3', safeInvoke((_e, cfg) => getNetTools().snmpDetectV3(cfg)));
+  ipcMain.handle('netmap:snmpWalk', safeInvoke((_e, cfg) => getNetTools().snmpWalk(cfg)));
 
   // ---- v0.36.2: auto-updater (electron-updater + GitHub Releases) ----
   ipcMain.handle('netmap:updateCheck',    safeInvoke(() => getUpdater().checkNow()));

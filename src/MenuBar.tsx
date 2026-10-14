@@ -417,6 +417,12 @@ function ToolsMenu({ onClose, onMikrotik, onImport, onDiscovery }: {
       <Section>Диагностика</Section>
       <Item label="Traceroute…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-traceroute', { detail: {} })); }} />
+      <Item label="SNMP walk (проверка связи)…" shortcut=""
+            onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-snmp-walk', { detail: {} })); }} />
+      <Separator />
+      <Section>Ключи доступа</Section>
+      <Item label="SSH-ключ для этого ПК…" shortcut=""
+            onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-ssh-key')); }} />
     </>
   );
 }
@@ -444,6 +450,8 @@ function MonitorMenu({ onClose }: { onClose: () => void }) {
 function HelpMenu({ onClose }: { onClose: () => void }) {
   return (
     <>
+      <Item label="Что нового в этой версии…" shortcut=""
+            onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-whats-new')); }} />
       <Item label="Показать введение (onboarding)…" shortcut=""
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('netmap:open-onboarding')); }} />
       <Item label="Помощь · горячие клавиши" shortcut="F1"

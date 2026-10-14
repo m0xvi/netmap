@@ -80,6 +80,12 @@ contextBridge.exposeInMainWorld('netmap', {
 
   // Ping monitor
   ping:      (host, opts) => ipcRenderer.invoke('netmap:ping', host, opts),
+  // v0.90.0: сетевые утилиты
+  sshKeyGenerate: (cfg) => ipcRenderer.invoke('netmap:sshKeyGenerate', cfg),
+  saveTextFile:   (opts) => ipcRenderer.invoke('netmap:saveTextFile', opts),
+  snmpProbe:      (cfg) => ipcRenderer.invoke('netmap:snmpProbe', cfg),
+  snmpDetectV3:   (cfg) => ipcRenderer.invoke('netmap:snmpDetectV3', cfg),
+  snmpWalk:       (cfg) => ipcRenderer.invoke('netmap:snmpWalk', cfg),
   pingBatch: (items, opts) => ipcRenderer.invoke('netmap:pingBatch', items, opts),
 
   // MikroTik REST importer

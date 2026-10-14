@@ -21,7 +21,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { alertDialog, confirmDialog } from './Modal';
+import { alertDialog, confirmDialog, promptText } from './Modal';
 import {
   vaultList, vaultGet, vaultUpsert, vaultStatus, vaultUnlock, vaultDelete,
   vaultFoldersAll, vaultFolderUpsert,
@@ -355,6 +355,25 @@ function fmtTime(ms: number | null | undefined): string {
   catch { return '—'; }
 }
 
+/** v0.90.0: что хранится в записи — только названия полей, без значений. */
+function contentsOf(it: VaultItemFull): string[] {
+  const f = it.fields || {};
+  const out: string[] = [];
+  if (it.username) out.push('логин');
+  if (it.password) out.push('пароль');
+  if (f['port']) out.push('порт');
+  if (it.sshKey || f['sshKey']) out.push('SSH-ключ (текст)');
+  if (it.sshKeyPath || f['sshKeyPath']) out.push('путь к ключу');
+  if (it.sshPassphrase || f['sshPassphrase']) out.push('пароль к ключу');
+  if (it.totpSecret) out.push('2FA-код');
+  if (it.notes) out.push('заметки');
+  for (const k of Object.keys(f)) {
+    if (['port', 'sshKey', 'sshKeyPath', 'sshPassphrase'].includes(k) || !f[k]) continue;
+    out.push(k);
+  }
+  return out;
+}
+
 /** Краткое содержимое записи для строки пикера (без секретов). */
 function detailsOf(it: VaultItemFull): string[] {
   const f = it.fields || {};
@@ -415,7 +434,13 @@ async function saveToVault(props: Props) {
   const hostPart = host || '(хост не указан)';
   const portPart = host && portVal ? `:${portVal}` : '';
   const userPart = inc.username ? ` · ${inc.username}` : '';
-  const name = `${props.serviceLabel} · ${hostPart}${portPart}${userPart}`;
+  // v0.90.0: название задаёт пользователь (по умолчанию — подсказка из формы).
+  const suggested = `${props.serviceLabel} · ${hostPart}${portPart}${userPart}`;
+  const typed = await promptText('Название записи в Vault', suggested,
+    'По этому названию запись будет видна в списке «Из Vault». Например «Роутер офиса — админ».');
+  if (typed === null) return;
+  const name = typed.trim().slice(0, 120);
+  if (!name) { await alertDialog('Нужно название', 'Без названия запись не сохраняется.'); return; }
   const res = await vaultUpsert({
     name,
     folder: folderId,
@@ -577,19 +602,8 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
             {m.url ? `${m.url} · ` : ''}{details}
           </span>
           {it && (
-            <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-              {props.fields.map(f => {
-                const ok = valueFromItem(it, f.key) !== '';
-                return (
-                  <span key={f.key}
-                        title={ok ? 'Поле заполнится из записи' : 'В записи этого поля нет — в форме останется как было'}
-                        style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 999,
-                                 background: ok ? '#DCFCE7' : '#F1F5F9',
-                                 color: ok ? '#166534' : '#94A3B8' }}>
-                    {f.label}: {ok ? 'заполнится' : 'нет в записи'}
-                  </span>
-                );
-              })}
+            <span style={{ display: 'block', fontSize: 10, color: '#334155', marginTop: 3 }}>
+              Содержит: {contentsOf(it).join(', ') || 'только название'}
             </span>
           )}
         </span>
@@ -625,7 +639,7 @@ function VaultPicker({ onClose, ...props }: Props & { onClose: () => void }) {
           </span>
         </div>
         <div style={{ padding: '6px 16px', fontSize: 11, color: '#64748B', borderBottom: '1px solid #F1F5F9' }}>
-          Под каждой записью видно, какие поля формы она заполнит. «нет в записи» — поле останется как было.
+          У каждой записи указано, что в ней хранится. В форму подставятся её логин, пароль, порт и ключ.
         </div>
         <div style={{ overflowY: 'auto', padding: 8 }}>
           {metas === null && (

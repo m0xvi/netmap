@@ -1295,8 +1295,8 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               {(mode === 'snmp'
                 ? ['SNMP LLDP', 'Bridge FDB', 'ARP (IP-MIB)', 'IF-MIB']
                 : mode === 'mikrotik'
-                  ? ['LLDP', 'MikroTik neighbors', 'Bridge FDB', 'ARP', 'DHCP']
-                  : ['LLDP', 'MikroTik neighbors', 'Bridge FDB', 'ARP', 'DHCP', 'SNMP']
+                  ? ['LLDP', 'Соседи', 'Bridge FDB', 'ARP', 'DHCP']
+                  : ['LLDP', 'Соседи', 'Bridge FDB', 'ARP', 'DHCP', 'SNMP']
               ).map(m => <span key={m}>{m}</span>)}
             </div>
           </div>
@@ -1360,15 +1360,24 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                   <button key={m}
                     onClick={() => setMode(m)}
                     style={{ ...S.segBtn, ...(mode === m ? S.segBtnActive : {}) }}>
-                    {m === 'mikrotik' ? 'MikroTik (SSH)' : m === 'snmp' ? 'SNMP (LLDP)' : 'Оба'}
+                    {m === 'mikrotik' ? 'SSH' : m === 'snmp' ? 'SNMP' : 'SSH + SNMP'}
                   </button>
                 ))}
               </div>
               <div style={S.hint}>
-                {mode === 'mikrotik' && 'Заходим по SSH на MikroTik, читаем /ip neighbor, /ip arp, /interface bridge host, DHCP leases (имена) и VLAN.'}
+                {mode === 'mikrotik' && 'Заходим по SSH на устройство. Сейчас SSH-режим читает MikroTik (RouterOS): соседей, ARP, таблицу MAC, DHCP-аренды (имена) и VLAN. Для других устройств используйте SNMP.'}
                 {mode === 'snmp' && 'Опрашиваем SNMP v2c: LLDP-MIB (соседи) + BRIDGE-MIB (FDB). Работает на любом managed switch/AP с включённым SNMP.'}
-                {mode === 'both' && 'MikroTik → SSH, остальные вендоры → SNMP. Результаты объединяются, дубликаты фильтруются.'}
+                {mode === 'both' && 'SSH — для MikroTik (RouterOS), SNMP — для остальных устройств. Результаты объединяются, дубликаты фильтруются.'}
               </div>
+              {(mode === 'snmp' || mode === 'both') && (
+                <div style={{ marginTop: 8 }}>
+                  {/* v0.90.0: проверка SNMP-связи отдельной утилитой (v1/v2c/v3, шифрование, walk) */}
+                  <button style={S.btnSecondary}
+                    onClick={() => window.dispatchEvent(new CustomEvent('netmap:open-snmp-walk', { detail: { host: host.trim() } }))}>
+                    Проверить SNMP утилитой (SNMP walk)…
+                  </button>
+                </div>
+              )}
             </div>
 
             <div style={S.section}>
@@ -2233,7 +2242,7 @@ function ScanProgressView({ mode, progress }: { mode: 'mikrotik' | 'snmp' | 'bot
         </div>
       )}
       {mode !== 'snmp' && (
-        <div style={{ fontSize: 12, color: '#334155' }}>MikroTik (SSH): {mtText}</div>
+        <div style={{ fontSize: 12, color: '#334155' }}>SSH (MikroTik): {mtText}</div>
       )}
       {progress.dns !== 'idle' && (
         <div style={{ fontSize: 12, color: '#334155' }}>Обратный DNS: {progress.dns === 'done' ? 'готово' : 'проверяем имена…'}</div>

@@ -23,6 +23,9 @@ import { VaultStudioHost } from './VaultStudio';
 import { SshTerminalDialogHost } from './SshTerminalDialog';
 import { UpdateBanner } from './UpdateBanner';
 import { TracerouteDialogHost } from './TracerouteDialog';
+import { SnmpWalkHost } from './SnmpWalkDialog';
+import { SshKeyHost } from './SshKeyDialog';
+import { WhatsNewHost } from './WhatsNewDialog';
 import { hydrateFromNativeBackend } from './store';
 import { hydrateTemplatesFromBackend } from './templates';
 
@@ -246,6 +249,10 @@ export default function App() {
       {/* v0.36.2: traceroute dialog — opens on `netmap:open-traceroute` event
           (fired from Inspector → Overview → Traceroute button). */}
       <TracerouteDialogHost />
+      {/* v0.90.0: сетевые утилиты и окно «Что нового» */}
+      <SnmpWalkHost />
+      <SshKeyHost />
+      <WhatsNewHost />
       {/* v0.38: fullscreen overlay shown when vault auto-locks from idle */}
       <VaultAutoLockOverlay />
       {/* v0.40: fullscreen Vault Studio (Ctrl+K) */}

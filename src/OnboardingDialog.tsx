@@ -482,7 +482,7 @@ function Illu5_AutoDiscovery() {
       ))}
       {/* Label at bottom */}
       <text x="150" y="210" fontSize="10" fontWeight="700" fill="#3b82f6" textAnchor="middle">
-        LLDP · SNMP · MikroTik neighbors
+        LLDP · SNMP · соседи устройств
       </text>
     </svg>
   );

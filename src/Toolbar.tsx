@@ -412,10 +412,11 @@ function toolIconBtn(active: boolean): React.CSSProperties {
 }
 
 const viewButton: React.CSSProperties = { background: '#F8FAFC', border: '1px solid #CBD5E1', color: '#334155', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' };
-const viewsMenu: React.CSSProperties = { minWidth: 230 };
+// v0.90.0: ширина по рамке меню (PortalMenu задаёт 230 с padding 6). Раньше minWidth 230 выталкивал «Legacy» за край.
+const viewsMenu: React.CSSProperties = { width: '100%', boxSizing: 'border-box', minWidth: 0 };
 const viewsTitle: React.CSSProperties = { padding: '5px 8px', fontSize: 9, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4 };
 const viewItem: React.CSSProperties = { display: 'block', width: '100%', background: 'transparent', border: 0, color: '#1E293B', padding: '7px 8px', borderRadius: 5, textAlign: 'left', cursor: 'pointer', fontSize: 11 };
-const viewModeRow: React.CSSProperties = { display: 'flex', gap: 4, padding: '0 4px 4px' };
+const viewModeRow: React.CSSProperties = { display: 'flex', gap: 4, padding: '0 4px 4px', boxSizing: 'border-box', minWidth: 0 };
 const viewModeChoice: React.CSSProperties = { flex: 1, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#64748B', borderRadius: 5, padding: '5px 6px', cursor: 'pointer', fontSize: 10 };
 const viewModeChoiceActive: React.CSSProperties = { background: '#EFF6FF', borderColor: '#93C5FD', color: '#1D4ED8', fontWeight: 700 };
 const savedRow: React.CSSProperties = { display: 'flex', alignItems: 'center' };
