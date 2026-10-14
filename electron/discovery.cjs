@@ -1190,6 +1190,11 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
     // DHCP-лиза по MAC или IP может дать имя лучше предложенного.
     let effName = name || '', effSrc = nameSrc || (ip ? 'ip' : 'mac');
     const lease = leaseFor(mac, ip);
+    // v0.93.0: лиза знает IP и MAC устройства, даже если ARP/FDB их не дали
+    // (клиент виден в FDB коммутатора, но в ARP роутера его нет). Без этого
+    // устройство оставалось без IP при живом имени из лизы.
+    const leaseIp = (lease && lease.ip) || '';
+    const leaseMac = (lease && lease.mac) || '';
     const dhcpComment = (lease && lease.comment) || '';
     const dhcpHost = (lease && lease.host) || '';
     if (dhcpComment && rankOf('dhcp') > rankOf(effSrc)) { effName = dhcpComment; effSrc = 'dhcp'; }
@@ -1206,8 +1211,8 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       const tempId = seenTempByKey.get(k);
       const pd = proposedDevices.find(p => p.tempId === tempId);
       if (pd) {
-        if (!pd.ip && ip) { pd.ip = ip; seenTempByKey.set('i:' + ip, tempId); }
-        if (!pd.mac && mac) { pd.mac = mac; seenTempByKey.set('m:' + mac, tempId); }
+        if (!pd.ip && (ip || leaseIp)) { pd.ip = ip || leaseIp; seenTempByKey.set('i:' + pd.ip, tempId); }
+        if (!pd.mac && (mac || leaseMac)) { pd.mac = mac || leaseMac; seenTempByKey.set('m:' + pd.mac, tempId); }
         if (rankOf(effSrc) > rankOf(pd.nameSource)) { pd.name = effName; pd.nameSource = effSrc; }
         if (pd.vlan == null && vlan != null) pd.vlan = vlan;
         if (!pd.vendor && vendor) pd.vendor = vendor;
@@ -1238,10 +1243,12 @@ function makeProposal({ doc, rootHost, mt, snmpResults }) {
       mac,
       vlanName: vlan != null ? vlanNameById.get(vlan) : '',
     });
+    if (leaseIp && !ip) seenTempByKey.set('i:' + leaseIp, tempId);
+    if (leaseMac && !mac) seenTempByKey.set('m:' + leaseMac, tempId);
     proposedDevices.push({
       tempId,
-      ip:  ip || undefined,
-      mac: mac || undefined,
+      ip:  ip || leaseIp || undefined,
+      mac: mac || leaseMac || undefined,
       name: effName,
       nameSource: effSrc,
       vendor: vendor || fp.vendor || guessVendor(descr, null),
@@ -1547,7 +1554,7 @@ async function test(cfg) {
  * которые ещё не опрошены по SNMP. Это кандидаты для ПОШАГОВОГО обхода:
  * UI спрашивает пользователя, опрашивать ли их, а не ходит сам.
  */
-function findUnpolledHubs({ mt, snmpResults, scannedHosts, rootHost }) {
+function findUnpolledHubs({ mt, snmpResults, scannedHosts, rootHost, proposedDevices }) {
   const out = new Map();
   const classify = (name, descr) => {
     const f = fingerprintKind({ names: [name || ''], vendor: '', descr: descr || '', mac: '', vlanName: '' });
@@ -1566,6 +1573,15 @@ function findUnpolledHubs({ mt, snmpResults, scannedHosts, rootHost }) {
     for (const l of (r.lldp || [])) {
       add(l.mgmtIp, l.sysName, classify(l.sysName, l.sysDesc), 'LLDP', (r.self && r.self.name) || r.host);
     }
+  }
+  // v0.93.0: устройства распределения, которые скан уже нашёл и определил как
+  // коммутатор/роутер (по LLDP, FDB и описанию), но ещё не опрашивал. Раньше
+  // кандидаты брались только из сырых LLDP/neighbor-записей с уверенным
+  // «отпечатком» — коммутатор без mgmt-адреса в LLDP или с бедным sysDesc
+  // в список не попадал, и «следующего шага» для него не было вовсе.
+  for (const d of (proposedDevices || [])) {
+    if (!d || (d.kind !== 'switch' && d.kind !== 'router')) continue;
+    add(d.ip, d.name, d.kind, 'найден при опросе сети', '');
   }
   return Array.from(out.values());
 }
@@ -1687,7 +1703,7 @@ async function scanInner(cfg, emit = () => {}) {
     ],
     // v0.76.7: пошаговый обход — что уже опрошено и кого можно опросить дальше.
     scannedHosts: Array.from(scannedSet),
-    hubCandidates: findUnpolledHubs({ mt, snmpResults, scannedHosts: scannedSet, rootHost }),
+    hubCandidates: findUnpolledHubs({ mt, snmpResults, scannedHosts: scannedSet, rootHost, proposedDevices: merged.proposedDevices }),
     proposedDevices: merged.proposedDevices,
     proposedLinks:   merged.proposedLinks,
     subnets: merged.subnets,   // v0.52.0: эталонные подсети роутера
@@ -1721,4 +1737,4 @@ async function scan(cfg, onProgress) {
 }
 
 // makeProposal экспортирован для модульных проверок (node -e / будущие тесты).
-module.exports = { scan, test, makeProposal, detectV3, cancelScan, resolveReverseNames, collectSnmp, makeLimiter, SNMP_PARALLEL };
+module.exports = { scan, test, makeProposal, detectV3, cancelScan, resolveReverseNames, collectSnmp, makeLimiter, SNMP_PARALLEL, findUnpolledHubs };

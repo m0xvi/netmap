@@ -20,7 +20,7 @@ function loadTs(rel) {
 const makeFake = require('./fakesnmp.cjs');
 const fake = makeFake(path.join(ELEC, 'snmp.cjs'), { delay: 10 });
 const disc = require(path.join(ELEC, 'discovery.cjs'));
-const { makeProposal } = disc;
+const { makeProposal, findUnpolledHubs } = disc;
 const prefs = loadTs('src/discoveryPrefs.ts');
 const prog = loadTs('src/discoveryProgress.ts');
 const rep = loadTs('src/discoveryReport.ts');
@@ -357,6 +357,41 @@ t('сегменты VLAN: подсети, коммутаторы и число �
   assert.deepStrictEqual(seg.subnets, ['10.10.0.0/24']);
   assert.ok(seg.switches.includes('GW'));
   assert.ok(seg.endpoints >= 1);
+});
+
+// v0.93.0: IP из DHCP-лизы и кандидаты распределения из proposal
+t('имена и IP из DHCP-лиз: клиент из FDB без ARP получает host-name и IP лизы', async () => {
+  const MAC = '00:11:22:33:44:78';
+  const mt = mtFix({ leases: [{ ip: '10.0.0.51', mac: MAC, host: 'PC-BUH', comment: '', server: 'dhcp1', status: 'bound' }] });
+  const sw = swFix('10.0.0.2', 'SW-1', [], [{ mac: MAC, bridgePort: '4', ifName: 'ether4' }]);
+  const r = makeProposal({ doc: { devices: [], links: [] }, rootHost: '10.0.0.1', mt, snmpResults: [sw] });
+  const dev = devOf(r, MAC);
+  assert.ok(dev, 'устройство создано');
+  assert.strictEqual(dev.name, 'PC-BUH');
+  assert.strictEqual(dev.nameSource, 'hostname');
+  assert.strictEqual(dev.ip, '10.0.0.51', 'IP подтянут из лизы');
+});
+
+t('шаг распределения: кандидат из proposal, а не только из сырого LLDP', async () => {
+  const hubs = findUnpolledHubs({
+    mt: null, snmpResults: [], scannedHosts: new Set(['10.0.0.1']), rootHost: '10.0.0.1',
+    proposedDevices: [
+      { tempId: 'a', ip: '10.0.0.2', name: 'SW-DISTR', kind: 'switch' },
+      { tempId: 'b', ip: '10.0.0.3', name: 'PC-1', kind: 'pc' },
+      { tempId: 'c', ip: '10.0.0.1', name: 'GW', kind: 'router' },
+      { tempId: 'd', ip: '10.0.0.4', name: 'SW-DONE', kind: 'switch' },
+    ],
+  });
+  // 10.0.0.4 уже опрошен? нет — добавляем в scanned и проверяем отдельно ниже
+  assert.deepStrictEqual(hubs.map(h => h.ip), ['10.0.0.2', '10.0.0.4']);
+  const hubs2 = findUnpolledHubs({
+    mt: null, snmpResults: [], scannedHosts: new Set(['10.0.0.1', '10.0.0.4']), rootHost: '10.0.0.1',
+    proposedDevices: [
+      { tempId: 'a', ip: '10.0.0.2', name: 'SW-DISTR', kind: 'switch' },
+      { tempId: 'd', ip: '10.0.0.4', name: 'SW-DONE', kind: 'switch' },
+    ],
+  });
+  assert.deepStrictEqual(hubs2.map(h => h.ip), ['10.0.0.2'], 'опрошенный коммутатор не предлагается');
 });
 
 // v0.87.0: мастер уточнений — вопросы, ответы → правки, память, сводка

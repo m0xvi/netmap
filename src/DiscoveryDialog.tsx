@@ -1612,12 +1612,9 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
               {mode === 'snmp'
                 ? 'SNMP walks (LLDP-MIB · BRIDGE-MIB · IP-MIB). '
                 : mode === 'mikrotik'
-                  ? 'SSH к MikroTik (LLDP · Bridge FDB · ARP · DHCP). '
-                  : 'SSH к MikroTik + SNMP walks (LLDP · Bridge FDB · ARP). '}
+                  ? 'SSH к первому устройству (LLDP · Bridge FDB · ARP · DHCP). '
+                  : 'SSH к первому устройству + SNMP walks (LLDP · Bridge FDB · ARP). '}
               Обычно 5–30 сек в зависимости от размера сети.
-            </div>
-            <div style={{ marginTop: 20, width: 240 }}>
-              <ProgressStripe width="100%" height={6} />
             </div>
             <ScanProgressView mode={mode} progress={progress} />
             {/* v0.77.0: отмена между SNMP-запросами; что успели собрать — останется */}
@@ -1906,6 +1903,14 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
             {scan!.cancelled && (
               <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, fontSize: 12, color: '#92400e' }}>
                 Опрос отменён: показано то, что собрали до отмены. Оставшиеся устройства не опрошены — при необходимости запустите сканирование заново.
+              </section>
+            )}
+            {/* v0.93.0: без DHCP-лиз имена клиентов взять неоткуда — предупреждаем сразу. */}
+            {mode !== 'snmp' && (scan.stats?.leases ?? 0) === 0 && (scan!.proposedDevices ?? []).some(d => !hasRealName(d)) && (
+              <section style={{ margin: '0 0 12px', padding: '10px 14px', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, fontSize: 12, color: '#92400e' }}>
+                <b>DHCP-лизы не получены (0).</b> Имена из host-name и комментариев DHCP этому устройству недоступны,
+                поэтому у части устройств останутся только IP/MAC и обратный DNS. Если адреса раздаёт другой DHCP-сервер,
+                начните сканирование с него (или с роутера, где живут лизы), — тогда имена подтянутся.
               </section>
             )}
             {/* v0.76.7: пошаговый обход — спрашиваем, опрашивать ли найденные ядро/распределение. */}
@@ -2261,10 +2266,9 @@ function ScanProgressView({ mode, progress }: { mode: 'mikrotik' | 'snmp' | 'bot
         <ProgressStripe width="100%" height={6} />
       )}
       <div style={{ fontSize: 12, color: '#334155', textAlign: 'center' }}>
-        {sum.percent != null ? `${sum.percent}% · ` : ''}
-        опрошено {sum.hostsDone} из {sum.hostsTotal}
-        {sum.hostsFailed > 0 ? `, не ответили: ${sum.hostsFailed}` : ''}
-        {sum.hostsTotal === 0 && mode !== 'snmp' ? 'сначала MikroTik по SSH' : ''}
+        {sum.hostsTotal === 0
+          ? 'Подготавливаем список устройств…'
+          : `${sum.percent != null ? `${sum.percent}% · ` : ''}опрошено ${sum.hostsDone} из ${sum.hostsTotal}${sum.hostsFailed > 0 ? `, не ответили: ${sum.hostsFailed}` : ''}`}
       </div>
       {progress.lastStep && (
         <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2272,7 +2276,7 @@ function ScanProgressView({ mode, progress }: { mode: 'mikrotik' | 'snmp' | 'bot
         </div>
       )}
       {mode !== 'snmp' && (
-        <div style={{ fontSize: 12, color: '#334155' }}>SSH (MikroTik): {mtText}</div>
+        <div style={{ fontSize: 12, color: '#334155' }}>SSH: {mtText}</div>
       )}
       {progress.dns !== 'idle' && (
         <div style={{ fontSize: 12, color: '#334155' }}>Обратный DNS: {progress.dns === 'done' ? 'готово' : 'проверяем имена…'}</div>
