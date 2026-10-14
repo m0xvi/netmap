@@ -181,6 +181,7 @@ function parseOpenSshPem(pem) {
     assert.strictEqual(byPath[0].auth.privateKey, 'PEMFILE');
     fs.rmSync(dir, { recursive: true, force: true });
     assert.ok(isAuthError(new Error('All configured authentication methods failed')));
+    assert.ok(isAuthError(new Error('Timed out while waiting for handshake')), 'зависшая аутентификация — провал ключевой попытки');
     assert.ok(!isAuthError(new Error('connect ECONNREFUSED 10.0.0.1:22')));
   });
 

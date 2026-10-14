@@ -28,9 +28,13 @@ function sshAuthFragment(cfg = {}) {
 /** Ошибка похожа на отказ в аутентификации (а не на сетевую проблему)? */
 function isAuthError(e) {
   if (!e) return false;
-  if (e.level === 'client-authentication') return true;
+  if (e.level === 'client-authentication' || e.level === 'client-timeout') return true;
   const m = String(e.message || e);
-  return /authentication methods failed|permission denied|cannot parse privatekey|unsupported key format|bad passphrase|unable to decode|signing.*failed/i.test(m);
+  // v0.95.0: RouterOS при непринятой подписи не отвечает отказом, а молчит до
+  // своего auth timeout — клиент умирает по «Timed out while waiting for
+  // handshake». Для ключевой попытки это такой же провал, как и отказ:
+  // иначе пароль-запасной так и не пробовался, и весь SSH-сбор был пустым.
+  return /authentication methods failed|permission denied|cannot parse privatekey|unsupported key format|bad passphrase|unable to decode|signing.*failed|timed out while waiting for handshake/i.test(m);
 }
 
 /**

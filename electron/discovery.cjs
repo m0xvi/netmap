@@ -558,6 +558,16 @@ async function collectMikrotik(cfg, opts) {
       out.vlanByPort[name] = id;
       if (!out.switchVlanIds.includes(id)) out.switchVlanIds.push(id);
     }
+    // v0.95.0: все команды вернули пустоту при живом логине — это не «пустая
+    // сеть», а беда доступа (ключ не принят и пароль не подошёл, у пользователя
+    // нет прав на чтение, команды режутся политикой). Молчать нельзя: иначе
+    // дальше «нет имён и лиз» выглядит как загадка.
+    if (!out.neighbors.length && !out.arp.length && !out.fdb.length
+        && !out.leases.length && !out.interfaces.length) {
+      out.warnings.push('SSH к ' + (cfg.host || 'устройству') + ': вход выполнен, но команды не вернули данных. '
+        + 'Проверьте: пользователя пускает по паролю (не только по ключу), у него есть права на чтение (политики ssh/read/test), '
+        + 'а указанный в форме файл ключа соответствует открытому ключу на устройстве.');
+    }
     out.ok = true;
   } catch (e) {
     out.warnings.push('MikroTik SSH: ' + (e && e.message ? e.message : String(e)));

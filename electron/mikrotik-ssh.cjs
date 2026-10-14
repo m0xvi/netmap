@@ -114,8 +114,13 @@ async function runCommand(cfg, cmd, _retryAlgos) {
   catch (e) { throw new Error('SSH-ключ: ' + (e.message || String(e))); }
   let lastErr = null;
   for (let i = 0; i < attempts.length; i++) {
+    // v0.95.0: RouterOS на непринятой подписи молчит до упора — не даём
+    // ключевой попытке съесть весь таймаут, если следом есть пароль.
+    const attemptCfg = (attempts[i].kind === 'key' && i < attempts.length - 1)
+      ? { ...cfg, timeoutMs: Math.min(cfg.timeoutMs || 12000, 6000) }
+      : cfg;
     try {
-      return await runCommandOnce(cfg, cmd, _retryAlgos, attempts[i].auth);
+      return await runCommandOnce(attemptCfg, cmd, _retryAlgos, attempts[i].auth);
     } catch (e) {
       lastErr = e;
       const canFallback = attempts[i].kind === 'key' && i < attempts.length - 1 && isAuthError(e);
@@ -140,12 +145,20 @@ function runCommandOnce(cfg, cmd, _retryAlgos, auth) {
     let done = false;
     const finish = (fn, val) => { if (!done) { done = true; try { conn.end(); } catch {}; fn(val); } };
 
+    // v0.95.0: различаем «зависло до готовности» (аутентификация) и «зависло
+    // на выполнении»: первое для ключевой попытки — повод уйти в пароль.
+    let gotReady = false;
     const timer = setTimeout(
-      () => finish(reject, new Error(`SSH timeout after ${cfg.timeoutMs || 12000} ms`)),
+      () => {
+        const err = new Error(`SSH timeout after ${cfg.timeoutMs || 12000} ms`);
+        if (!gotReady) err.level = 'client-timeout';
+        finish(reject, err);
+      },
       cfg.timeoutMs || 12000
     );
 
     conn.on('ready', () => {
+      gotReady = true;
       conn.exec(cmd, { pty: false }, (execErr, stream) => {
         if (execErr) { clearTimeout(timer); return finish(reject, execErr); }
         stream.on('data', (chunk) => { out += chunk.toString('utf8'); });
