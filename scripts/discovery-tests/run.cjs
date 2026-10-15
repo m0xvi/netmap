@@ -28,6 +28,7 @@ const dif = loadTs('src/discoveryDiff.ts');
 const arp = loadTs('src/arpHints.ts');
 const sch = loadTs('src/discoveryScheduler.ts');
 const wiz = loadTs('src/discoveryWizardLogic.ts');
+const pmap = loadTs('src/discoveryPreviewMap.ts');
 
 const cfg = { mode: 'snmp', host: '10.0.0.1', snmpSeeds: [], doc: { devices: [], links: [] },
   snmpRecursive: true, snmpMaxHops: 2, reverseDns: false, snmpSweep: false };
@@ -547,6 +548,31 @@ t('имена VLAN из MikroTik попадают в результат — ма
   const vlanStep = ws.find(st => st.step === 'vlan');
   assert.ok(!vlanStep || !vlanStep.items.some(i => i.key === '2' || i.key === '9'),
     'названные VLAN не должны попадать в вопросы мастера');
+});
+
+t('мини-карта: слои BFS от шлюза, несвязанные — последним слоем, без NaN', () => {
+  const N = (id, kind) => ({ id, label: id, sub: '', kind, existing: false });
+  const nodes = [N('gw', 'router'), N('sw1', 'switch'), N('sw2', 'switch'),
+    N('pc1', 'pc'), N('pc2', 'pc'), N('lonely', 'pc')];
+  const links = [
+    { a: 'gw', b: 'sw1' }, { a: 'gw', b: 'sw2' }, { a: 'sw1', b: 'pc1' },
+    { a: 'sw2', b: 'pc2' }, { a: 'gw', b: 'sw1' }, // дубль связи
+    { a: 'pc1', b: 'pc1' },                        // самопетля
+    { a: 'pc1', b: 'ghost' },                      // висячий конец
+  ];
+  const r = pmap.layoutPreviewMap(nodes, links);
+  const lvl = Object.fromEntries(r.nodes.map(n => [n.id, n.level]));
+  assert.deepStrictEqual([lvl.gw, lvl.sw1, lvl.sw2, lvl.pc1, lvl.pc2], [0, 1, 1, 2, 2]);
+  assert.ok(lvl.lonely > 2, 'несвязанное устройство — отдельным последним слоем');
+  for (const n of r.nodes) assert.ok(Number.isFinite(n.x) && Number.isFinite(n.y), 'конечные координаты');
+  assert.strictEqual(r.edges.length, 4, 'дубли/самопетли/висячие связи отброшены');
+  const ex = pmap.layoutPreviewMap(
+    [{ id: 'ex:1', label: 'OLD', sub: '', kind: 'switch', existing: true }], []);
+  assert.strictEqual(ex.nodes[0].existing, true);
+  assert.ok(ex.width > 0 && ex.height > 0);
+  const empty = pmap.layoutPreviewMap([], []);
+  assert.deepStrictEqual(empty.nodes, []);
+  assert.ok(empty.width > 0 && empty.height > 0);
 });
 
 (async () => {

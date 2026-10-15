@@ -41,6 +41,10 @@ import {
   type DiscoveryDeviceProposal, type DiscoveryLinkProposal,
   type DiscoveryNameSource,
 } from './discoveryClient';
+import {
+  layoutPreviewMap, PREVIEW_NODE_W, PREVIEW_NODE_H,
+  type PreviewNodeIn, type PreviewLinkIn,
+} from './discoveryPreviewMap';
 import { ipInAnyCidr } from './mikrotikClient';
 import { MiniSpinner, ProgressStripe, ProgressBar } from './Spinner';
 import { VaultCredsButtons } from './VaultCreds';
@@ -171,6 +175,22 @@ const IconPencil = () => (
     <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
   </svg>
 );
+
+// v0.98.0: палитра узлов мини-карты предпросмотра.
+const PV_FILL: Record<string, { fill: string; stroke: string }> = {
+  gateway: { fill: '#ede9fe', stroke: '#7c3aed' },
+  router: { fill: '#ede9fe', stroke: '#7c3aed' },
+  switch: { fill: '#ecfeff', stroke: '#0891b2' },
+  patchpanel: { fill: '#fef9c3', stroke: '#ca8a04' },
+  ap: { fill: '#e0f2fe', stroke: '#0284c7' },
+  server: { fill: '#dcfce7', stroke: '#059669' },
+  vm: { fill: '#dcfce7', stroke: '#059669' },
+  vps: { fill: '#dcfce7', stroke: '#059669' },
+};
+const PV_FILL_DEFAULT = { fill: '#f1f5f9', stroke: '#94a3b8' };
+function pvTrunc(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
 
 const ALL_KINDS: DeviceKind[] = [
   'router','switch','patchpanel','ap','camera','server','vm','vps',
@@ -485,6 +505,10 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
   const [vlanNameEdits, setVlanNameEdits] = useState<Record<number, string>>({});
   const [wizardAnswered, setWizardAnswered] = useState<Set<string>>(() => new Set());
   const [wizardOpen, setWizardOpen] = useState(false);
+  // v0.98.0: предпросмотр мини-карты результата сканирования.
+  const [previewMode, setPreviewMode] = useState<'infra' | 'all'>('infra');
+  const [previewSel, setPreviewSel] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(true);
   // v0.94.0: меню «Скачать отчёт» в шапке окна.
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -1325,6 +1349,71 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
     for (const d of doc.devices) m.set(d.id, d.name);
     return m;
   }, [doc]);
+  // v0.98.0: данные мини-карты — ровно то множество, что уйдёт в «Применить»:
+  // выбранные и видимые устройства (effectiveDevIds) + связи willApplyLinks.
+  // Якоря — существующие устройства проекта, к которым цепляются новые связи.
+  const previewData = useMemo(() => {
+    if (!scan) return null;
+    const INFRA = new Set(['gateway', 'router', 'switch', 'patchpanel', 'ap']);
+    const refKey = (ref: { existingId?: string; tempId?: string }) =>
+      ref.existingId ? 'ex:' + ref.existingId : (ref.tempId || '');
+    const nodesIn: PreviewNodeIn[] = [];
+    const seen = new Set<string>();
+    for (const d of scan.proposedDevices) {
+      if (!effectiveDevIds.has(d.tempId)) continue;
+      nodesIn.push({ id: d.tempId, label: effNameOf(d), sub: d.ip || d.mac || '', kind: effKindOf(d), existing: false });
+      seen.add(d.tempId);
+    }
+    const exKind = new Map<string, string>();
+    for (const d of doc.devices) exKind.set(d.id, d.kind as string);
+    for (const l of willApplyLinks) {
+      for (const ref of [l.fromRef, l.toRef]) {
+        if (!ref.existingId) continue;
+        const id = 'ex:' + ref.existingId;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        nodesIn.push({
+          id, label: existingById.get(ref.existingId) || ref.existingId,
+          sub: 'уже в проекте', kind: exKind.get(ref.existingId) || 'other', existing: true,
+        });
+      }
+    }
+    const linksIn: PreviewLinkIn[] = willApplyLinks.map(l => ({
+      a: refKey(l.fromRef), b: refKey(l.toRef),
+      label: [l.fromPort, l.toPort].filter(Boolean).join(' ↔ ') || undefined,
+    }));
+    const neigh = new Map<string, Set<string>>();
+    for (const l of linksIn) {
+      if (!neigh.has(l.a)) neigh.set(l.a, new Set());
+      if (!neigh.has(l.b)) neigh.set(l.b, new Set());
+      neigh.get(l.a)!.add(l.b);
+      neigh.get(l.b)!.add(l.a);
+    }
+    const degree = new Map<string, number>();
+    for (const [k, v] of neigh) degree.set(k, v.size);
+    const keep = previewMode === 'all'
+      ? nodesIn
+      : nodesIn.filter(n => n.existing || INFRA.has(n.kind));
+    const keepIds = new Set(keep.map(n => n.id));
+    const hiddenCount = new Map<string, number>();
+    for (const n of keep) {
+      let c = 0;
+      for (const nb of neigh.get(n.id) ?? []) if (!keepIds.has(nb)) c++;
+      if (c > 0) hiddenCount.set(n.id, c);
+    }
+    const laid = layoutPreviewMap(keep, linksIn.filter(l => keepIds.has(l.a) && keepIds.has(l.b)));
+    return { ...laid, hiddenCount, degree, totalNodes: nodesIn.length, shownNodes: keep.length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan, effectiveDevIds, willApplyLinks, previewMode, doc, nameEdits, kindEdits]);
+
+  const pvSelInfo = useMemo(() => {
+    if (!previewSel || !previewData) return null;
+    const n = previewData.nodes.find(x => x.id === previewSel);
+    if (!n) return null;
+    const d = n.id.startsWith('ex:') ? null : devByTempId.get(n.id);
+    return { n, d, deg: previewData.degree.get(n.id) || 0 };
+  }, [previewSel, previewData, devByTempId]);
+
   function refLabel(ref: { existingId?: string; tempId?: string }) {
     if (ref.existingId) {
       const name = existingById.get(ref.existingId);
@@ -1819,6 +1908,86 @@ export function DiscoveryDialog({ open, onClose, initialHost }: Props) {
                     {realWarnings.map((w, i) => <li key={i}>{w}</li>)}
                   </ul>
                 </div></div>
+              </div>
+            )}
+
+            {/* v0.98.0: предпросмотр схемы — что будет добавлено, до применения */}
+            {previewData && (
+              <div className="pmap">
+                <div className="pmap-head">
+                  <button type="button" className="pmap-toggle" onClick={() => setPreviewOpen(o => !o)}
+                    title="Схема строится по выбранным галочками устройствам и связям: измените выбор ниже — схема обновится">
+                    {previewOpen ? '▾' : '▸'} Схема сети — как будет выглядеть после добавления
+                  </button>
+                  <span className="pmap-counts">
+                    будет добавлено: <b>{selDev}</b> устр., <b>{selLink}</b> связей
+                    {previewMode === 'infra' && previewData.totalNodes > previewData.shownNodes && (
+                      <> · на схеме {previewData.shownNodes} из {previewData.totalNodes}</>
+                    )}
+                  </span>
+                  <span className="pmap-modes">
+                    <button type="button" className={previewMode === 'infra' ? 'on' : ''} onClick={() => setPreviewMode('infra')}
+                      title="Только шлюзы, роутеры, коммутаторы, патч-панели и точки доступа">Инфраструктура</button>
+                    <button type="button" className={previewMode === 'all' ? 'on' : ''} onClick={() => setPreviewMode('all')}
+                      title="Все выбранные устройства, включая клиентов">Все устройства</button>
+                  </span>
+                </div>
+                {previewOpen && (
+                  <>
+                    <div className="pmap-scroll">
+                      <svg viewBox={`0 0 ${previewData.width} ${previewData.height}`} width={previewData.width} height={previewData.height}
+                        role="img" aria-label="Схема найденных устройств">
+                        {previewData.edges.map((e, i) => (
+                          <g key={i}>
+                            <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#cbd5e1" strokeWidth={1.4} />
+                            {previewMode === 'infra' && e.label && (
+                              <text x={(e.x1 + e.x2) / 2} y={(e.y1 + e.y2) / 2 - 3} textAnchor="middle" fontSize={8.5} fill="#94a3b8">{e.label}</text>
+                            )}
+                          </g>
+                        ))}
+                        {previewData.nodes.map(n => {
+                          const c = PV_FILL[n.kind] || PV_FILL_DEFAULT;
+                          const hidden = previewData.hiddenCount.get(n.id) || 0;
+                          const sel = previewSel === n.id;
+                          return (
+                            <g key={n.id} onClick={() => setPreviewSel(n.id)} style={{ cursor: 'pointer' }}>
+                              <title>{n.label}{n.sub ? ` · ${n.sub}` : ''} — {(KIND_META[n.kind as DeviceKind] || KIND_META.other).label}{n.existing ? ' (уже в проекте)' : ''}</title>
+                              <rect x={n.x} y={n.y} width={PREVIEW_NODE_W} height={PREVIEW_NODE_H} rx={8}
+                                fill={n.existing ? '#f8fafc' : c.fill} stroke={sel ? '#2563eb' : c.stroke}
+                                strokeWidth={sel ? 2.4 : 1.2} strokeDasharray={n.existing ? '4 3' : undefined} />
+                              <text x={n.x + 9} y={n.y + 14} fontSize={10.5} fontWeight={600} fill="#0f172a">{pvTrunc(n.label, 19)}</text>
+                              <text x={n.x + 9} y={n.y + 26} fontSize={8.8} fill="#64748b">{pvTrunc(n.sub, 24)}</text>
+                              {hidden > 0 && (
+                                <text x={n.x + PREVIEW_NODE_W - 7} y={n.y + 14} textAnchor="end" fontSize={9.5} fontWeight={700} fill="#2563eb">+{hidden}</text>
+                              )}
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                    {pvSelInfo ? (
+                      <div className="pmap-info">
+                        <b>{pvSelInfo.n.label}</b>
+                        {' · '}{(KIND_META[pvSelInfo.n.kind as DeviceKind] || KIND_META.other).label}
+                        {pvSelInfo.n.existing ? ' · уже в проекте (якорь)' : ' · будет добавлено'}
+                        {pvSelInfo.n.sub && pvSelInfo.n.sub !== 'уже в проекте' && <> · <span className="mono">{pvSelInfo.n.sub}</span></>}
+                        {pvSelInfo.d?.vlan != null && <> · VLAN {pvSelInfo.d.vlan}</>}
+                        {' · связей: '}{pvSelInfo.deg}
+                        {previewMode === 'infra' && (previewData.hiddenCount.get(pvSelInfo.n.id) || 0) > 0 && (
+                          <button type="button" className="pmap-linkbtn" onClick={() => setPreviewMode('all')}>
+                            показать все устройства
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="pmap-legend">
+                        Слои слева направо: шлюз → коммутаторы → клиенты. Серые пунктирные узлы — уже в проекте.
+                        «+N» на узле — сколько соседей скрыто в режиме «Инфраструктура». Нажмите на узел, чтобы увидеть подробности.
+                        Схема повторяет выбор галочек и фильтров ниже — это ровно то, что добавит кнопка «Применить выбранное».
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -2647,6 +2816,17 @@ if (typeof document !== 'undefined' && !document.getElementById('nm-discovery-re
 .nm-disc .snmp.warn .snmp-head:hover{background:rgba(217,119,6,.07)}
 .nm-disc .snmp.warn .snmp-body>div{color:#7c4a03}
 .nm-disc .snmp.warn .snmp-body ul{color:#7c4a03}
+.nm-disc .pmap{margin-top:14px; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:10px 12px}
+.nm-disc .pmap-head{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+.nm-disc .pmap-toggle{background:none; border:none; font-size:13px; font-weight:600; color:#0f172a; cursor:pointer; padding:2px 0}
+.nm-disc .pmap-counts{font-size:12px; color:#64748b}
+.nm-disc .pmap-modes{margin-left:auto; display:flex; gap:6px}
+.nm-disc .pmap-modes button{border:1px solid #e2e8f0; background:#fff; border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; color:#334155}
+.nm-disc .pmap-modes button.on{background:#2563eb; border-color:#2563eb; color:#fff}
+.nm-disc .pmap-scroll{overflow:auto; max-height:430px; margin-top:8px; background:#fcfdff; border:1px solid #eef2f7; border-radius:10px}
+.nm-disc .pmap-legend{font-size:11.5px; color:#64748b; margin-top:8px; line-height:1.5}
+.nm-disc .pmap-info{font-size:12px; color:#334155; margin-top:8px}
+.nm-disc .pmap-linkbtn{margin-left:8px; border:none; background:none; color:#2563eb; cursor:pointer; font-size:12px; padding:0; text-decoration:underline}
 .nm-disc .filters{position:sticky; top:0; z-index:40; margin:14px -24px 0; padding:12px 24px; background:rgba(246,248,252,.94); backdrop-filter:blur(8px); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
 .nm-disc .f-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
 .nm-disc .search{position:relative; flex:1 1 240px; min-width:170px; max-width:460px; display:flex; align-items:center}
